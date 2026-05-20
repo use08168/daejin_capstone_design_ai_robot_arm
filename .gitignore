@@ -1,0 +1,51 @@
+# ===== Python (ai_server, laptop) =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+.conda/
+build/
+dist/
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# gRPC 생성 코드 (proto에서 재생성)
+*_pb2.py
+*_pb2_grpc.py
+
+# ===== PlatformIO (arduino) =====
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# ===== 모델 / 데이터 (대용량, 저장소에 넣지 않음) =====
+*.pt
+*.pth
+*.onnx
+*.faiss
+/models/
+/data/
+
+# ===== 캘리브레이션 / 캡처 산출물 =====
+*.npz
+calibration_output/
+captures/
+
+# ===== 환경 / 비밀 =====
+.env
+*.local
+
+# ===== IDE / OS =====
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
