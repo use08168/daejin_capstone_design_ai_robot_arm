@@ -38,6 +38,42 @@ AI 서버  ──gRPC/Protobuf──  노트북  ──USB Serial(CRC-16)── 
 
 ---
 
+## 🛠️ 기술 스택
+
+### 💻 핵심 개발 및 AI/ML 스택
+
+| 카테고리 | 기술 스택 |
+|----------|-----------|
+| **사용 언어** | ![Python](https://img.shields.io/badge/Python-3776AB?style=flat&logo=python&logoColor=white) ![C++](https://img.shields.io/badge/C%2B%2B-00599C?style=flat&logo=cplusplus&logoColor=white) |
+| **음성 인식 (STT)** | ![Whisper](https://img.shields.io/badge/Whisper_Large--v3-412991?style=flat&logo=openai&logoColor=white) |
+| **LLM / VLM** | ![Gemma](https://img.shields.io/badge/Gemma_4-4285F4?style=flat&logo=google&logoColor=white) |
+| **객체 탐지** | ![RF-DETR](https://img.shields.io/badge/RF--DETR-6E56CF?style=flat) |
+| **벡터 데이터베이스** | ![FAISS](https://img.shields.io/badge/FAISS-009688?style=flat&logo=meta&logoColor=white) |
+| **임베딩 모델** | ![Qwen3-Embedding](https://img.shields.io/badge/Qwen3--Embedding--8B-615CED?style=flat) |
+| **학습 / 추론 프레임워크** | ![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat&logo=pytorch&logoColor=white) ![Transformers](https://img.shields.io/badge/Transformers-FFD21E?style=flat&logo=huggingface&logoColor=black) |
+| **비전 / 수치 연산** | ![OpenCV](https://img.shields.io/badge/OpenCV-5C3EE8?style=flat&logo=opencv&logoColor=white) ![NumPy](https://img.shields.io/badge/NumPy-013243?style=flat&logo=numpy&logoColor=white) ![SciPy](https://img.shields.io/badge/SciPy-8CAAE6?style=flat&logo=scipy&logoColor=white) |
+
+### 🤖 제어 · 통신 · 하드웨어
+
+| 카테고리 | 기술 스택 |
+|----------|-----------|
+| **MCU / 펌웨어** | ![Arduino](https://img.shields.io/badge/Arduino_Mega_2560-00878F?style=flat&logo=arduino&logoColor=white) ![PlatformIO](https://img.shields.io/badge/PlatformIO-FF7F00?style=flat&logo=platformio&logoColor=white) |
+| **모터 제어** | ![PCA9685](https://img.shields.io/badge/PCA9685-027BC4?style=flat) |
+| **센서** | ![VL53L0X](https://img.shields.io/badge/VL53L0X_ToF-03234B?style=flat&logo=stmicroelectronics&logoColor=white) |
+| **통신** | ![gRPC](https://img.shields.io/badge/gRPC-244B5A?style=flat) ![Protobuf](https://img.shields.io/badge/Protobuf-244B5A?style=flat) ![USB Serial](https://img.shields.io/badge/USB_Serial-5A5A5A?style=flat) ![I2C](https://img.shields.io/badge/I2C-5A5A5A?style=flat) |
+| **비동기 제어** | ![asyncio](https://img.shields.io/badge/asyncio-3776AB?style=flat&logo=python&logoColor=white) |
+| **AI 서버 / GPU** | ![EdgeXpert](https://img.shields.io/badge/MSI_EdgeXpert_(GB10)-CC0000?style=flat&logo=msi&logoColor=white) ![RTX 3050](https://img.shields.io/badge/RTX_3050-76B900?style=flat&logo=nvidia&logoColor=white) |
+
+### 🤝 협업 및 기타
+
+| 카테고리 | 기술 스택 |
+|----------|-----------|
+| **형상 관리 / 협업** | ![Git](https://img.shields.io/badge/Git-F05032?style=flat&logo=git&logoColor=white) ![GitHub](https://img.shields.io/badge/GitHub-181717?style=flat&logo=github&logoColor=white) ![Notion](https://img.shields.io/badge/Notion-000000?style=flat&logo=notion&logoColor=white) ![Google Drive](https://img.shields.io/badge/Google_Drive-4285F4?style=flat&logo=googledrive&logoColor=white) |
+| **테스트** | ![Pytest](https://img.shields.io/badge/Pytest-0A9EDC?style=flat&logo=pytest&logoColor=white) |
+| **개발 환경** | ![VS Code](https://img.shields.io/badge/VS_Code-007ACC?style=flat&logo=visualstudiocode&logoColor=white) |
+
+---
+
 ## 저장소 구조
 
 ```
