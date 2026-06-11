@@ -1,0 +1,88 @@
+{% extends "armvision/base.html" %}
+{% block title %}카메라·탐지 — 로봇팔 비전{% endblock %}
+{% block content %}
+  <h1>1 · 카메라 · 객체 탐지</h1>
+  <div class="hint" style="margin:0 0 12px;">현재 두 외장 카메라 화면입니다. <b>객체 탐지</b>를 켜서 물체가 잘 잡히는지 확인하세요.
+    {% if calibrated %}캘리브레이션 완료 → 아래 <b>3D 좌표</b>가 활성화됩니다.{% else %}(캘리브레이션 완료 시 3D 좌표가 자동 활성화됩니다.){% endif %}
+  </div>
+
+  <div style="margin-bottom:14px;">
+    <button id="toggle" class="off">객체 탐지: OFF</button>
+    <span class="hint" style="margin:0 0 0 10px;">YOLO-World · GPU</span>
+  </div>
+
+  <div class="grid">
+    <div style="flex:1 1 480px;">
+      <div class="cam">
+        <div class="label">외장 카메라 (좌) — index 2</div>
+        <img id="camL" data-cam="2" src="{% url 'armvision:video_feed' %}?cam=2" alt="left">
+      </div>
+      <div class="data" style="margin-top:8px;">
+        <div class="meta" id="metaL">대기 중…</div>
+        <table><thead><tr><th>객체</th><th>신뢰도</th><th>중심 (u, v)</th></tr></thead><tbody id="tblL"></tbody></table>
+      </div>
+    </div>
+    <div style="flex:1 1 480px;">
+      <div class="cam">
+        <div class="label">외장 카메라 (우) — index 1</div>
+        <img id="camR" data-cam="1" src="{% url 'armvision:video_feed' %}?cam=1" alt="right">
+      </div>
+      <div class="data" style="margin-top:8px;">
+        <div class="meta" id="metaR">대기 중…</div>
+        <table><thead><tr><th>객체</th><th>신뢰도</th><th>중심 (u, v)</th></tr></thead><tbody id="tblR"></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <div class="data" style="margin-top:14px;">
+    <div class="meta" id="meta3d">
+      {% if calibrated %}3D 위치 계산 대기 중…{% else %}⚠ 3D 좌표 비활성 — <a href="{% url 'armvision:setup' %}">캘리브레이션</a>을 완료하면 자동 활성화됩니다.{% endif %}
+    </div>
+    <table>
+      <thead><tr><th>객체</th><th>X (mm)</th><th>Y (mm)</th><th>Z (깊이, mm)</th><th>epi(px)</th></tr></thead>
+      <tbody id="tbl3d"></tbody>
+    </table>
+  </div>
+{% endblock %}
+
+{% block script %}
+<script>
+  const base = "{% url 'armvision:video_feed' %}";
+  const detUrl = "{% url 'armvision:detections' %}";
+  const pos3dUrl = "{% url 'armvision:positions3d' %}";
+  const CALIBRATED = {{ calibrated|yesno:"true,false" }};
+
+  const imgs = [document.getElementById('camL'), document.getElementById('camR')];
+  const btn = document.getElementById('toggle');
+  let on = false;
+  btn.addEventListener('click', () => {
+    on = !on;
+    btn.textContent = '객체 탐지: ' + (on ? 'ON' : 'OFF');
+    btn.classList.toggle('off', !on);
+    imgs.forEach(img => { img.src = base + '?cam=' + img.dataset.cam + (on ? '&detect=1' : '') + '&t=' + Date.now(); });
+  });
+
+  async function poll(cam, metaEl, tblEl) {
+    try {
+      const d = await (await fetch(detUrl + '?cam=' + cam)).json();
+      metaEl.textContent = `해상도 ${d.width}×${d.height} · 탐지 ${d.count}개`;
+      tblEl.innerHTML = (d.objects || []).map(o =>
+        `<tr><td>${o.id}</td><td>${o.conf}</td><td class="coord">(${o.center[0]}, ${o.center[1]})</td></tr>`).join('');
+    } catch (e) { metaEl.textContent = '데이터 없음'; }
+  }
+  setInterval(() => { poll(2, metaL, tblL); poll(1, metaR, tblR); }, 1000);
+
+  if (CALIBRATED) {
+    const meta3d = document.getElementById('meta3d'), tbl3d = document.getElementById('tbl3d');
+    async function poll3d() {
+      try {
+        const d = await (await fetch(pos3dUrl)).json();
+        meta3d.textContent = `매칭된 물체 ${d.count}개 · 좌표 = 좌 카메라 기준 (mm)`;
+        tbl3d.innerHTML = (d.objects || []).map(o =>
+          `<tr><td>${o.id}</td><td class="coord">${o.xyz_mm[0]}</td><td class="coord">${o.xyz_mm[1]}</td><td class="coord">${o.xyz_mm[2]}</td><td>${o.epi_px}</td></tr>`).join('');
+      } catch (e) { meta3d.textContent = '3D 데이터 없음'; }
+    }
+    setInterval(poll3d, 1000);
+  }
+</script>
+{% endblock %}

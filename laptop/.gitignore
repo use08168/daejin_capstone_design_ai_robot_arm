@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Django
+db.sqlite3
+
+# ML 모델 (최초 실행 시 자동 다운로드 — 커밋하지 않음)
+*.pt
+weights/
+
+# 캘리브레이션 산출물 (작업 환경별 — 재촬영/재계산으로 생성)
+calibration/captures/
+calibration/stereo_calib.npz
+
+# 임시
+_tmpsrv.log

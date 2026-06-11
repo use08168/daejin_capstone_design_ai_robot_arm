@@ -1,0 +1,39 @@
+{% extends "armvision/base.html" %}
+{% block title %}자연어 제어 — 로봇팔 비전{% endblock %}
+{% block style %}
+  .chat { max-width:760px; }
+  .transcript { background:var(--panel); border-radius:10px; min-height:300px; padding:14px; margin-bottom:12px; display:flex; flex-direction:column; gap:10px; }
+  .msg { padding:8px 12px; border-radius:10px; font-size:14px; max-width:80%; }
+  .msg.user { background:#1d3a5f; align-self:flex-end; }
+  .msg.bot { background:#222; align-self:flex-start; color:#ccc; }
+  .composer { display:flex; gap:8px; }
+  .composer input { flex:1; background:#0e0e0e; border:1px solid var(--line); color:var(--fg); padding:11px 12px; border-radius:8px; font-size:14px; }
+  .soon { background:#430; color:var(--warn); display:inline-block; padding:3px 10px; border-radius:10px; font-size:12px; margin-left:8px; }
+  .pipe { color:var(--muted); font-size:13px; line-height:1.8; margin-top:16px; }
+  .pipe code { background:#000; padding:1px 6px; border-radius:4px; }
+{% endblock %}
+{% block content %}
+  <h1>3 · 자연어 제어 <span class="soon">골격 — 추후 구현</span></h1>
+  <div class="hint" style="margin:0 0 14px;">한국어 음성/문장으로 로봇팔에 명령하는 화면입니다. <b>형식만 갖춘 상태</b>이며,
+    실제 동작은 <b>AI 서버 완료 후 노트북·아두이노·AI 서버 통합 단계</b>에서 구현됩니다.</div>
+
+  <div class="chat">
+    <div class="transcript">
+      <div class="msg bot">안녕하세요. (예시) "빨간 컵을 책 옆에 놔줘" 처럼 명령하면 로봇팔이 수행합니다.</div>
+      <div class="msg user">빨간 컵을 책 옆에 놔줘</div>
+      <div class="msg bot">※ 이 응답/동작은 AI 서버 연동 후 활성화됩니다.</div>
+    </div>
+    <div class="composer">
+      <input type="text" placeholder="명령 입력… (현재 비활성)" disabled>
+      <button class="primary" disabled>전송</button>
+      <button disabled title="추후: 음성 입력">🎤</button>
+    </div>
+  </div>
+
+  <div class="pipe">
+    <b>예정 처리 흐름</b><br>
+    음성/문장 → <code>EdgeXpert(Whisper·Gemma)</code> → JSON DSL → <code>노트북</code> 검증·IK·삼각측량 →
+    <code>Arduino</code> PWM 실행 → 결과를 이 화면에 표시.<br>
+    이 페이지는 그 통합 단계에서 <code>gRPC</code> 클라이언트 + DSL 실행기와 연결됩니다.
+  </div>
+{% endblock %}

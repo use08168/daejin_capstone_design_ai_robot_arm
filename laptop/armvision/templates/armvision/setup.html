@@ -1,0 +1,137 @@
+{% extends "armvision/base.html" %}
+{% block title %}캘리브레이션 — 로봇팔 비전{% endblock %}
+{% block style %}
+  .step { background: var(--panel); border-radius:10px; padding:14px 16px; margin-bottom:14px; border-left:3px solid var(--line); }
+  .step.active { border-left-color: var(--accent); }
+  .step h2 { font-size:16px; margin:0 0 6px; display:flex; align-items:center; gap:10px; }
+  .step .desc { color:#bbb; font-size:13px; margin-bottom:10px; line-height:1.6; }
+  .result { font-size:13px; margin-top:10px; white-space:pre-wrap; font-variant-numeric:tabular-nums; }
+  .result.ok { color: var(--ok); } .result.err { color: var(--warn); }
+  .feeds { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:10px; }
+  .feeds .cam { flex:1 1 360px; }
+  .live span { font-weight:bold; font-variant-numeric:tabular-nums; }
+  .num { display:inline-flex; width:26px; height:26px; border-radius:50%; background:#222; color:#9cf; align-items:center; justify-content:center; font-size:14px; }
+{% endblock %}
+{% block content %}
+  <h1>2 · 초기 캘리브레이션 (6단계)</h1>
+  <div class="hint" style="margin:0 0 16px;">처음 세팅 시 위에서부터 차례로. <b>카메라를 먼저 고정·보정한 뒤 로봇을 설치</b>합니다(①②③ → 로봇설치 → ④⑤⑥). 자세한 절차: docs/setup_procedure.md</div>
+
+  <!-- 1 -->
+  <div class="step active" id="step1">
+    <h2><span class="num">1</span> ChArUco 촬영 <span class="badge todo" id="b1">대기</span></h2>
+    <div class="desc">카메라를 로봇 놓일 자리에 고정하고, 보드를 위치·기울기·거리를 바꿔가며 <b>20~30쌍</b> 촬영. 좌·우 코너가 둘 다 초록일 때 캡처.</div>
+    <div class="feeds">
+      <div class="cam"><div class="label">좌 — index 2</div><img src="{% url 'armvision:video_feed' %}?cam=2&charuco=1"></div>
+      <div class="cam"><div class="label">우 — index 1</div><img src="{% url 'armvision:video_feed' %}?cam=1&charuco=1"></div>
+    </div>
+    <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+      <button id="cap" class="primary">📸 캡처 (좌·우 동시)</button>
+      <span>저장: <b id="saved">0</b> 쌍</span>
+      <span class="live">실시간 코너 — 좌:<span id="lL">0</span> 우:<span id="lR">0</span></span>
+    </div>
+    <div class="result" id="r1"></div>
+  </div>
+
+  <!-- 2 -->
+  <div class="step" id="step2">
+    <h2><span class="num">2</span> 카메라 캘리브레이션 (내부 K·왜곡 + 스테레오 R·T) <span class="badge todo" id="b2">대기</span></h2>
+    <div class="desc">촬영분으로 카메라 파라미터를 산출합니다. (재투영오차 &lt;1px 이면 양호)</div>
+    <button id="runCal">캘리브레이션 실행</button>
+    <div class="result" id="r2"></div>
+  </div>
+
+  <!-- 3 -->
+  <div class="step" id="step3">
+    <h2><span class="num">3</span> 3D 정확도 검증 <span class="badge todo" id="b3">대기</span></h2>
+    <div class="desc">보드 30mm 칸을 3D로 복원해 오차를 확인합니다. (오차 &lt;~2mm, 스케일≈1 이면 통과)</div>
+    <button id="runVal">검증 실행</button>
+    <div class="result" id="r3"></div>
+  </div>
+
+  <!-- 4 -->
+  <div class="step" id="step4">
+    <h2><span class="num">4</span> 로봇팔 배치 &amp; 베이스 마커 부착 <span class="badge wip" id="b4">구현 예정</span></h2>
+    <div class="desc">①②③ 통과 후, 겨냥했던 자리에 로봇 설치. <b>움직이지 않는 베이스</b>에 <b>ArUco id0(70mm)</b> 부착, 양 카메라에 보이게(팔은 홈 자세). 마커 부착 후 이 단계를 구현합니다.</div>
+  </div>
+
+  <!-- 5 -->
+  <div class="step" id="step5">
+    <h2><span class="num">5</span> 카메라→로봇 변환 T (움직이지 않는 부분) <span class="badge wip" id="b5">구현 예정</span></h2>
+    <div class="desc">베이스 마커 포즈로 카메라 좌표 → 로봇 베이스 좌표 변환 T를 산출·저장. 이후 물체 3D가 로봇 기준으로 표시됩니다.</div>
+  </div>
+
+  <!-- 6 -->
+  <div class="step" id="step6">
+    <h2><span class="num">6</span> 로봇 관절 위치 파악 &amp; 작업공간 <span class="badge wip" id="b6">구현 예정</span></h2>
+    <div class="desc">추적 마커(id1~)로 각 링크/그리퍼 위치 측정 + 도달 작업공간 범위 확정 → 현재 작업환경 기본정보 확정.</div>
+  </div>
+{% endblock %}
+
+{% block script %}
+<script>
+  const ST = "{% url 'armvision:setup_state' %}";
+  const CAPU = "{% url 'armvision:capture_pair' %}";
+  const CHU = "{% url 'armvision:calibrate_status' %}";
+  const CALU = "{% url 'armvision:run_calibration' %}";
+  const VALU = "{% url 'armvision:run_validation' %}";
+  const NEED = 15;  // 최소 권장 쌍
+
+  const $ = id => document.getElementById(id);
+  function badge(el, txt, cls) { el.textContent = txt; el.className = 'badge ' + cls; }
+
+  // 실시간 코너 + 저장 수
+  async function poll() {
+    try {
+      const d = await (await fetch(CHU)).json();
+      $('lL').textContent = d.cornersL; $('lL').style.color = d.cornersL>=d.min_good?'#6f6':'#fa6';
+      $('lR').textContent = d.cornersR; $('lR').style.color = d.cornersR>=d.min_good?'#6f6':'#fa6';
+      $('saved').textContent = d.captures;
+      if (d.captures >= NEED) badge($('b1'), `완료 (${d.captures}쌍)`, 'done');
+      else if (d.captures > 0) badge($('b1'), `${d.captures}/${NEED}쌍`, 'wip');
+    } catch (e) {}
+  }
+  setInterval(poll, 800); poll();
+
+  // 초기 상태
+  (async () => {
+    const s = await (await fetch(ST)).json();
+    if (s.calibrated) badge($('b2'), '완료', 'done');
+  })();
+
+  // 캡처
+  $('cap').addEventListener('click', async () => {
+    const d = await (await fetch(CAPU)).json();
+    if (d.error) { $('r1').textContent = d.error; return; }
+    $('saved').textContent = d.saved;
+    $('r1').className = 'result ' + (d.ok ? 'ok' : 'err');
+    $('r1').textContent = `#${d.saved} 저장 — 좌 ${d.cornersL} / 우 ${d.cornersR} ${d.ok?'✓':'⚠ 코너 부족(건너뛰어도 됨)'}`;
+  });
+
+  // 캘리브레이션 실행
+  $('runCal').addEventListener('click', async () => {
+    $('r2').className = 'result'; $('r2').textContent = '실행 중…';
+    const d = await (await fetch(CALU)).json();
+    if (d.ok) {
+      badge($('b2'), '완료', 'done');
+      $('r2').className = 'result ok';
+      $('r2').textContent = `✓ 내부오차 좌 ${d.err_L}px / 우 ${d.err_R}px · 스테레오 ${d.err_stereo}px · 베이스라인 ${d.baseline_mm}mm\n(내부뷰 L${d.n_intrinsic_L}/R${d.n_intrinsic_R}, 스테레오 ${d.n_stereo})`;
+    } else {
+      $('r2').className = 'result err'; $('r2').textContent = '✗ ' + (d.error||'실패');
+    }
+  });
+
+  // 검증 실행
+  $('runVal').addEventListener('click', async () => {
+    $('r3').className = 'result'; $('r3').textContent = '실행 중…';
+    const d = await (await fetch(VALU)).json();
+    if (d.ok) {
+      const pass = d.mean_abs_err_mm < 2.0 && Math.abs(d.scale-1) < 0.01;
+      badge($('b3'), pass?'완료':'점검', pass?'done':'wip');
+      $('r3').className = 'result ' + (pass?'ok':'err');
+      $('r3').textContent = `${pass?'✓':'⚠'} 거리오차 ${d.mean_abs_err_mm}mm · 스케일 ${d.scale} · 깊이 ${d.depth_mm}mm (${d.depth_min}~${d.depth_max}) · 코너쌍 ${d.corner_pairs}`;
+    } else {
+      $('r3').className = 'result err'; $('r3').textContent = '✗ ' + (d.error||'실패');
+    }
+  });
+</script>
+{% endblock %}
