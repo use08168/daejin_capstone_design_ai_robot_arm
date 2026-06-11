@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}로봇팔 비전{% endblock %}</title>
+  <style>
+    :root { --bg:#111; --panel:#181818; --line:#333; --fg:#eee; --muted:#999; --accent:#18f; --ok:#6f6; --warn:#fa6; }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--fg); margin: 0; }
+    nav { display:flex; gap:4px; background:#0c0c0c; padding:0 16px; border-bottom:1px solid var(--line); position:sticky; top:0; z-index:10; }
+    nav a { color:#bbb; text-decoration:none; padding:14px 16px; font-size:14px; border-bottom:2px solid transparent; }
+    nav a:hover { color:#fff; }
+    nav a.active { color:#fff; border-bottom-color: var(--accent); }
+    main { padding: 20px 24px; }
+    h1 { font-size:20px; margin:0 0 12px; }
+    button { background:#2b6; color:#fff; border:0; padding:8px 14px; border-radius:6px; cursor:pointer; font-size:14px; }
+    button.off { background:#444; }
+    button.primary { background: var(--accent); }
+    button:disabled { background:#333; color:#777; cursor:not-allowed; }
+    .grid { display:flex; gap:16px; flex-wrap:wrap; }
+    .cam { background:#000; border-radius:8px; overflow:hidden; }
+    .cam .label { background:#1a1a1a; color:#9cf; font-size:13px; padding:6px 10px; }
+    .cam img { width:100%; display:block; }
+    .data { background:var(--panel); border-radius:8px; padding:8px 10px; font-size:13px; }
+    .data .meta { color:var(--muted); margin-bottom:4px; }
+    table { width:100%; border-collapse:collapse; }
+    td, th { text-align:left; padding:2px 6px; }
+    th { color:#9cf; border-bottom:1px solid var(--line); }
+    td.coord { color:#fc6; font-variant-numeric: tabular-nums; }
+    .hint { color:var(--muted); font-size:13px; margin-top:12px; line-height:1.6; }
+    .badge { font-size:12px; padding:2px 8px; border-radius:10px; }
+    .badge.done { background:#163; color:var(--ok); }
+    .badge.todo { background:#333; color:#aaa; }
+    .badge.wip { background:#430; color:var(--warn); }
+    a { color:#9cf; }
+    {% block style %}{% endblock %}
+  </style>
+</head>
+<body>
+  <nav>
+    {% with u=request.resolver_match.url_name %}
+    <a href="{% url 'armvision:index' %}" class="{% if u == 'index' %}active{% endif %}">1 · 카메라·탐지</a>
+    <a href="{% url 'armvision:setup' %}" class="{% if u == 'setup' %}active{% endif %}">2 · 캘리브레이션</a>
+    <a href="{% url 'armvision:control' %}" class="{% if u == 'control' %}active{% endif %}">3 · 자연어 제어</a>
+    {% endwith %}
+  </nav>
+  <main>{% block content %}{% endblock %}</main>
+  {% block script %}{% endblock %}
+</body>
+</html>
