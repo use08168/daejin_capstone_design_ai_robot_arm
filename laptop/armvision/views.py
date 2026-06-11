@@ -30,6 +30,11 @@ def control(request):
     return render(request, "armvision/control.html")
 
 
+def arm3d(request):
+    """4페이지 — 3D 로봇팔 제어 뷰어(3D-only, 실물 연동 예정)."""
+    return render(request, "armvision/arm3d.html")
+
+
 # ============ 스트림 ============
 
 def video_feed(request):

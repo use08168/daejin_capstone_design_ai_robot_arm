@@ -3,6 +3,18 @@
 > **역할: "어떻게 할지" 번역.** AI 서버의 DSL을 실제 모터 명령으로 변환하고, 실시간 안전을 독립적으로 보장한다.
 > 위로는 [gRPC](../../docs/grpc_interface.md)로 AI 서버와, 아래로는 [Serial](../../docs/serial_protocol.md)로 Arduino와 통신한다.
 
+### 세부 문서
+
+| 문서 | 내용 |
+|------|------|
+| [web_app.md](web_app.md) | Django 웹앱 4페이지 + 엔드포인트 기능 명세 |
+| [object_detection_model.md](object_detection_model.md) | 객체 탐지 모델 선정 (YOLO-World, 오픈 보캐뷸러리) |
+| [coordinate_3d_pipeline.md](coordinate_3d_pipeline.md) | ChArUco 스테레오 캘리브레이션 + 삼각측량 3D 파이프라인 |
+| [setup_procedure.md](setup_procedure.md) | 환경 구성 / 실행 절차 |
+| [aruco_markers.md](aruco_markers.md) | ArUco / ChArUco 마커 명세 |
+
+> **비전 파이프라인 현황:** YOLO-World 탐지 + 객체 id(`class_n`), ChArUco 스테레오 캘리브레이션(재투영오차 ~0.5px, 베이스라인 588mm), 삼각측량 3D(보드 30mm를 0.32mm 오차로 복원) — 모두 실측 검증됨.
+
 ---
 
 ## 1. 하드웨어 / 환경
@@ -12,7 +24,8 @@
 | CPU | Intel i7-12700H |
 | GPU | RTX 3050 (4GB VRAM) |
 | RAM | 16GB DDR4 |
-| 언어 | Python 3.11 |
+| 언어 | Python 3.12 |
+| 웹/제어 계층 | Django (project=`config`, app=`armvision`) |
 | 역할 | 제어 + 비전 처리 |
 
 ---
@@ -21,7 +34,7 @@
 
 | 영역 | 책임 |
 |------|------|
-| 비전 | RF-DETR 객체 탐지(실시간), 삼각측량, ArUco 인식, 좌표 변환 |
+| 비전 | YOLO-World 객체 탐지(실시간, GPU), 삼각측량, ChArUco/ArUco 인식, 좌표 변환 |
 | 운동학 | Pieper IK, 순기구학, S-curve 보간, 특이점 회피, PWM 매핑 |
 | DSL | AI 서버 DSL 4단계 검증 + op 핸들러 실행 |
 | 안전 | 카메라 기반 4계층 비상 정지 (AI 서버 비의존) |
@@ -49,37 +62,45 @@ DSL + 픽셀좌표 → ①삼각측량 → ②좌표변환 → ③IK(Pieper) →
 
 ---
 
-## 5. 예정 코드 구조 (구현 단계)
+## 5. 코드 구조 (현행 — Django 웹앱)
+
+노트북 계층은 **Django 웹앱**으로 구현되어 있다. 4개 페이지를 제공한다:
+(1) 카메라·객체탐지, (2) 캘리브레이션 위저드(6단계), (3) 자연어 제어(골격),
+(4) 3D 제어(Three.js 로봇팔 뷰어, 관절 클릭→슬라이더). 상세는 [web_app.md](web_app.md).
 
 ```
 laptop/
-├── pyproject.toml
-├── src/
-│   ├── main.py
-│   ├── controllers/        # robot_controller, dsl_executor, safety_monitor
-│   ├── kinematics/         # dh_params, FK, IK(Pieper), trajectory, singularity
-│   ├── vision/             # camera_capture, rf_detr, triangulation, aruco, transform
-│   ├── communication/      # grpc_client, arduino_bridge, packet_codec
-│   ├── calibration/        # camera_calib, visual_kinematic, dh_optimizer
-│   ├── grasp/              # pca_pose, reactive_descent, gripper_width
-│   └── dsl/                # ops, validator, executor
-└── tests/
+├── manage.py
+├── config/                  # Django 프로젝트
+├── armvision/               # 메인 앱
+│   ├── camera.py            # 카메라 캡처
+│   ├── detector.py          # YOLO-World 객체 탐지
+│   ├── charuco.py           # ChArUco 캘리브레이션
+│   ├── stereo3d.py          # 스테레오 삼각측량 3D
+│   ├── views.py
+│   └── templates/
+├── calibration/
+│   ├── calibrate_stereo.py
+│   ├── validate_triangulation.py
+│   ├── make_targets.py
+│   └── make_arm_markers.py
+└── docs/
 ```
 
-메인 컨트롤러는 asyncio 기반으로 camera/safety/arduino/command 루프를 병행 실행.
+> **참고(예정):** 실시간 제어 루프(camera/safety/arduino/command 병행 실행)는 향후 asyncio 기반으로 구현 예정이다. 현재 웹/제어 계층은 Django다.
 
 ---
 
 ## 6. 주요 의존성 (예정)
 
-`grpcio`, `pyserial`, `opencv-python`, `opencv-contrib-python`(ArUco), `numpy`, `scipy`, `torch`, `torchvision`, `transformers`(RF-DETR).
+`django`, `ultralytics`(YOLO-World `yolov8m-worldv2`), `grpcio`, `pyserial`, `opencv-python`, `opencv-contrib-python`(ChArUco/ArUco), `numpy`, `scipy`, `torch`, `torchvision`.
 
 ---
 
 ## 7. 단독 검증 항목 (현 보유 하드웨어로 가능)
 
-- [ ] 카메라 2대 캡처 + RF-DETR 실시간 객체 탐지 구동 확인
-- [ ] 체스보드 내부 캘리브레이션 스크립트
-- [ ] 삼각측량 정확도 검증
+- [x] 카메라 2대 캡처 + YOLO-World 실시간 객체 탐지 구동 확인 (GPU, RTX 3050)
+- [x] ChArUco 스테레오 캘리브레이션 (재투영오차 ~0.5px, 베이스라인 588mm)
+- [x] 삼각측량 정확도 검증 (보드 30mm를 0.32mm 오차로 복원)
 - [ ] IK/FK 순수 Python 단위 테스트 (로봇 없이)
 - [ ] (ToF 센서·전선 입고 후) Arduino Serial 통신 검증

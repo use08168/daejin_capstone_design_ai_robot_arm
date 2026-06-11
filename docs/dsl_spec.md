@@ -113,7 +113,7 @@ context = {
                   "y_min": 50, "y_max": 350,
                   "z_min": 50, "z_max": 250},
     "joint_limits": {"J1": [-90, 90], ...},
-    "detected_objects": [...],   # 노트북 RF-DETR + 삼각측량 결과
+    "detected_objects": [...],   # 노트북 YOLO-World + 삼각측량 결과
     "object_weights": {...},     # RAG object_database
 }
 ```

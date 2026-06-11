@@ -43,7 +43,7 @@ message GraspPlanRequest {
   string audio_format = 2;
   bytes camera1_frame = 3;       // JPEG
   bytes camera2_frame = 4;       // JPEG
-  repeated DetectedObject detections = 5;  // 노트북 RF-DETR 결과
+  repeated DetectedObject detections = 5;  // 노트북 YOLO-World 결과
   RobotState current_state = 6;
   int64 timestamp_ms = 7;
 }

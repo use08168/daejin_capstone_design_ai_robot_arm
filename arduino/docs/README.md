@@ -22,8 +22,8 @@
 | 관절 | 서보 | 토크(kg·cm) |
 |------|------|------------|
 | J1 base / J2 shoulder | DS3235 Pro | 35 |
-| J3 elbow / J4 pitch / J5 roll | DS3218 Pro | 20 |
-| J6 gripper_rot / gripper | MG90S | 2.2 |
+| J3 elbow / J4 pitch | DS3218 Pro | 20 |
+| J5 roll / J6 gripper_rot / gripper | MG90S | 2.2 |
 
 **전원 주의:** 서보 전원은 SMPS(Meanwell LRS-150-5, 5V 150W)에서 직접 공급한다.
 **PCA9685 PCB 트레이스로 서보 전류를 통과시키지 않는다** (트레이스 한계 3~5A vs 잠재 부하 16.5A).
@@ -53,6 +53,11 @@ loop():
   2. 10Hz마다 SensorPacket 송신 (ToF + 현재 각도 + 비상버튼)
 ```
 
+> **현황(2026-06):** 위 이진 CommandPacket 구조는 **최종 목표**다. 현재 캘리브레이션·검증에 쓰는
+> 테스트 펌웨어(`src/main.cpp`)는 사람이 읽기 쉬운 **ASCII 시리얼 명령**(`u <ch> <us>` 펄스 직접,
+> `a <ch> <deg>`, `s`/`w` 스윕 등)으로 동작하며, 노트북에서 펄스를 보내 서보를 구동한다. 추후 이진
+> 패킷 프로토콜로 교체 예정. (각도→펄스 변환은 노트북이 담당 → [servo_calibration.md](servo_calibration.md))
+
 ---
 
 ## 4. PWM 매핑
@@ -61,6 +66,8 @@ loop():
 PWM_μs    = 1500 + (θ_deg / 90) * 500
 PCA_value = int(PWM_μs * 4096 / 20000)
 ```
+> **주의:** 위 균일 공식은 원래 설계값이다. 실제 매핑은 관절별 실측 0°/180° 펄스폭([servo_calibration.md](servo_calibration.md))을 사용하며 가동범위는 **0~180°**다. 서보가 **끝 스톱 없는 마그네틱(절대위치) 엔코더형**이라 소프트웨어 관절 한계가 필수다.
+
 규약 세부는 [conventions.md](../../docs/conventions.md) 참조.
 
 ---
