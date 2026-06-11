@@ -19,7 +19,7 @@ IK 계산 → 안전 검증 → 모터 제어 → 그립 → 이동 → 놓기
 | 계층 | 장치 | 역할 | 주요 기술 |
 |------|------|------|----------|
 | **Layer 3** | MSI EdgeXpert | "무엇을 할지" 결정 | Whisper · Gemma 4 · Qwen3 · FAISS |
-| **Layer 2** | 노트북 | "어떻게 할지" 번역 | RF-DETR · OpenCV · Pieper IK · 안전 감시 |
+| **Layer 2** | 노트북 | "어떻게 할지" 번역 | Django · YOLO-World · OpenCV · Pieper IK · 안전 감시 |
 | **Layer 1** | Arduino Mega 2560 | "실제 실행" | PCA9685 · VL53L0X ToF |
 
 ```
@@ -47,7 +47,7 @@ AI 서버  ──gRPC/Protobuf──  노트북  ──USB Serial(CRC-16)── 
 | **사용 언어** | ![Python](https://img.shields.io/badge/Python-3776AB?style=flat&logo=python&logoColor=white) ![C++](https://img.shields.io/badge/C%2B%2B-00599C?style=flat&logo=cplusplus&logoColor=white) |
 | **음성 인식 (STT)** | ![Whisper](https://img.shields.io/badge/Whisper_Large--v3-412991?style=flat&logo=openai&logoColor=white) |
 | **LLM / VLM** | ![Gemma](https://img.shields.io/badge/Gemma_4-4285F4?style=flat&logo=google&logoColor=white) |
-| **객체 탐지** | ![RF-DETR](https://img.shields.io/badge/RF--DETR-6E56CF?style=flat) |
+| **객체 탐지** | ![YOLO-World](https://img.shields.io/badge/YOLO--World-6E56CF?style=flat) |
 | **벡터 데이터베이스** | ![FAISS](https://img.shields.io/badge/FAISS-009688?style=flat&logo=meta&logoColor=white) |
 | **임베딩 모델** | ![Qwen3-Embedding](https://img.shields.io/badge/Qwen3--Embedding--8B-615CED?style=flat) |
 | **학습 / 추론 프레임워크** | ![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat&logo=pytorch&logoColor=white) ![Transformers](https://img.shields.io/badge/Transformers-FFD21E?style=flat&logo=huggingface&logoColor=black) |
@@ -57,11 +57,12 @@ AI 서버  ──gRPC/Protobuf──  노트북  ──USB Serial(CRC-16)── 
 
 | 카테고리 | 기술 스택 |
 |----------|-----------|
+| **노트북 웹/제어 계층** | ![Django](https://img.shields.io/badge/Django-092E20?style=flat&logo=django&logoColor=white) |
 | **MCU / 펌웨어** | ![Arduino](https://img.shields.io/badge/Arduino_Mega_2560-00878F?style=flat&logo=arduino&logoColor=white) ![PlatformIO](https://img.shields.io/badge/PlatformIO-FF7F00?style=flat&logo=platformio&logoColor=white) |
 | **모터 제어** | ![PCA9685](https://img.shields.io/badge/PCA9685-027BC4?style=flat) |
 | **센서** | ![VL53L0X](https://img.shields.io/badge/VL53L0X_ToF-03234B?style=flat&logo=stmicroelectronics&logoColor=white) |
 | **통신** | ![gRPC](https://img.shields.io/badge/gRPC-244B5A?style=flat) ![Protobuf](https://img.shields.io/badge/Protobuf-244B5A?style=flat) ![USB Serial](https://img.shields.io/badge/USB_Serial-5A5A5A?style=flat) ![I2C](https://img.shields.io/badge/I2C-5A5A5A?style=flat) |
-| **비동기 제어** | ![asyncio](https://img.shields.io/badge/asyncio-3776AB?style=flat&logo=python&logoColor=white) |
+| **비동기 제어 (예정: 실시간 제어 루프)** | ![asyncio](https://img.shields.io/badge/asyncio-3776AB?style=flat&logo=python&logoColor=white) |
 | **AI 서버 / GPU** | ![EdgeXpert](https://img.shields.io/badge/MSI_EdgeXpert_(GB10)-CC0000?style=flat&logo=msi&logoColor=white) ![RTX 3050](https://img.shields.io/badge/RTX_3050-76B900?style=flat&logo=nvidia&logoColor=white) |
 
 ### 🤝 협업 및 기타
@@ -116,7 +117,11 @@ daejin_capstone_design_ai_robot_arm/
 
 ## 현재 상태
 
-📌 **문서/명세 정비 단계.** 부품은 ToF 센서·전선을 제외하고 확보. 로봇팔 조립 전이며, 실시간 객체 인식 및 EdgeXpert 모델 구동 검증 예정.
+📌 **하드웨어 조립 완료 · 노트북 비전 파이프라인 구동 단계.**
+- 6-DOF 로봇팔 **조립 완료**.
+- Arduino + PCA9685로 J1~J6 서보 **펄스 캘리브레이션 완료** (관절별 0°/180° 실측, [arduino/docs/servo_calibration.md](arduino/docs/servo_calibration.md)).
+- 노트북 **Django 비전 파이프라인 구동 중**: YOLO-World 객체 탐지 + ChArUco 스테레오 캘리브레이션(재투영오차 ~0.5px, 베이스라인 588mm) + 삼각측량 3D 좌표(보드 30mm를 0.32mm 오차로 복원).
+- **미통합:** ToF(VL53L0X) 센서. **이후 단계:** EdgeXpert / AI 서버 연동.
 
 ---
 

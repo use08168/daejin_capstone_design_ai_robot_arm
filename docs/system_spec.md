@@ -20,11 +20,11 @@
 |------|------|------|
 | Whisper Large-v3 | 한국어 STT | AI 서버 |
 | Gemma 4 (멀티모달) | LLM 추론 + VLM (객체 매칭, 의도 파싱, DSL 생성) | AI 서버 |
-| RF-DETR | 실시간 객체 탐지 (Detection only, 마스크 없음) | 노트북 (RTX 3050) |
+| YOLO-World (`yolov8m-worldv2`) | 실시간 객체 탐지 (오픈 보캐뷸러리, Detection only, 마스크 없음) | 노트북 (RTX 3050, CUDA) |
 | Qwen3-Embedding-8B | RAG 벡터 임베딩 (dim 8192) | AI 서버 |
 
 비전 처리 분담:
-- **노트북 (결정적·실시간):** RF-DETR 탐지, OpenCV 삼각측량, ArUco, 좌표 변환, 비상 정지 감시.
+- **노트북 (결정적·실시간):** YOLO-World 탐지([laptop/docs/object_detection_model.md](../laptop/docs/object_detection_model.md)), OpenCV 삼각측량, ChArUco/ArUco, 좌표 변환, 비상 정지 감시.
 - **AI 서버 (의미 추론):** 자연어-객체 매칭, 속성 인식, 의도 파싱, JSON DSL 생성.
 
 ---
@@ -41,7 +41,7 @@ DSL 카탈로그·스키마·검증은 [dsl_spec.md](dsl_spec.md) 참조.
 노트북은 매 동작마다 다음 4단계를 수행한다.
 
 ```
-[입력] Gemma DSL + RF-DETR 픽셀 좌표
+[입력] Gemma DSL + YOLO-World 픽셀 좌표
    ↓ ① 삼각측량 (Triangulation)        →  cv2.triangulatePoints, SVD
 [3D 세계 좌표]
    ↓ ② 좌표계 변환 (Frame Transform)   →  동차변환 행렬 T (ArUco)
@@ -119,7 +119,7 @@ DH 파라미터 초기값(설계 도면 기반, 콜드스타트로 실측 갱신
 - 이심률 `e=√(λ₁/λ₂)`, 주축각 `α=atan2(v₁[1],v₁[0])`
 - `e<1.5`→top-down(θ₄=0), `e>2.5 & 폭>20`→side(θ₄=90), 중간→angled(θ₄=45)
 - `θ₅ = α_robot - 90°`, 그리퍼 폭 = `minor_width + 10mm`
-- **RF-DETR은 마스크가 없으므로** bbox 종횡비 근사 + Gemma VLM 질의로 대체.
+- **YOLO-World는 마스크가 없으므로** bbox 종횡비 근사 + Gemma VLM 질의로 대체.
 
 ---
 
@@ -143,7 +143,7 @@ v_descent = Kp·(d_measured - d_target)·min(1, d_measured/100),  Kp=0.05, d_tar
 
 비상 정지 동작: 관절 동결 → 그리퍼 상태 유지 → 명령 잠금 → AI 서버 알림 → 사용자 확인 → 홈 복귀.
 
-응답 시간 예산: RF-DETR ~20ms + 검증 <5ms + 송신 <1ms + 서보 정지 <5ms = **<100ms**.
+응답 시간 예산: YOLO-World ~20ms + 검증 <5ms + 송신 <1ms + 서보 정지 <5ms = **<100ms**.
 
 > ToF는 비상 정지에 사용하지 않는다. 비상 정지는 카메라 기반이며 AI 서버 응답에 의존하지 않는다.
 
@@ -178,7 +178,7 @@ rag_db:
 
 | 위험 | 대응 |
 |------|------|
-| RF-DETR GPU 부족 | Detection-only, batch=1 |
+| YOLO-World GPU 부족 | Detection-only, batch=1 |
 | 3D 프린트 강도 | 카운터웨이트 2kg, 페이로드 제한 150g |
 | J3 토크 부족 | DS3235 업그레이드 옵션 |
 | ToF 노이즈 | 이동평균 필터(5샘플), 비반사 매트 |

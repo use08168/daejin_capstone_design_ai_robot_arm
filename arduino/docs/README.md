@@ -22,8 +22,8 @@
 | 관절 | 서보 | 토크(kg·cm) |
 |------|------|------------|
 | J1 base / J2 shoulder | DS3235 Pro | 35 |
-| J3 elbow / J4 pitch / J5 roll | DS3218 Pro | 20 |
-| J6 gripper_rot / gripper | MG90S | 2.2 |
+| J3 elbow / J4 pitch | DS3218 Pro | 20 |
+| J5 roll / J6 gripper_rot / gripper | MG90S | 2.2 |
 
 **전원 주의:** 서보 전원은 SMPS(Meanwell LRS-150-5, 5V 150W)에서 직접 공급한다.
 **PCA9685 PCB 트레이스로 서보 전류를 통과시키지 않는다** (트레이스 한계 3~5A vs 잠재 부하 16.5A).
@@ -61,6 +61,8 @@ loop():
 PWM_μs    = 1500 + (θ_deg / 90) * 500
 PCA_value = int(PWM_μs * 4096 / 20000)
 ```
+> **주의:** 위 균일 공식은 원래 설계값이다. 실제 매핑은 관절별 실측 0°/180° 펄스폭([servo_calibration.md](servo_calibration.md))을 사용하며 가동범위는 **0~180°**다. 서보가 **끝 스톱 없는 마그네틱(절대위치) 엔코더형**이라 소프트웨어 관절 한계가 필수다.
+
 규약 세부는 [conventions.md](../../docs/conventions.md) 참조.
 
 ---
