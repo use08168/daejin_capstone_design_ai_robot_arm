@@ -1,0 +1,160 @@
+{% extends "armvision/base.html" %}
+{% block title %}3D 제어 — 로봇팔 비전{% endblock %}
+{% block style %}
+  .badge3d { background:#430; color:var(--warn); padding:3px 10px; border-radius:10px; font-size:12px; margin-left:8px; }
+  .wrap { display:flex; height: calc(100vh - 130px); min-height:420px; }
+  #viewport { flex:1; background:#0a0a0a; border-radius:8px; position:relative; overflow:hidden; }
+  #hint3d { position:absolute; left:12px; bottom:12px; color:#888; font-size:12px; pointer-events:none; }
+  #panel { width:280px; flex:0 0 280px; background:var(--panel); border-radius:8px; margin-left:14px; padding:14px; overflow:auto; }
+  #panel h3 { margin:0 0 4px; font-size:15px; }
+  .ctl { margin-top:16px; display:none; }
+  .ctl.active { display:block; }
+  .ctl .jname { font-size:18px; color:#9cf; font-weight:bold; }
+  .ctl .val { font-size:30px; font-variant-numeric:tabular-nums; margin:4px 0; }
+  .ctl input[type=range] { width:100%; }
+  .jinfo { color:var(--muted); font-size:12px; margin-top:6px; }
+  .jlist { margin-top:16px; display:flex; flex-wrap:wrap; gap:6px; }
+  .jlist button { background:#222; padding:6px 12px; }
+  .jlist button.sel { background:var(--accent); }
+{% endblock %}
+{% block content %}
+  <h1>4 · 3D 제어 <span class="badge3d">3D 뷰어 · 실물 연동 예정</span></h1>
+  <div class="wrap">
+    <div id="viewport"><div id="hint3d">드래그=회전 · 휠=줌 · 검은 서보(모터) 클릭=선택</div></div>
+    <div id="panel">
+      <h3>모터 제어 패널</h3>
+      <div class="jinfo" id="pmsg">3D에서 모터(검은 드럼)를 클릭하거나 아래 버튼을 누르세요.</div>
+      <div class="ctl" id="ctl">
+        <div class="jname" id="jname">—</div>
+        <div class="val"><span id="jval">90</span>°</div>
+        <input type="range" id="jslider" min="0" max="180" value="90">
+        <div class="jinfo" id="jdesc"></div>
+      </div>
+      <div class="jlist" id="jlist"></div>
+      <button id="home" style="margin-top:14px;">모든 관절 홈(90°)</button>
+      <div class="jinfo" style="margin-top:14px;">※ 현재는 3D만 움직입니다. 실제 로봇팔 연동(ArduinoBridge)은 다음 단계.</div>
+    </div>
+  </div>
+{% endblock %}
+{% block script %}
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const vp = document.getElementById('viewport');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0a0a);
+const camera = new THREE.PerspectiveCamera(45, vp.clientWidth / vp.clientHeight, 1, 6000);
+camera.position.set(470, 380, 560);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(vp.clientWidth, vp.clientHeight);
+vp.appendChild(renderer.domElement);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 210, 0);
+controls.update();
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x222233, 0.7));
+const dl = new THREE.DirectionalLight(0xffffff, 0.8); dl.position.set(300, 600, 400); scene.add(dl);
+const dl2 = new THREE.DirectionalLight(0xffffff, 0.3); dl2.position.set(-400, 200, -300); scene.add(dl2);
+scene.add(new THREE.GridHelper(900, 18, 0x333333, 0x1f1f1f));
+
+// ---- 로봇팔: 흰 링크 + 검은 서보 드럼 (C-브래킷 코봇 근사) ----
+const L = { base: 50, col: 131.56, l2: 110.4, l3: 96.0, l4: 73.18, l5: 66.39, l6: 43.6 };
+const white = new THREE.MeshStandardMaterial({ color: 0xf0f0f0, metalness: 0.05, roughness: 0.6 });
+const servo = new THREE.MeshStandardMaterial({ color: 0x232323, metalness: 0.3, roughness: 0.5 });
+const selMat = new THREE.MeshStandardMaterial({ color: 0xff8800, metalness: 0.3, roughness: 0.5 });
+
+function box(w, h, d, mat) { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.y = h / 2; return m; }
+function tube(r, h, mat) { const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 28), mat); m.position.y = h / 2; return m; }
+function drum(r, len, axis, mat) {            // 서보 드럼(회전축 방향 원통, 관절 중심)
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 28), mat);
+  if (axis === 'z') m.rotation.x = Math.PI / 2;
+  return m;
+}
+
+const clickable = [];
+const joints = [];   // {name, group, axis, value, motorMesh}
+
+function addJoint(parent, name, axis, atY) {
+  const g = new THREE.Group(); g.position.y = atY; parent.add(g);
+  const d = drum(axis === 'y' ? 30 : 27, axis === 'y' ? 44 : 60, axis, servo);
+  g.add(d); d.userData.j = joints.length; clickable.push(d);
+  joints.push({ name, group: g, axis, value: 90, motorMesh: d });
+  return g;
+}
+function addLink(g, mesh) { g.add(mesh); mesh.userData.j = joints.length - 1; clickable.push(mesh); return mesh; }
+
+// 베이스(고정)
+scene.add(tube(46, L.base, white));
+const root = new THREE.Group(); root.position.y = L.base; scene.add(root);
+
+const j1 = addJoint(root, 'J1', 'y', 0);      addLink(j1, tube(32, L.col, white));     // 베이스 yaw + 기둥
+const j2 = addJoint(j1, 'J2', 'z', L.col);    addLink(j2, box(54, L.l2, 50, white));   // 어깨 pitch
+const j3 = addJoint(j2, 'J3', 'z', L.l2);     addLink(j3, box(48, L.l3, 46, white));   // 팔꿈치 pitch
+const j4 = addJoint(j3, 'J4', 'y', L.l3);     addLink(j4, box(42, L.l4, 42, white));   // 전완 roll
+const j5 = addJoint(j4, 'J5', 'z', L.l4);     addLink(j5, box(40, L.l5, 40, white));   // 손목 pitch(상단 T)
+const j6 = addJoint(j5, 'J6', 'y', L.l5);                                              // 그리퍼 회전 roll
+// 그리퍼 (포크형)
+const gpalm = box(50, 14, 18, white); gpalm.position.y = L.l6; j6.add(gpalm); gpalm.userData.j = joints.length - 1; clickable.push(gpalm);
+for (const dx of [-17, 17]) {
+  const fng = new THREE.Mesh(new THREE.BoxGeometry(9, 30, 14), white);
+  fng.position.set(dx, L.l6 + 21, 0); j6.add(fng);
+}
+
+function applyJoint(j) {
+  j.group.rotation.set(0, 0, 0);
+  j.group.rotation[j.axis] = THREE.MathUtils.degToRad(j.value - 90);  // 90°=중립
+}
+joints.forEach(applyJoint);
+
+// ---- 선택 / 패널 ----
+let sel = -1;
+const ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
+const jbtns = [], jl = document.getElementById('jlist');
+joints.forEach((j, k) => { const b = document.createElement('button'); b.textContent = j.name; b.onclick = () => select(k); jl.appendChild(b); jbtns.push(b); });
+
+function select(i) {
+  if (sel >= 0) joints[sel].motorMesh.material = servo;
+  sel = i;
+  jbtns.forEach((b, k) => b.classList.toggle('sel', k === i));
+  const ctl = document.getElementById('ctl'), pmsg = document.getElementById('pmsg');
+  if (i < 0) { ctl.classList.remove('active'); pmsg.style.display = 'block'; return; }
+  const j = joints[i]; j.motorMesh.material = selMat;
+  pmsg.style.display = 'none'; ctl.classList.add('active');
+  document.getElementById('jname').textContent = j.name + ' 모터';
+  document.getElementById('jval').textContent = j.value;
+  document.getElementById('jslider').value = j.value;
+  document.getElementById('jdesc').textContent = (j.axis === 'y' ? '회전(roll/yaw)' : '굽힘(pitch)') + ' · 90° = 중립';
+}
+
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  const r = renderer.domElement.getBoundingClientRect();
+  mouse.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+  mouse.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+  ray.setFromCamera(mouse, camera);
+  const hits = ray.intersectObjects(clickable, false);
+  if (hits.length) select(hits[0].object.userData.j);
+});
+document.getElementById('jslider').addEventListener('input', (e) => {
+  if (sel < 0) return;
+  const j = joints[sel]; j.value = parseInt(e.target.value);
+  document.getElementById('jval').textContent = j.value;
+  applyJoint(j);
+});
+document.getElementById('home').onclick = () => {
+  joints.forEach(j => { j.value = 90; applyJoint(j); });
+  if (sel >= 0) { document.getElementById('jval').textContent = 90; document.getElementById('jslider').value = 90; }
+};
+
+function resize() { camera.aspect = vp.clientWidth / vp.clientHeight; camera.updateProjectionMatrix(); renderer.setSize(vp.clientWidth, vp.clientHeight); }
+window.addEventListener('resize', resize);
+(function loop() { requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); })();
+</script>
+{% endblock %}

@@ -9,6 +9,7 @@ urlpatterns = [
     path("", views.index, name="index"),
     path("setup/", views.setup, name="setup"),
     path("control/", views.control, name="control"),
+    path("arm3d/", views.arm3d, name="arm3d"),
     # 스트림
     path("video_feed/", views.video_feed, name="video_feed"),
     # 탐지 / 3D

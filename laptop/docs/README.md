@@ -7,6 +7,7 @@
 
 | 문서 | 내용 |
 |------|------|
+| [web_app.md](web_app.md) | Django 웹앱 4페이지 + 엔드포인트 기능 명세 |
 | [object_detection_model.md](object_detection_model.md) | 객체 탐지 모델 선정 (YOLO-World, 오픈 보캐뷸러리) |
 | [coordinate_3d_pipeline.md](coordinate_3d_pipeline.md) | ChArUco 스테레오 캘리브레이션 + 삼각측량 3D 파이프라인 |
 | [setup_procedure.md](setup_procedure.md) | 환경 구성 / 실행 절차 |
@@ -63,8 +64,9 @@ DSL + 픽셀좌표 → ①삼각측량 → ②좌표변환 → ③IK(Pieper) →
 
 ## 5. 코드 구조 (현행 — Django 웹앱)
 
-노트북 계층은 **Django 웹앱**으로 구현되어 있다. 3개 페이지를 제공한다:
-(1) 카메라·객체탐지, (2) 캘리브레이션 위저드(6단계), (3) 자연어 제어(골격).
+노트북 계층은 **Django 웹앱**으로 구현되어 있다. 4개 페이지를 제공한다:
+(1) 카메라·객체탐지, (2) 캘리브레이션 위저드(6단계), (3) 자연어 제어(골격),
+(4) 3D 제어(Three.js 로봇팔 뷰어, 관절 클릭→슬라이더). 상세는 [web_app.md](web_app.md).
 
 ```
 laptop/

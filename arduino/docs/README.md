@@ -53,6 +53,11 @@ loop():
   2. 10Hz마다 SensorPacket 송신 (ToF + 현재 각도 + 비상버튼)
 ```
 
+> **현황(2026-06):** 위 이진 CommandPacket 구조는 **최종 목표**다. 현재 캘리브레이션·검증에 쓰는
+> 테스트 펌웨어(`src/main.cpp`)는 사람이 읽기 쉬운 **ASCII 시리얼 명령**(`u <ch> <us>` 펄스 직접,
+> `a <ch> <deg>`, `s`/`w` 스윕 등)으로 동작하며, 노트북에서 펄스를 보내 서보를 구동한다. 추후 이진
+> 패킷 프로토콜로 교체 예정. (각도→펄스 변환은 노트북이 담당 → [servo_calibration.md](servo_calibration.md))
+
 ---
 
 ## 4. PWM 매핑

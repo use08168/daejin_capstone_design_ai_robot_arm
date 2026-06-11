@@ -121,7 +121,8 @@ daejin_capstone_design_ai_robot_arm/
 - 6-DOF 로봇팔 **조립 완료**.
 - Arduino + PCA9685로 J1~J6 서보 **펄스 캘리브레이션 완료** (관절별 0°/180° 실측, [arduino/docs/servo_calibration.md](arduino/docs/servo_calibration.md)).
 - 노트북 **Django 비전 파이프라인 구동 중**: YOLO-World 객체 탐지 + ChArUco 스테레오 캘리브레이션(재투영오차 ~0.5px, 베이스라인 588mm) + 삼각측량 3D 좌표(보드 30mm를 0.32mm 오차로 복원).
-- **미통합:** ToF(VL53L0X) 센서. **이후 단계:** EdgeXpert / AI 서버 연동.
+- **4페이지 웹 UI**(Django): 카메라·탐지 / 캘리브레이션 위저드 / 자연어 제어(골격) / 3D 로봇팔 뷰어(Three.js). → [laptop/docs/web_app.md](laptop/docs/web_app.md)
+- **미통합:** ToF(VL53L0X) 센서. **이후 단계:** EdgeXpert / AI 서버 연동, ArduinoBridge(실물 구동) 연결.
 
 ---
 
