@@ -27,7 +27,7 @@ class _CameraThread:
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
 
-    def _loop(self):
+    def _open(self):
         cap = cv2.VideoCapture(self.index, _BACKEND)
         if cap.isOpened():
             # 설정은 실패해도 무시(일부 DSHOW 장치에서 예외 발생 가능)
@@ -40,20 +40,38 @@ class _CameraThread:
                     cap.set(prop, val)
                 except cv2.error:
                     pass
+            return cap
+        cap.release()
+        return None
+
+    def _loop(self):
+        """자가 치유 루프: 열기에 실패하거나(다른 프로세스가 점유 중 등)
+        프레임이 끊기면 카메라를 닫고 주기적으로 다시 연다."""
+        cap = None
+        miss = 0
         while self._running:
-            if not cap.isOpened():
-                time.sleep(0.5)
-                continue
+            if cap is None:
+                cap = self._open()
+                if cap is None:
+                    time.sleep(1.0)   # 점유 중일 수 있음 → 잠시 후 재시도
+                    continue
             try:
                 ok, frame = cap.read()
             except cv2.error:
                 ok, frame = False, None
             if not ok:
-                time.sleep(0.01)
+                miss += 1
+                if miss > 30:         # 장시간 프레임 없음 → 재오픈
+                    cap.release()
+                    cap = None
+                    miss = 0
+                time.sleep(0.05)
                 continue
+            miss = 0
             with self._lock:
                 self._frame = frame
-        cap.release()
+        if cap is not None:
+            cap.release()
 
     def read(self):
         """최신 프레임 복사본 반환 (없으면 None)."""
@@ -76,6 +94,70 @@ def get_camera(index: int) -> _CameraThread:
             cam = _CameraThread(index)
             _cameras[index] = cam
         return cam
+
+
+def list_cameras(max_index: int = 6):
+    """열리는 카메라 인덱스 목록을 반환. 이미 스레드가 점유 중인 인덱스는
+    충돌을 피하려고 다시 열지 않고 프레임 유무로 판단한다."""
+    found = []
+    for i in range(max_index):
+        cam = _cameras.get(i)
+        if cam is not None:
+            if cam.read() is not None:
+                found.append(i)
+            continue
+        cap = cv2.VideoCapture(i, _BACKEND)
+        ok = cap.isOpened()
+        if ok:
+            # 막 열린 카메라는 첫 프레임이 늦으므로 잠시 워밍업하며 재시도
+            got = False
+            for _ in range(15):  # 최대 ~0.75s
+                try:
+                    r, _f = cap.read()
+                except cv2.error:
+                    r = False
+                if r and _f is not None:
+                    got = True
+                    break
+                time.sleep(0.05)
+            ok = got
+        cap.release()
+        if ok:
+            found.append(i)
+    return found
+
+
+def camera_names():
+    """DirectShow 장치 이름 목록(인덱스 = 위치). pygrabber 없으면 None."""
+    try:
+        from pygrabber.dshow_graph import FilterGraph
+        return FilterGraph().get_input_devices()
+    except Exception:
+        return None
+
+
+# ---- 좌/우 카메라 선택 설정 (서버 저장) ----
+import json
+import os
+
+_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "cam_config.json")
+_DEFAULT_CFG = {"left": 2, "right": 1}
+
+
+def get_config():
+    try:
+        with open(_CONFIG_PATH, encoding="utf-8") as f:
+            c = json.load(f)
+        return {"left": int(c.get("left", 2)), "right": int(c.get("right", 1))}
+    except Exception:
+        return dict(_DEFAULT_CFG)
+
+
+def set_config(left, right):
+    cfg = {"left": int(left), "right": int(right)}
+    with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(cfg, f)
+    return cfg
 
 
 def _draw_crosshair(frame):

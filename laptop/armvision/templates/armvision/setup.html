@@ -21,9 +21,10 @@
     <h2><span class="num">1</span> ChArUco 촬영 <span class="badge todo" id="b1">대기</span></h2>
     <div class="desc">카메라를 로봇 놓일 자리에 고정하고, 보드를 위치·기울기·거리를 바꿔가며 <b>20~30쌍</b> 촬영. 좌·우 코너가 둘 다 초록일 때 캡처.</div>
     <div class="feeds">
-      <div class="cam"><div class="label">좌 — index 2</div><img src="{% url 'armvision:video_feed' %}?cam=2&charuco=1"></div>
-      <div class="cam"><div class="label">우 — index 1</div><img src="{% url 'armvision:video_feed' %}?cam=1&charuco=1"></div>
+      <div class="cam"><div class="label">좌 카메라 — index {{ cam_left }}</div><img src="{% url 'armvision:video_feed' %}?cam={{ cam_left }}&charuco=1"></div>
+      <div class="cam"><div class="label">우 카메라 — index {{ cam_right }}</div><img src="{% url 'armvision:video_feed' %}?cam={{ cam_right }}&charuco=1"></div>
     </div>
+    <div class="hint" style="margin:0 0 10px;">좌/우 카메라는 <a href="{% url 'armvision:index' %}">1페이지</a>에서 선택한 설정을 따릅니다.</div>
     <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
       <button id="cap" class="primary">📸 캡처 (좌·우 동시)</button>
       <span>저장: <b id="saved">0</b> 쌍</span>

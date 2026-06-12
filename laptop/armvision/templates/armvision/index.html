@@ -6,6 +6,13 @@
     {% if calibrated %}캘리브레이션 완료 → 아래 <b>3D 좌표</b>가 활성화됩니다.{% else %}(캘리브레이션 완료 시 3D 좌표가 자동 활성화됩니다.){% endif %}
   </div>
 
+  <div class="data" style="display:flex; gap:14px; align-items:flex-end; flex-wrap:wrap; margin-bottom:14px;">
+    <div><div class="meta" style="margin-bottom:4px;">좌 카메라</div><select id="selL"></select></div>
+    <div><div class="meta" style="margin-bottom:4px;">우 카메라</div><select id="selR"></select></div>
+    <button id="scan" class="off">🔄 카메라 스캔</button>
+    <span class="hint" id="camMsg" style="margin:0;"></span>
+  </div>
+
   <div style="margin-bottom:14px;">
     <button id="toggle" class="off">객체 탐지: OFF</button>
     <span class="hint" style="margin:0 0 0 10px;">YOLO-World · GPU</span>
@@ -14,8 +21,8 @@
   <div class="grid">
     <div style="flex:1 1 480px;">
       <div class="cam">
-        <div class="label">외장 카메라 (좌) — index 2</div>
-        <img id="camL" data-cam="2" src="{% url 'armvision:video_feed' %}?cam=2" alt="left">
+        <div class="label">좌 카메라 — <span id="lblL">index {{ cam_left }}</span></div>
+        <img id="camL" data-cam="{{ cam_left }}" src="{% url 'armvision:video_feed' %}?cam={{ cam_left }}" alt="left">
       </div>
       <div class="data" style="margin-top:8px;">
         <div class="meta" id="metaL">대기 중…</div>
@@ -24,8 +31,8 @@
     </div>
     <div style="flex:1 1 480px;">
       <div class="cam">
-        <div class="label">외장 카메라 (우) — index 1</div>
-        <img id="camR" data-cam="1" src="{% url 'armvision:video_feed' %}?cam=1" alt="right">
+        <div class="label">우 카메라 — <span id="lblR">index {{ cam_right }}</span></div>
+        <img id="camR" data-cam="{{ cam_right }}" src="{% url 'armvision:video_feed' %}?cam={{ cam_right }}" alt="right">
       </div>
       <div class="data" style="margin-top:8px;">
         <div class="meta" id="metaR">대기 중…</div>
@@ -50,17 +57,64 @@
   const base = "{% url 'armvision:video_feed' %}";
   const detUrl = "{% url 'armvision:detections' %}";
   const pos3dUrl = "{% url 'armvision:positions3d' %}";
+  const listUrl = "{% url 'armvision:cameras_list' %}";
+  const cfgUrl = "{% url 'armvision:cameras_config' %}";
   const CALIBRATED = {{ calibrated|yesno:"true,false" }};
 
-  const imgs = [document.getElementById('camL'), document.getElementById('camR')];
+  let camL = {{ cam_left }}, camR = {{ cam_right }};
+  const imgL = document.getElementById('camL'), imgR = document.getElementById('camR');
   const btn = document.getElementById('toggle');
   let on = false;
+
+  function refreshFeeds() {
+    const q = (cam) => base + '?cam=' + cam + (on ? '&detect=1' : '') + '&t=' + Date.now();
+    imgL.src = q(camL); imgR.src = q(camR);
+    imgL.dataset.cam = camL; imgR.dataset.cam = camR;
+    document.getElementById('lblL').textContent = 'index ' + camL;
+    document.getElementById('lblR').textContent = 'index ' + camR;
+  }
   btn.addEventListener('click', () => {
     on = !on;
     btn.textContent = '객체 탐지: ' + (on ? 'ON' : 'OFF');
     btn.classList.toggle('off', !on);
-    imgs.forEach(img => { img.src = base + '?cam=' + img.dataset.cam + (on ? '&detect=1' : '') + '&t=' + Date.now(); });
+    refreshFeeds();
   });
+
+  // ---- 카메라 선택 ----
+  const selL = document.getElementById('selL'), selR = document.getElementById('selR'), camMsg = document.getElementById('camMsg');
+  function ensureOption(sel, val) {
+    if (![...sel.options].some(o => +o.value === +val)) {
+      const o = document.createElement('option'); o.value = val; o.textContent = val + ' · (현재)';
+      sel.appendChild(o);
+    }
+    sel.value = val;
+  }
+  function fillSelects(cams) {
+    const opts = cams.map(c => `<option value="${c.index}">${c.index} · ${c.name}</option>`).join('');
+    selL.innerHTML = opts; selR.innerHTML = opts;
+    ensureOption(selL, camL); ensureOption(selR, camR);
+  }
+  async function scan() {
+    camMsg.textContent = '스캔 중…';
+    try {
+      const d = await (await fetch(listUrl)).json();
+      fillSelects(d.cameras);
+      camMsg.textContent = d.cameras.length ? `발견: ${d.cameras.length}대` : '카메라를 찾지 못함';
+    } catch (e) { camMsg.textContent = '스캔 실패'; }
+  }
+  async function saveCfg() {
+    camL = +selL.value; camR = +selR.value;
+    try {
+      await fetch(cfgUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ left: camL, right: camR }) });
+      camMsg.textContent = '적용됨 ✓';
+    } catch (e) { camMsg.textContent = '저장 실패'; }
+    refreshFeeds();
+  }
+  selL.addEventListener('change', saveCfg);
+  selR.addEventListener('change', saveCfg);
+  document.getElementById('scan').addEventListener('click', scan);
+  fillSelects([{ index: camL, name: '(현재 좌)' }, { index: camR, name: '(현재 우)' }]);
+  scan();
 
   async function poll(cam, metaEl, tblEl) {
     try {
@@ -70,7 +124,7 @@
         `<tr><td>${o.id}</td><td>${o.conf}</td><td class="coord">(${o.center[0]}, ${o.center[1]})</td></tr>`).join('');
     } catch (e) { metaEl.textContent = '데이터 없음'; }
   }
-  setInterval(() => { poll(2, metaL, tblL); poll(1, metaR, tblR); }, 1000);
+  setInterval(() => { poll(camL, metaL, tblL); poll(camR, metaR, tblR); }, 1000);
 
   if (CALIBRATED) {
     const meta3d = document.getElementById('meta3d'), tbl3d = document.getElementById('tbl3d');

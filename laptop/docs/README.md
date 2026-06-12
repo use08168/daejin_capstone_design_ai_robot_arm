@@ -10,10 +10,11 @@
 | [web_app.md](web_app.md) | Django 웹앱 4페이지 + 엔드포인트 기능 명세 |
 | [object_detection_model.md](object_detection_model.md) | 객체 탐지 모델 선정 (YOLO-World, 오픈 보캐뷸러리) |
 | [coordinate_3d_pipeline.md](coordinate_3d_pipeline.md) | ChArUco 스테레오 캘리브레이션 + 삼각측량 3D 파이프라인 |
+| [arm3d_simulator.md](arm3d_simulator.md) | **STL 3D 시뮬레이터 + 실물 연동(4페이지)** — 조립·면결합·관절제어 |
 | [setup_procedure.md](setup_procedure.md) | 환경 구성 / 실행 절차 |
 | [aruco_markers.md](aruco_markers.md) | ArUco / ChArUco 마커 명세 |
 
-> **비전 파이프라인 현황:** YOLO-World 탐지 + 객체 id(`class_n`), ChArUco 스테레오 캘리브레이션(재투영오차 ~0.5px, 베이스라인 588mm), 삼각측량 3D(보드 30mm를 0.32mm 오차로 복원) — 모두 실측 검증됨.
+> **현황:** ① YOLO-World 탐지 + 객체 id, ② ChArUco 스테레오 캘리브레이션(~0.5px, 588mm) + 삼각측량 3D(30mm를 0.32mm 오차로 복원) — 실측 검증. ③ **STL 3D 시뮬레이터로 6관절 조립·리깅 완료 → 관절 슬라이더가 3D+실물 서보 동시 구동(연동 ON/OFF). AI 연동 직전 단계.**
 
 ---
 
@@ -65,20 +66,22 @@ DSL + 픽셀좌표 → ①삼각측량 → ②좌표변환 → ③IK(Pieper) →
 ## 5. 코드 구조 (현행 — Django 웹앱)
 
 노트북 계층은 **Django 웹앱**으로 구현되어 있다. 4개 페이지를 제공한다:
-(1) 카메라·객체탐지, (2) 캘리브레이션 위저드(6단계), (3) 자연어 제어(골격),
-(4) 3D 제어(Three.js 로봇팔 뷰어, 관절 클릭→슬라이더). 상세는 [web_app.md](web_app.md).
+(1) 카메라·객체탐지(좌/우 카메라 선택), (2) 캘리브레이션 위저드(6단계), (3) 자연어 제어(골격),
+(4) **STL 3D 시뮬레이터 + 실물 연동**(조립·면결합·관절 슬라이더→3D+실물). 상세는 [web_app.md](web_app.md), [arm3d_simulator.md](arm3d_simulator.md).
 
 ```
 laptop/
 ├── manage.py
 ├── config/                  # Django 프로젝트
 ├── armvision/               # 메인 앱
-│   ├── camera.py            # 카메라 캡처
+│   ├── camera.py            # 카메라 캡처(자가치유) + 좌/우 선택(cam_config.json)
 │   ├── detector.py          # YOLO-World 객체 탐지
 │   ├── charuco.py           # ChArUco 캘리브레이션
 │   ├── stereo3d.py          # 스테레오 삼각측량 3D
+│   ├── arduino_bridge.py    # 실물 로봇팔 시리얼(pyserial, COM9)
 │   ├── views.py
-│   └── templates/
+│   └── templates/           # arm3d.html = 3D 시뮬레이터(조립/결합/제어)
+├── cad/                     # 팀원 STL 부품 + assembly.json(조립 저장)
 ├── calibration/
 │   ├── calibrate_stereo.py
 │   ├── validate_triangulation.py
@@ -102,5 +105,7 @@ laptop/
 - [x] 카메라 2대 캡처 + YOLO-World 실시간 객체 탐지 구동 확인 (GPU, RTX 3050)
 - [x] ChArUco 스테레오 캘리브레이션 (재투영오차 ~0.5px, 베이스라인 588mm)
 - [x] 삼각측량 정확도 검증 (보드 30mm를 0.32mm 오차로 복원)
+- [x] STL 3D 시뮬레이터로 6관절 조립·리깅 + 관절 슬라이더 구동
+- [x] Arduino Serial 펄스 전송(`arduino_bridge.py` → `u ch us`) + 4페이지 연동 토글
 - [ ] IK/FK 순수 Python 단위 테스트 (로봇 없이)
-- [ ] (ToF 센서·전선 입고 후) Arduino Serial 통신 검증
+- [ ] (ToF 센서 입고 후) VL53L0X 측정 + 이진 패킷 프로토콜
