@@ -3,6 +3,12 @@
 > **Voice-Controlled Autonomous Grasping Manipulator**
 > 대진대학교 캡스톤 디자인 — 한국어 음성 명령으로 객체를 인식하고 안전하게 그립하는 분산 AI 추론 기반 6-DOF 로봇팔.
 
+<p align="center">
+  <img src="docs/image/reference-design.png" alt="6-DOF 로봇팔 설계 (J1~J6, arm span 350mm)" height="300">
+  <img src="docs/image/sim-assembled-1.png" alt="STL로 조립한 3D 디지털 트윈 (6관절 리깅)" height="300">
+</p>
+<p align="center"><sub>참조 설계(좌) → 실측 STL로 만든 3D 디지털 트윈(우). 시뮬레이션으로 동작을 미리 보고 실물과 연동 구동.</sub></p>
+
 ```
 사용자: "빨간 컵을 책 옆에 놔줘"
    ↓
@@ -77,32 +83,34 @@ AI 서버  ──gRPC/Protobuf──  노트북  ──USB Serial(CRC-16)── 
 
 ## 저장소 구조
 
+**바깥은 개요, 안으로 갈수록 상세** — 폴더로 들어갈수록 구체적인 문서가 나온다.
+
 ```
 daejin_capstone_design_ai_robot_arm/
-├── docs/          # 공통 명세 (아키텍처·gRPC·Serial·DSL·규약)
-├── ai_server/     # EdgeXpert AI 추론 서버 (Python)
-│   └── docs/
-├── laptop/        # 제어 허브 (Python)
-│   └── docs/
-└── arduino/       # 펌웨어 (PlatformIO / C++)
-    └── docs/
+├── README.md        # ← 지금 이 문서: 목적·기술스택·기능·현황 (쇼케이스)
+├── docs/            # 공통: 아키텍처 + 왜 이렇게 나눴는지 + 인터페이스 명세
+├── ai_server/       # L3 AI 추론 서버   README + docs/  (무엇을 할지)
+├── laptop/          # L2 제어 허브       README + docs/  (어떻게 할지)
+└── arduino/         # L1 펌웨어          README + docs/  (실제 실행)
 ```
 
-각 컴포넌트 폴더의 `docs/`에는 해당 계층의 **기능 명세**를, 루트 `docs/`에는 여러 계층이 **공통으로 합의해야 하는 명세**를 둔다.
+- 각 컴포넌트 **폴더 루트 `README.md`** = 그 폴더의 개요(역할·하위 폴더 지도).
+- 각 컴포넌트 **`docs/`** = 기능 명세(가장 상세).
+- 루트 **`docs/`** = 계층이 공통으로 합의하는 명세.
 
 ---
 
-## 문서
+## 문서 안내
 
-| 문서 | 내용 |
-|------|------|
-| [docs/system_spec.md](docs/system_spec.md) | 시스템 마스터 사양 (전체 레퍼런스) |
-| [docs/architecture.md](docs/architecture.md) | 3계층 구조·책임 분리 |
-| [docs/grpc_interface.md](docs/grpc_interface.md) | AI 서버 ↔ 노트북 인터페이스 |
-| [docs/serial_protocol.md](docs/serial_protocol.md) | 노트북 ↔ Arduino 인터페이스 |
-| [docs/dsl_spec.md](docs/dsl_spec.md) | JSON DSL 명령 언어 |
-| [docs/conventions.md](docs/conventions.md) | 좌표계·단위·명명 규약 |
-| [ai_server/docs](ai_server/docs/README.md) · [laptop/docs](laptop/docs/README.md) · [arduino/docs](arduino/docs/README.md) | 컴포넌트별 기능 명세 |
+| 더 알고 싶다면 | 문서 |
+|----------------|------|
+| **전체 아키텍처 · 왜 3계층인지** | [docs/README.md](docs/README.md) · [docs/architecture.md](docs/architecture.md) |
+| 계층 간 인터페이스 | [grpc_interface](docs/grpc_interface.md) · [serial_protocol](docs/serial_protocol.md) · [dsl_spec](docs/dsl_spec.md) · [conventions](docs/conventions.md) · [system_spec](docs/system_spec.md) |
+| **노트북 — 비전·3D 시뮬·실물 연동** | [laptop/README.md](laptop/README.md) → [laptop/docs](laptop/docs/README.md) |
+| **3D 모델링·조립·연동** (방법 포함) | [laptop/docs/arm3d_simulator.md](laptop/docs/arm3d_simulator.md) |
+| **ChArUco 캘리브레이션** (방법 포함) | [laptop/docs/coordinate_3d_pipeline.md](laptop/docs/coordinate_3d_pipeline.md) |
+| 펌웨어 · 서보 캘리브레이션 | [arduino/README.md](arduino/README.md) → [arduino/docs](arduino/docs/README.md) |
+| AI 서버 (예정) | [ai_server/README.md](ai_server/README.md) |
 
 ---
 

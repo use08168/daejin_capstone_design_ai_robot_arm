@@ -1,9 +1,11 @@
 # 노트북(Control Hub) 의존성
 django>=5.2
-opencv-python>=4.12
+opencv-python>=4.12        # ChArUco/ArUco(cv2.aruco) 미포함 버전이면 opencv-contrib-python 로 교체
 numpy
 ultralytics>=8.4
 matplotlib
+pyserial>=3.5             # 실물 로봇팔 시리얼 연동 (arduino_bridge.py)
+pygrabber>=0.2            # 카메라 장치 이름 열거(좌/우 선택). Windows 전용, 없으면 인덱스 탐색으로 폴백
 
 # torch / torchvision 은 GPU(CUDA) 빌드를 별도 설치:
 #   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124

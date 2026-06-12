@@ -1,5 +1,7 @@
 # 노트북 (Control Hub) — 기능 명세
 
+> 📂 [루트](../../README.md) → [공통 docs](../../docs/README.md) → [laptop](../README.md) → **laptop/docs (여기, 가장 상세)**
+
 > **역할: "어떻게 할지" 번역.** AI 서버의 DSL을 실제 모터 명령으로 변환하고, 실시간 안전을 독립적으로 보장한다.
 > 위로는 [gRPC](../../docs/grpc_interface.md)로 AI 서버와, 아래로는 [Serial](../../docs/serial_protocol.md)로 Arduino와 통신한다.
 
