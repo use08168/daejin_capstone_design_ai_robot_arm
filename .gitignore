@@ -44,6 +44,9 @@ captures/
 .env
 *.local
 
+# ===== 기기별 런타임 설정 (좌/우 카메라 인덱스 — 노트북마다 다름) =====
+laptop/armvision/cam_config.json
+
 # ===== IDE / OS =====
 .vscode/
 .idea/

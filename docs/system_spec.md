@@ -100,7 +100,7 @@ DH 파라미터 초기값(설계 도면 기반, 콜드스타트로 실측 갱신
 
 | 단계 | 내용 |
 |------|------|
-| 1 내부 캘리브레이션 | 체스보드 20~30장 → `cv2.calibrateCamera` (K, distortion) |
+| 1 내부 캘리브레이션 | ChArUco 보드 20~30쌍 → `cv2.calibrateCamera` (K, distortion) |
 | 2 외부 캘리브레이션 | 베이스 ArUco → 카메라-로봇 변환 T |
 | 3 관절 한계 측정 | 각 관절 ±방향 회전, 물리 한계 감지 |
 | 4 자세 격자 순회 | 75~100점, 각 점 IK 이동 후 그리퍼 ArUco 측정 → {θₖ, p_expected, p_measured} |

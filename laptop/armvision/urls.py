@@ -10,6 +10,18 @@ urlpatterns = [
     path("setup/", views.setup, name="setup"),
     path("control/", views.control, name="control"),
     path("arm3d/", views.arm3d, name="arm3d"),
+    path("cad/list/", views.cad_list, name="cad_list"),
+    path("cad/<str:name>", views.cad_file, name="cad_file"),
+    path("arm3d/load/", views.arm3d_load, name="arm3d_load"),
+    path("arm3d/save/", views.arm3d_save, name="arm3d_save"),
+    # 실물 로봇팔 연동
+    path("arm/status/", views.arm_status, name="arm_status"),
+    path("arm/connect/", views.arm_connect, name="arm_connect"),
+    path("arm/disconnect/", views.arm_disconnect, name="arm_disconnect"),
+    path("arm/move/", views.arm_move, name="arm_move"),
+    # 카메라 선택
+    path("cameras/", views.cameras_list, name="cameras_list"),
+    path("cameras/config/", views.cameras_config, name="cameras_config"),
     # 스트림
     path("video_feed/", views.video_feed, name="video_feed"),
     # 탐지 / 3D

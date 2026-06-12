@@ -1,160 +1,513 @@
 {% extends "armvision/base.html" %}
-{% block title %}3D 제어 — 로봇팔 비전{% endblock %}
+{% block title %}3D 시뮬레이션 — 로봇팔 비전{% endblock %}
 {% block style %}
-  .badge3d { background:#430; color:var(--warn); padding:3px 10px; border-radius:10px; font-size:12px; margin-left:8px; }
-  .wrap { display:flex; height: calc(100vh - 130px); min-height:420px; }
-  #viewport { flex:1; background:#0a0a0a; border-radius:8px; position:relative; overflow:hidden; }
-  #hint3d { position:absolute; left:12px; bottom:12px; color:#888; font-size:12px; pointer-events:none; }
-  #panel { width:280px; flex:0 0 280px; background:var(--panel); border-radius:8px; margin-left:14px; padding:14px; overflow:auto; }
-  #panel h3 { margin:0 0 4px; font-size:15px; }
-  .ctl { margin-top:16px; display:none; }
-  .ctl.active { display:block; }
-  .ctl .jname { font-size:18px; color:#9cf; font-weight:bold; }
-  .ctl .val { font-size:30px; font-variant-numeric:tabular-nums; margin:4px 0; }
-  .ctl input[type=range] { width:100%; }
-  .jinfo { color:var(--muted); font-size:12px; margin-top:6px; }
-  .jlist { margin-top:16px; display:flex; flex-wrap:wrap; gap:6px; }
-  .jlist button { background:#222; padding:6px 12px; }
-  .jlist button.sel { background:var(--accent); }
+  :root{ --c-card:#1a1a1f; --c-card2:#141418; --c-line:#2b2b34; --c-acc:#3b82f6; --c-acc2:#2563eb; --c-ok:#22c55e; --c-mut:#8b8b96; }
+  .badge3d{ background:#3a2d00; color:var(--warn); padding:3px 11px; border-radius:999px; font-size:12px; margin-left:8px; font-weight:500; }
+  .wrap{ display:flex; gap:14px; height:calc(100vh - 130px); min-height:480px; }
+  #viewport{ flex:1; background:#0b0b0d; border:1px solid var(--c-line); border-radius:12px; position:relative; overflow:hidden; }
+  #hint3d{ position:absolute; left:14px; bottom:14px; color:#888; font-size:12px; pointer-events:none; background:rgba(10,10,12,.55); padding:5px 11px; border-radius:8px; }
+  #matebar{ position:absolute; top:14px; left:14px; max-width:62%; background:rgba(20,22,30,.93); border:1px solid var(--c-line); padding:9px 13px; border-radius:10px; font-size:13px; display:none; }
+  #panel{ width:330px; flex:0 0 330px; background:var(--c-card); border:1px solid var(--c-line); border-radius:12px; padding:14px; overflow:auto; }
+  #panel::-webkit-scrollbar{ width:8px; } #panel::-webkit-scrollbar-thumb{ background:#33333c; border-radius:4px; }
+  /* 세그먼트 모드 토글 */
+  .seg{ display:flex; gap:3px; background:var(--c-card2); border:1px solid var(--c-line); border-radius:9px; padding:3px; margin-bottom:10px; }
+  .seg button{ flex:1; background:transparent; color:var(--c-mut); padding:8px 0; border-radius:6px; font-size:13px; font-weight:600; }
+  .seg button.on{ background:var(--c-acc); color:#fff; }
+  .toolbar{ display:flex; gap:6px; align-items:center; margin-bottom:12px; }
+  .toolbar .sp{ flex:1; }
+  /* 카드 */
+  .card{ background:var(--c-card2); border:1px solid var(--c-line); border-radius:10px; padding:11px; margin-bottom:10px; }
+  .card .ttl{ font-size:11px; letter-spacing:.05em; text-transform:uppercase; color:var(--c-mut); font-weight:600; margin-bottom:9px; }
+  .card .nm{ color:#fbbf24; font-weight:600; font-size:13px; margin-bottom:9px; }
+  /* 버튼 */
+  button{ background:#33333c; color:#e8e8ec; border:0; border-radius:7px; padding:7px 12px; font-size:13px; cursor:pointer; transition:background .12s; }
+  button:hover{ background:#3f3f4a; }
+  button.primary{ background:var(--c-acc); color:#fff; } button.primary:hover{ background:var(--c-acc2); }
+  button.ghost{ background:transparent; border:1px solid var(--c-line); color:var(--c-mut); }
+  button.ghost:hover{ background:#23232b; color:#ccc; }
+  button.danger{ background:#3a1a1a; color:#fca5a5; } button.danger:hover{ background:#4a2020; }
+  button.on{ background:var(--c-acc); color:#fff; }
+  button:disabled{ background:#262630; color:#5a5a63; cursor:not-allowed; }
+  #lockMate.on{ background:var(--c-ok); color:#04210f; }
+  #btnSync.on{ background:var(--c-ok); color:#04210f; font-weight:700; }
+  .row{ display:flex; gap:6px; align-items:center; margin-bottom:8px; flex-wrap:wrap; }
+  select,input{ background:#0e0e12; border:1px solid var(--c-line); color:var(--fg); border-radius:6px; padding:6px; font-size:12px; }
+  input:focus,select:focus{ outline:none; border-color:var(--c-acc); }
+  /* 라벨+입력 그리드 */
+  .field{ display:grid; grid-template-columns:58px 1fr 1fr 1fr; gap:5px; align-items:center; margin-bottom:6px; }
+  .field label{ color:var(--c-mut); font-size:12px; } .field input{ width:100%; }
+  .hintline{ color:var(--c-mut); font-size:12px; line-height:1.5; margin-bottom:9px; }
+  .radio{ display:flex; gap:14px; align-items:center; font-size:13px; }
+  .radio label{ display:flex; gap:5px; align-items:center; cursor:pointer; }
+  .slot{ width:84px; text-align:left; } .slot.on{ background:var(--c-acc); color:#fff; }
+  .slotval{ flex:1; color:var(--c-mut); font-size:12px; }
+  .slider{ width:100%; }
+  /* 섹션 제목 + 리스트 */
+  .sect{ font-size:11px; letter-spacing:.05em; text-transform:uppercase; color:var(--c-mut); font-weight:600; margin:14px 0 7px; }
+  .list .p, .list .j{ display:flex; align-items:center; gap:6px; padding:6px 8px; border-radius:7px; font-size:12px; }
+  .list .p:hover, .list .j:hover{ background:#23232b; }
+  .list .p.sel, .list .j.sel{ background:#1e3a5f; }
+  .list .p .nm, .list .j .nm{ flex:1; cursor:pointer; }
+  .list .j .muted{ font-size:11px; }
+  .muted{ color:var(--c-mut); font-size:12px; }
 {% endblock %}
 {% block content %}
-  <h1>4 · 3D 제어 <span class="badge3d">3D 뷰어 · 실물 연동 예정</span></h1>
+  <h1>4 · 3D 시뮬레이션 <span class="badge3d" id="phase">조립/결합</span></h1>
   <div class="wrap">
-    <div id="viewport"><div id="hint3d">드래그=회전 · 휠=줌 · 검은 서보(모터) 클릭=선택</div></div>
+    <div id="viewport">
+      <div id="matebar"></div>
+      <div id="hint3d">조립=기즈모 배치 · 결합=면 클릭으로 부품 연결 · 드래그=뷰 · 휠=줌</div>
+    </div>
     <div id="panel">
-      <h3>모터 제어 패널</h3>
-      <div class="jinfo" id="pmsg">3D에서 모터(검은 드럼)를 클릭하거나 아래 버튼을 누르세요.</div>
-      <div class="ctl" id="ctl">
-        <div class="jname" id="jname">—</div>
-        <div class="val"><span id="jval">90</span>°</div>
-        <input type="range" id="jslider" min="0" max="180" value="90">
-        <div class="jinfo" id="jdesc"></div>
+      <div class="seg">
+        <button class="on" id="mAsm">조립</button>
+        <button id="mMate">결합</button>
+        <button id="mCtrl">제어</button>
       </div>
-      <div class="jlist" id="jlist"></div>
-      <button id="home" style="margin-top:14px;">모든 관절 홈(90°)</button>
-      <div class="jinfo" style="margin-top:14px;">※ 현재는 3D만 움직입니다. 실제 로봇팔 연동(ArduinoBridge)은 다음 단계.</div>
+      <div class="toolbar">
+        <button class="primary" id="save">💾 저장</button>
+        <button class="ghost" id="load">↻ 불러오기</button>
+        <span class="sp"></span>
+        <span class="muted" id="status"></span>
+      </div>
+
+      <div id="asmPane">
+        <div class="card">
+          <div class="ttl">이동 / 회전 도구</div>
+          <div class="hintline">부품을 클릭해 선택 → 화면의 조작 핸들을 끌거나, 아래 숫자로 정확히 입력하세요.</div>
+          <div class="row" style="margin-bottom:0">
+            <button class="on" id="gMove">↔ 이동</button>
+            <button id="gRot">⟳ 회전</button>
+            <button class="ghost" id="deselP">선택 해제</button>
+          </div>
+        </div>
+        <div class="card" id="pinfo" style="display:none;">
+          <div class="nm" id="pname">—</div>
+          <div class="field"><label>위치(mm)</label><input id="px" type="number" step="1"><input id="py" type="number" step="1"><input id="pz" type="number" step="1"></div>
+          <div class="field" style="margin-bottom:0"><label>회전(°)</label><input id="rx" type="number" step="1"><input id="ry" type="number" step="1"><input id="rz" type="number" step="1"></div>
+        </div>
+      </div>
+
+      <div id="matePane" style="display:none;">
+        <div class="card">
+          <div class="ttl">면 결합</div>
+          <div class="hintline">슬롯을 누른 뒤 화면에서 해당 면을 클릭하세요.</div>
+          <div class="row"><button class="slot" id="pk_axA">원통 A</button><span class="slotval" id="s_axA">미선택</span></div>
+          <div class="row"><button class="slot" id="pk_plA">평면 A</button><span class="slotval" id="s_plA">미선택</span></div>
+          <div class="row"><button class="slot" id="pk_axB">원통 B</button><span class="slotval" id="s_axB">미선택</span></div>
+          <div class="row"><button class="slot" id="pk_plB">평면 B</button><span class="slotval" id="s_plB">미선택</span></div>
+          <div class="radio" style="margin:10px 0;">
+            <label><input type="radio" name="mtype" value="rev" checked> 회전</label>
+            <label><input type="radio" name="mtype" value="fix"> 고정</label>
+          </div>
+          <div class="row" style="margin-bottom:0"><button class="primary" id="doMate">결합 실행</button><button class="ghost" id="clrMate">초기화</button></div>
+        </div>
+
+        <div class="sect">관절 / 결합 (<span id="mcount">0</span>)</div>
+        <div class="list" id="jlist"></div>
+
+        <div class="card" id="jedit" style="display:none;">
+          <div class="nm" id="jname">—</div>
+          <div class="field"><label>각도°</label><input id="jmin" type="number" step="5" title="min"><input id="jmax" type="number" step="5" title="max"><span></span></div>
+          <div class="field"><label>모터</label><input id="mch" type="number" step="1" title="채널"><input id="mu0" type="number" step="10" title="0°µs"><input id="mu1" type="number" step="10" title="180°µs"></div>
+          <div class="field"><label>위치보정</label><input id="aox" type="number" step="1" value="0" title="X mm"><input id="aoy" type="number" step="1" value="0" title="Y mm"><input id="aoz" type="number" step="1" value="0" title="Z mm"></div>
+          <div class="row"><span class="muted" style="width:58px">roll°</span><input id="aroll" type="number" step="5" value="0" style="width:70px"></div>
+          <button id="lockMate" style="width:100%; margin:2px 0 10px;">🔒 이 결합 고정</button>
+          <div class="hintline" style="margin-bottom:6px;">테스트 회전 <b id="tval">90</b>°</div>
+          <input id="tslider" class="slider" type="range" min="0" max="180" value="90">
+          <button class="danger" id="delMate" style="width:100%; margin-top:10px;">결합 삭제</button>
+        </div>
+      </div>
+
+      <div id="ctrlPane" style="display:none;">
+        <div class="card">
+          <div class="ttl">실물 연결 (Arduino)</div>
+          <div class="row"><span class="muted" style="width:34px">포트</span><input id="comPort" value="COM9" style="width:74px"><input id="comBaud" value="115200" style="width:74px"><button class="primary" id="btnConn">연결</button></div>
+          <div class="row" style="margin-bottom:0"><span class="muted" id="connStat">미연결</span></div>
+        </div>
+        <div class="card">
+          <div class="ttl">시뮬레이션 ↔ 실물 연동</div>
+          <div class="hintline">연동을 켜기 전, <b>정렬</b>로 실물을 현재 3D 자세에 먼저 맞추세요.</div>
+          <button id="btnSync" style="width:100%; margin-bottom:8px;">🔌 연동 OFF</button>
+          <div class="row"><button class="ghost" id="btnAlign" style="flex:1">실물을 3D에 맞추기 (정렬)</button><button class="danger" id="btnEstop">■ 정지</button></div>
+          <div class="row" style="margin-bottom:0"><span class="muted" style="width:38px">속도</span><input id="ctrlSpeed" type="number" value="10" step="1" min="1" style="width:56px"><span class="muted">°/s (60°≈6초)</span></div>
+        </div>
+        <div class="sect">관절 (<span id="jcount">0</span>) — 슬라이더로 회전</div>
+        <div id="ctrlJoints"></div>
+      </div>
+
+      <div class="sect">부품 (<span id="pcount">0</span>) <span class="muted" id="ploading">로딩…</span></div>
+      <div class="list plist" id="parts"></div>
     </div>
   </div>
 {% endblock %}
 {% block script %}
 <script type="importmap">
-{ "imports": {
-  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-}}
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" }}
 </script>
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { TransformControls } from 'three/addons/controls/TransformControls.js';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 
-const vp = document.getElementById('viewport');
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0a0a0a);
-const camera = new THREE.PerspectiveCamera(45, vp.clientWidth / vp.clientHeight, 1, 6000);
-camera.position.set(470, 380, 560);
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(window.devicePixelRatio);
-renderer.setSize(vp.clientWidth, vp.clientHeight);
-vp.appendChild(renderer.domElement);
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0, 210, 0);
-controls.update();
-
-scene.add(new THREE.HemisphereLight(0xffffff, 0x222233, 0.7));
-const dl = new THREE.DirectionalLight(0xffffff, 0.8); dl.position.set(300, 600, 400); scene.add(dl);
-const dl2 = new THREE.DirectionalLight(0xffffff, 0.3); dl2.position.set(-400, 200, -300); scene.add(dl2);
-scene.add(new THREE.GridHelper(900, 18, 0x333333, 0x1f1f1f));
-
-// ---- 로봇팔: 흰 링크 + 검은 서보 드럼 (C-브래킷 코봇 근사) ----
-const L = { base: 50, col: 131.56, l2: 110.4, l3: 96.0, l4: 73.18, l5: 66.39, l6: 43.6 };
-const white = new THREE.MeshStandardMaterial({ color: 0xf0f0f0, metalness: 0.05, roughness: 0.6 });
-const servo = new THREE.MeshStandardMaterial({ color: 0x232323, metalness: 0.3, roughness: 0.5 });
-const selMat = new THREE.MeshStandardMaterial({ color: 0xff8800, metalness: 0.3, roughness: 0.5 });
-
-function box(w, h, d, mat) { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.y = h / 2; return m; }
-function tube(r, h, mat) { const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 28), mat); m.position.y = h / 2; return m; }
-function drum(r, len, axis, mat) {            // 서보 드럼(회전축 방향 원통, 관절 중심)
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 28), mat);
-  if (axis === 'z') m.rotation.x = Math.PI / 2;
-  return m;
+const vp=document.getElementById('viewport');
+const scene=new THREE.Scene(); scene.background=new THREE.Color(0x0a0a0a);
+const camera=new THREE.PerspectiveCamera(45, vp.clientWidth/vp.clientHeight,0.5,8000); camera.position.set(250,200,320);
+const renderer=new THREE.WebGLRenderer({antialias:true}); renderer.setPixelRatio(window.devicePixelRatio); renderer.setSize(vp.clientWidth,vp.clientHeight); vp.appendChild(renderer.domElement);
+const orbit=new OrbitControls(camera,renderer.domElement); orbit.target.set(0,60,0); orbit.update();
+const tc=new TransformControls(camera,renderer.domElement); tc.addEventListener('dragging-changed',e=>orbit.enabled=!e.value); scene.add(tc);
+let dragP=null, dragQ=null;
+tc.addEventListener('mouseDown',()=>{ if(selPart){ dragP=selPart.position.clone(); dragQ=selPart.quaternion.clone(); } });
+// selPart 가 이미 (dp,dq) 만큼 옮겨진 상태에서, 같은 고정 그룹의 나머지를 강체로 동행시킴
+function groupTransform(dp, dq, center){
+  if(!selPart)return; const grp=lockedGroup(selPart.userData.part); if(grp.length<2)return;
+  const gset=new Set(grp);
+  grp.forEach(nm=>{ if(nm===selPart.userData.part)return; const m=partByName(nm).mesh;
+    m.position.add(dp);                                                  // 함께 이동
+    const rel=m.position.clone().sub(center).applyQuaternion(dq);        // center 기준 함께 회전
+    m.position.copy(center.clone().add(rel)); m.quaternion.premultiply(dq); });
+  mates.forEach(m=>{ if(!(gset.has(m.parent)&&gset.has(m.child)))return; // 그룹 내부 결합의 중심선도 동행
+    const pv=new THREE.Vector3().fromArray(m.pivot).add(dp);
+    const rel=pv.clone().sub(center).applyQuaternion(dq); pv.copy(center.clone().add(rel));
+    m.axis=new THREE.Vector3().fromArray(m.axis).applyQuaternion(dq).toArray().map(v=>+v.toFixed(4));
+    m.pivot=pv.toArray().map(v=>+v.toFixed(2)); });
 }
-
-const clickable = [];
-const joints = [];   // {name, group, axis, value, motorMesh}
-
-function addJoint(parent, name, axis, atY) {
-  const g = new THREE.Group(); g.position.y = atY; parent.add(g);
-  const d = drum(axis === 'y' ? 30 : 27, axis === 'y' ? 44 : 60, axis, servo);
-  g.add(d); d.userData.j = joints.length; clickable.push(d);
-  joints.push({ name, group: g, axis, value: 90, motorMesh: d });
-  return g;
-}
-function addLink(g, mesh) { g.add(mesh); mesh.userData.j = joints.length - 1; clickable.push(mesh); return mesh; }
-
-// 베이스(고정)
-scene.add(tube(46, L.base, white));
-const root = new THREE.Group(); root.position.y = L.base; scene.add(root);
-
-const j1 = addJoint(root, 'J1', 'y', 0);      addLink(j1, tube(32, L.col, white));     // 베이스 yaw + 기둥
-const j2 = addJoint(j1, 'J2', 'z', L.col);    addLink(j2, box(54, L.l2, 50, white));   // 어깨 pitch
-const j3 = addJoint(j2, 'J3', 'z', L.l2);     addLink(j3, box(48, L.l3, 46, white));   // 팔꿈치 pitch
-const j4 = addJoint(j3, 'J4', 'y', L.l3);     addLink(j4, box(42, L.l4, 42, white));   // 전완 roll
-const j5 = addJoint(j4, 'J5', 'z', L.l4);     addLink(j5, box(40, L.l5, 40, white));   // 손목 pitch(상단 T)
-const j6 = addJoint(j5, 'J6', 'y', L.l5);                                              // 그리퍼 회전 roll
-// 그리퍼 (포크형)
-const gpalm = box(50, 14, 18, white); gpalm.position.y = L.l6; j6.add(gpalm); gpalm.userData.j = joints.length - 1; clickable.push(gpalm);
-for (const dx of [-17, 17]) {
-  const fng = new THREE.Mesh(new THREE.BoxGeometry(9, 30, 14), white);
-  fng.position.set(dx, L.l6 + 21, 0); j6.add(fng);
-}
-
-function applyJoint(j) {
-  j.group.rotation.set(0, 0, 0);
-  j.group.rotation[j.axis] = THREE.MathUtils.degToRad(j.value - 90);  // 90°=중립
-}
-joints.forEach(applyJoint);
-
-// ---- 선택 / 패널 ----
-let sel = -1;
-const ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
-const jbtns = [], jl = document.getElementById('jlist');
-joints.forEach((j, k) => { const b = document.createElement('button'); b.textContent = j.name; b.onclick = () => select(k); jl.appendChild(b); jbtns.push(b); });
-
-function select(i) {
-  if (sel >= 0) joints[sel].motorMesh.material = servo;
-  sel = i;
-  jbtns.forEach((b, k) => b.classList.toggle('sel', k === i));
-  const ctl = document.getElementById('ctl'), pmsg = document.getElementById('pmsg');
-  if (i < 0) { ctl.classList.remove('active'); pmsg.style.display = 'block'; return; }
-  const j = joints[i]; j.motorMesh.material = selMat;
-  pmsg.style.display = 'none'; ctl.classList.add('active');
-  document.getElementById('jname').textContent = j.name + ' 모터';
-  document.getElementById('jval').textContent = j.value;
-  document.getElementById('jslider').value = j.value;
-  document.getElementById('jdesc').textContent = (j.axis === 'y' ? '회전(roll/yaw)' : '굽힘(pitch)') + ' · 90° = 중립';
-}
-
-renderer.domElement.addEventListener('pointerdown', (e) => {
-  const r = renderer.domElement.getBoundingClientRect();
-  mouse.x = ((e.clientX - r.left) / r.width) * 2 - 1;
-  mouse.y = -((e.clientY - r.top) / r.height) * 2 + 1;
-  ray.setFromCamera(mouse, camera);
-  const hits = ray.intersectObjects(clickable, false);
-  if (hits.length) select(hits[0].object.userData.j);
+tc.addEventListener('objectChange',()=>{ updPartInputs();
+  if(mode!=='asm'||!selPart||!dragP)return;
+  const dp=selPart.position.clone().sub(dragP);                          // 이번 프레임 이동량
+  const dq=selPart.quaternion.clone().multiply(dragQ.clone().invert());  // 이번 프레임 회전량(월드)
+  groupTransform(dp, dq, selPart.position.clone());
+  dragP=selPart.position.clone(); dragQ=selPart.quaternion.clone();
 });
-document.getElementById('jslider').addEventListener('input', (e) => {
-  if (sel < 0) return;
-  const j = joints[sel]; j.value = parseInt(e.target.value);
-  document.getElementById('jval').textContent = j.value;
-  applyJoint(j);
+scene.add(new THREE.HemisphereLight(0xffffff,0x222233,0.8)); const dl=new THREE.DirectionalLight(0xffffff,0.8); dl.position.set(300,600,400); scene.add(dl);
+scene.add(new THREE.GridHelper(600,24,0x333333,0x1f1f1f)); scene.add(new THREE.AxesHelper(40));
+const worldRoot=new THREE.Group(); scene.add(worldRoot);   // 부품 평면 보관
+const rigRoot=new THREE.Group(); scene.add(rigRoot);
+// ---- 고정(잠금) 연결 표시 ----
+const lockLines=new THREE.Group(); scene.add(lockLines);
+const LOCKMAT=new THREE.LineBasicMaterial({color:0x3ad6ff, transparent:true, opacity:0.95, depthTest:false});
+const LOCKDOTG=new THREE.SphereGeometry(4.5,12,8), LOCKDOTM=new THREE.MeshBasicMaterial({color:0x3ad6ff, depthTest:false});
+function _center(mesh,out){ return new THREE.Box3().setFromObject(mesh).getCenter(out); }
+function updateLockLines(){
+  for(let i=lockLines.children.length-1;i>=0;i--){ const c=lockLines.children[i]; if(c.isLine)c.geometry.dispose(); lockLines.remove(c); }
+  if(mode!=='asm')return;
+  mates.forEach(m=>{ if(!m.locked)return; const a=partByName(m.parent),b=partByName(m.child); if(!a||!b||!a.mesh.visible||!b.mesh.visible)return;
+    const pa=_center(a.mesh,new THREE.Vector3()), pb=_center(b.mesh,new THREE.Vector3());
+    const ln=new THREE.Line(new THREE.BufferGeometry().setFromPoints([pa,pb]), LOCKMAT); ln.renderOrder=998; lockLines.add(ln);
+    [pa,pb].forEach(p=>{ const d=new THREE.Mesh(LOCKDOTG,LOCKDOTM); d.position.copy(p); d.renderOrder=999; lockLines.add(d); }); });
+}
+const arrowA=new THREE.ArrowHelper(new THREE.Vector3(0,1,0),new THREE.Vector3(),40,0x33ff66,12,7); arrowA.visible=false; scene.add(arrowA);
+const arrowB=new THREE.ArrowHelper(new THREE.Vector3(0,1,0),new THREE.Vector3(),40,0xff8800,12,7); arrowB.visible=false; scene.add(arrowB);
+
+const mat=new THREE.MeshStandardMaterial({color:0xdddddd,metalness:0.05,roughness:0.65});
+const parts=[];   // {name, mesh}
+let mates=[];      // {parent, child, type:'rev'|'fix', pivot:[xyz], axis:[xyz], angle, min, max, motor}
+let mode='asm', selPart=null, selMate=-1, groups={};
+const $=id=>document.getElementById(id), d2r=d=>d*Math.PI/180, r2d=r=>r*180/Math.PI;
+const partByName=n=>parts.find(p=>p.name===n);
+const LIST="{% url 'armvision:cad_list' %}", LOADU="{% url 'armvision:arm3d_load' %}", SAVEU="{% url 'armvision:arm3d_save' %}";
+
+Promise.all([fetch(LIST).then(r=>r.json()),fetch(LOADU).then(r=>r.json())]).then(([list,saved])=>{
+  mates=saved.mates||[]; const cfg={}; (saved.parts||[]).forEach(p=>cfg[p.name]=p); let done=0;
+  list.files.forEach(name=>{ new STLLoader().load("/cad/"+encodeURIComponent(name),geo=>{
+    geo.computeVertexNormals(); const m=new THREE.Mesh(geo,mat.clone()); m.userData.part=name;
+    const c=cfg[name]; if(c){ m.position.fromArray(c.pos); m.rotation.set(d2r(c.rot[0]),d2r(c.rot[1]),d2r(c.rot[2])); m.visible=c.visible!==false; }
+    worldRoot.add(m); parts.push({name,mesh:m}); addRow(name);
+    if(++done===list.files.length){ $('ploading').style.display='none'; $('pcount').textContent=parts.length; renderMates(); }
+  }); });
 });
-document.getElementById('home').onclick = () => {
-  joints.forEach(j => { j.value = 90; applyJoint(j); });
-  if (sel >= 0) { document.getElementById('jval').textContent = 90; document.getElementById('jslider').value = 90; }
+
+function addRow(name){ const p=partByName(name); const row=document.createElement('div'); row.className='p'; row.dataset.name=name;
+  const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=p.mesh.visible; cb.onchange=()=>p.mesh.visible=cb.checked;
+  const nm=document.createElement('span'); nm.className='nm'; nm.textContent=name; nm.onclick=()=>selectPart(p.mesh);
+  row.append(cb,nm); $('parts').appendChild(row); }
+
+// ---- 메시 인접정보(정점 웰딩) — region growing 용, 메시별 캐시 ----
+function getAdj(mesh){
+  if(mesh.userData.adj) return mesh.userData.adj;
+  const g=mesh.geometry, pos=g.attributes.position, idx=g.index;
+  const tri=i=>idx?[idx.getX(i*3),idx.getX(i*3+1),idx.getX(i*3+2)]:[i*3,i*3+1,i*3+2];
+  const ntri=(idx?idx.count:pos.count)/3;
+  const vmap=new Map(); const k=a=>Math.round(pos.getX(a)*50)+'_'+Math.round(pos.getY(a)*50)+'_'+Math.round(pos.getZ(a)*50);
+  const wid=a=>{ const kk=k(a); let id=vmap.get(kk); if(id===undefined){ id=vmap.size; vmap.set(kk,id); } return id; };
+  const edge=new Map(); const ln=new Array(ntri);
+  for(let i=0;i<ntri;i++){ const [a,b,c]=tri(i); const A=wid(a),B=wid(b),C=wid(c);
+    const va=new THREE.Vector3().fromBufferAttribute(pos,a),vb=new THREE.Vector3().fromBufferAttribute(pos,b),vc=new THREE.Vector3().fromBufferAttribute(pos,c);
+    ln[i]=new THREE.Vector3().subVectors(vb,va).cross(new THREE.Vector3().subVectors(vc,va)).normalize();
+    [[A,B],[B,C],[C,A]].forEach(([p,q])=>{ const ek=p<q?p+'-'+q:q+'-'+p; let arr=edge.get(ek); if(!arr){arr=[];edge.set(ek,arr);} arr.push(i); }); }
+  const nbr=new Array(ntri); for(let i=0;i<ntri;i++)nbr[i]=[];
+  edge.forEach(arr=>{ if(arr.length===2){ nbr[arr[0]].push(arr[1]); nbr[arr[1]].push(arr[0]); } });
+  return mesh.userData.adj={nbr, ln};
+}
+function growFace(mesh, start, thr){
+  const {nbr,ln}=getAdj(mesh); const seen=new Set([start]); const st=[start]; const out=[start];
+  while(st.length && out.length<30000){ const t=st.pop(); for(const nb of nbr[t]){ if(seen.has(nb))continue; if(ln[nb].dot(ln[t])>thr){ seen.add(nb); st.push(nb); out.push(nb); } } }
+  return out;
+}
+
+// ---- 기하 인식: 클릭한 "연결된 면" 전체(가상 면) → 평면/원통 피팅 ----
+function pickGeom(mesh, faceIndex, point, force){
+  const g=mesh.geometry, pos=g.attributes.position, idx=g.index;
+  const tri=i=>idx?[idx.getX(i*3),idx.getX(i*3+1),idx.getX(i*3+2)]:[i*3,i*3+1,i*3+2];
+  const nmat=new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld);
+  const V=a=>new THREE.Vector3().fromBufferAttribute(pos,a).applyMatrix4(mesh.matrixWorld);
+  const toCam=p=>camera.position.clone().sub(p);
+  const triT=i=>{ const [a,b,c]=tri(i); const va=V(a),vb=V(b),vc=V(c); return {n:new THREE.Vector3().subVectors(vb,va).cross(new THREE.Vector3().subVectors(vc,va)).applyMatrix3(nmat).normalize(),va,vb,vc,cc:va.clone().add(vb).add(vc).multiplyScalar(1/3)}; };
+  const vertsOf=set=>{ const arr=new Float32Array(set.length*9); set.forEach((t,i)=>arr.set([t.va.x,t.va.y,t.va.z,t.vb.x,t.vb.y,t.vb.z,t.vc.x,t.vc.y,t.vc.z],i*9)); return arr; };
+  const clicked=triT(faceIndex); let nc=clicked.n.clone(); if(nc.dot(toCam(point))<0)nc.negate();
+  const {nbr,ln}=getAdj(mesh);
+  const Nw=i=>ln[i].clone().applyMatrix3(nmat).normalize();                 // 월드 법선
+  const CCw=i=>{ const [a,b,c]=tri(i); return V(a).add(V(b)).add(V(c)).multiplyScalar(1/3); };  // 월드 무게중심
+  // ===== 평면 슬롯 =====
+  if(force==='plane' || !force){
+    const region=growFace(mesh, faceIndex, 0.92).map(triT);
+    const avg=new THREE.Vector3(); region.forEach(t=>avg.add(t.n)); if(avg.lengthSq()>0)avg.normalize();
+    let flat=0; region.forEach(t=>flat+=Math.abs(t.n.dot(avg))); flat/=Math.max(1,region.length);
+    if(force==='plane' || flat>0.9){ const n=(force==='plane')?nc:(avg.lengthSq()>0?avg.clone():nc); if(n.dot(toCam(point))<0)n.negate(); return {kind:'plane', point:point.clone(), dir:n, verts:vertsOf(region)}; }
+  }
+  // ===== 원통 슬롯: 클릭한 "원통 1개" 전체 (축 일치 영역성장) =====
+  function bgrow(start,thr,cap){ const sn=new Set([start]),st=[start],o=[start]; while(st.length&&o.length<cap){ const t=st.pop(); for(const nb of nbr[t]){ if(sn.has(nb))continue; if(ln[nb].dot(ln[t])>thr){ sn.add(nb); st.push(nb); o.push(nb);} } } return o; }
+  function estAxis(tris){ const sn=tris.map(Nw); let a=new THREE.Vector3(); for(let i=1;i<sn.length;i++){ const cr=new THREE.Vector3().crossVectors(sn[0],sn[i]); if(cr.lengthSq()>1e-4){ if(a.lengthSq()>0&&cr.dot(a)<0)cr.negate(); a.add(cr);} } if(a.lengthSq()<1e-6)a.set(0,1,0); return a.normalize(); }
+  let ax=estAxis(bgrow(faceIndex,0.5,500));   // 클릭 주변 패치로 축 1차 추정
+  function fitCenter(tris){ let u=new THREE.Vector3(1,0,0); if(Math.abs(u.dot(ax))>0.9)u.set(0,1,0); u.crossVectors(u,ax).normalize(); const v=new THREE.Vector3().crossVectors(ax,u).normalize();
+    let mx=0,my=0; const X=[],Y=[]; tris.forEach(i=>{ const d=CCw(i).sub(point); const x=d.dot(u),y=d.dot(v); X.push(x);Y.push(y);mx+=x;my+=y;}); mx/=tris.length;my/=tris.length;
+    let Suu=0,Svv=0,Suv=0,Suuu=0,Svvv=0,Suvv=0,Svuu=0; for(let i=0;i<X.length;i++){const x=X[i]-mx,y=Y[i]-my;Suu+=x*x;Svv+=y*y;Suv+=x*y;Suuu+=x*x*x;Svvv+=y*y*y;Suvv+=x*y*y;Svuu+=y*x*x;}
+    const det=Suu*Svv-Suv*Suv; let uc=0,vc=0; if(Math.abs(det)>1e-6){const b1=(Suuu+Suvv)/2,b2=(Svvv+Svuu)/2;uc=(b1*Svv-b2*Suv)/det;vc=(Suu*b2-Suv*b1)/det;}
+    return point.clone().add(u.clone().multiplyScalar(mx+uc)).add(v.clone().multiplyScalar(my+vc)); }
+  // 같은 축의 원통 벽면만: 부드럽게 연결 + 법선이 축에 수직 (반지름 제한 없음 → 큰/내부 원통 전체 포착)
+  // 축이 꺾이는 지점(ㄱ·ㄷ 모양의 다른 원통)에서는 법선이 더 이상 이 축에 수직이 아니라 자동 분리됨
+  function growCyl(){ const seen=new Set([faceIndex]), st=[faceIndex], out=[faceIndex];
+    while(st.length && out.length<80000){ const t=st.pop(); for(const nb of nbr[t]){ if(seen.has(nb))continue; seen.add(nb);
+      if(ln[nb].dot(ln[t])<0.3) continue;                 // 날카로운 경계(끝면·평면) 차단
+      if(Math.abs(Nw(nb).dot(ax))>0.5) continue;          // 축에 수직인 원통 벽면만
+      st.push(nb); out.push(nb); } }
+    return out; }
+  let out=growCyl(); ax=estAxis(out);   // 1차 성장 → 축 정제
+  out=growCyl();                         // 정제 축으로 재성장(전체 포착)
+  if(out.length>=5) ax=estAxis(out);
+  const center=fitCenter(out);
+  return {kind:'axis', point:center, dir:ax, verts:vertsOf(out.map(triT))};
+}
+
+// ---- 조립(gizmo) ----
+function selectPart(mesh){ if(mode!=='asm')return; if(selPart)selPart.material.emissive.setHex(0); selPart=mesh; mesh.material.emissive.setHex(0x553300); tc.attach(mesh);
+  document.querySelectorAll('.plist .p').forEach(p=>p.classList.toggle('sel',p.dataset.name===mesh.userData.part)); $('pinfo').style.display='block'; $('pname').textContent=mesh.userData.part; updPartInputs(); }
+function deselectPart(){ if(selPart)selPart.material.emissive.setHex(0); selPart=null; tc.detach(); $('pinfo').style.display='none'; document.querySelectorAll('.plist .p').forEach(p=>p.classList.remove('sel')); }
+function updPartInputs(){ if(!selPart)return; const p=selPart.position,r=selPart.rotation; px.value=p.x.toFixed(1);py.value=p.y.toFixed(1);pz.value=p.z.toFixed(1);rx.value=r2d(r.x).toFixed(0);ry.value=r2d(r.y).toFixed(0);rz.value=r2d(r.z).toFixed(0); }
+['px','py','pz','rx','ry','rz'].forEach(id=>$(id).addEventListener('input',()=>{ if(!selPart)return;
+  const oldP=selPart.position.clone(), oldQ=selPart.quaternion.clone();
+  selPart.position.set(+px.value,+py.value,+pz.value); selPart.rotation.set(d2r(+rx.value),d2r(+ry.value),d2r(+rz.value));
+  const dp=selPart.position.clone().sub(oldP), dq=selPart.quaternion.clone().multiply(oldQ.clone().invert());
+  groupTransform(dp, dq, selPart.position.clone());   // 고정 그룹이면 통째로 동행
+}));
+$('gMove').onclick=()=>{tc.setMode('translate');gMove.classList.add('on');gRot.classList.remove('on');}; $('gRot').onclick=()=>{tc.setMode('rotate');gRot.classList.add('on');gMove.classList.remove('on');}; $('deselP').onclick=deselectPart;
+
+// ---- 결합(면 mate) ----
+let mp={};   // {axA,plA,axB,plB} 각 {mesh,geom}
+let pickFor=null;   // 'axA'|'plA'|'axB'|'plB'
+const markerPlA=new THREE.Mesh(new THREE.SphereGeometry(4,16,12), new THREE.MeshBasicMaterial({color:0x33ff66})); markerPlA.visible=false; scene.add(markerPlA);
+const markerPlB=new THREE.Mesh(new THREE.SphereGeometry(4,16,12), new THREE.MeshBasicMaterial({color:0xff8800})); markerPlB.visible=false; scene.add(markerPlB);
+const SLOTLBL={axA:'원통 A',plA:'평면 A',axB:'원통 B',plB:'평면 B'};
+const hls={};
+function showHL(key,verts,color){ removeHL(key); const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(verts,3)); g.computeVertexNormals(); const m=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color,transparent:true,opacity:0.5,depthTest:false,side:THREE.DoubleSide})); m.renderOrder=999; hls[key]=m; scene.add(m); }
+function removeHL(key){ if(hls[key]){ scene.remove(hls[key]); hls[key].geometry.dispose(); delete hls[key]; } }
+function clrMarks(){ arrowA.visible=arrowB.visible=markerPlA.visible=markerPlB.visible=false; Object.keys(hls).forEach(removeHL); }
+function setMatebar(t){ const b=$('matebar'); b.style.display='block'; b.textContent=t; }
+['axA','plA','axB','plB'].forEach(k=>$('pk_'+k).onclick=()=>{ pickFor=k; document.querySelectorAll('.slot').forEach(b=>b.classList.remove('on')); $('pk_'+k).classList.add('on'); setMatebar(SLOTLBL[k]+' : 화면에서 '+(k[0]==='a'?'둥근 원통 면':'평평한 면')+'을 클릭'); });
+$('clrMate').onclick=()=>{ mp={}; pickFor=null; clrMarks(); document.querySelectorAll('.slot').forEach(b=>b.classList.remove('on')); ['axA','plA','axB','plB'].forEach(k=>$('s_'+k).textContent='미선택'); $('matebar').style.display='none'; };
+$('doMate').onclick=()=>{
+  if(!(mp.axA&&mp.plA&&mp.axB&&mp.plB)){ setMatebar('원통 A · 평면 A · 원통 B · 평면 B 4개를 모두 선택하세요'); return; }
+  const type=document.querySelector('input[name=mtype]:checked').value;
+  const B=mp.axB.mesh;
+  const aA=mp.axA.geom.dir.clone().normalize(), pAx=mp.axA.geom.point.clone(), pAp=mp.plA.geom.point.clone();
+  let aB=mp.axB.geom.dir.clone().normalize(), pBx=mp.axB.geom.point.clone(), pBp=mp.plB.geom.point.clone();
+  if(aB.dot(aA)<0) aB.negate();   // 같은 방향으로
+  // 1) 동심: 축 방향 정렬 (B를 원점 기준 회전)
+  const q=new THREE.Quaternion().setFromUnitVectors(aB, aA);
+  const o=B.position.clone(); B.quaternion.premultiply(q);
+  const rp=p=>o.clone().add(p.clone().sub(o).applyQuaternion(q));
+  pBx=rp(pBx); pBp=rp(pBp);
+  // 2) 축 일직선: 수직 오프셋 제거
+  const d=pBx.clone().sub(pAx); const perp=d.clone().sub(aA.clone().multiplyScalar(d.dot(aA)));
+  B.position.sub(perp); pBx.sub(perp); pBp.sub(perp);
+  // 3) 면일치: 평면이 만나도록 축 따라 이동
+  const along=pAp.clone().sub(pBp).dot(aA); B.position.add(aA.clone().multiplyScalar(along));
+  mates.push({parent:mp.axA.mesh.userData.part, child:B.userData.part, type, pivot:pAx.toArray().map(v=>+v.toFixed(2)), axis:aA.toArray().map(v=>+v.toFixed(4)), angle:90, min:0, max:180, offset:[0,0,0], roll:0, locked:false, motor:{channel:mates.filter(m=>m.type==='rev').length, us0:600, us180:2740}});
+  mp={}; clrMarks(); ['axA','plA','axB','plB'].forEach(k=>$('s_'+k).textContent='미선택'); document.querySelectorAll('.slot').forEach(b=>b.classList.remove('on')); $('matebar').style.display='none';
+  renderMates(); rebuild();
 };
+function renderMates(){ const jl=$('jlist'); jl.innerHTML=''; $('mcount').textContent=mates.length;
+  mates.forEach((m,i)=>{ const row=document.createElement('div'); row.className='j'+(selMate===i?' sel':''); row.innerHTML=`<span class="nm">${m.locked?'🔒 ':''}${m.parent} → ${m.child}</span><span class="muted">${m.type==='rev'?'회전':'고정'}</span>`; row.onclick=()=>selectMate(i); jl.appendChild(row); }); }
+function selectMate(i){ selMate=i; renderMates(); const m=mates[i]; $('jedit').style.display='block'; $('jname').textContent=`${m.parent} → ${m.child} (${m.type==='rev'?'회전':'고정'})`;
+  jmin.value=m.min;jmax.value=m.max;mch.value=m.motor.channel;mu0.value=m.motor.us0;mu1.value=m.motor.us180; tslider.min=m.min;tslider.max=m.max;tslider.value=m.angle;$('tval').textContent=m.angle;
+  const off=m.offset||[0,0,0]; $('aox').value=off[0]; $('aoy').value=off[1]; $('aoz').value=off[2]; $('aroll').value=m.roll||0;
+  $('lockMate').textContent=m.locked?'🔓 고정 해제':'🔒 이 결합 고정'; $('lockMate').classList.toggle('on',!!m.locked);
+  const dis=(m.type!=='rev'); [mch,mu0,mu1,tslider].forEach(e=>e.disabled=dis); }
+['jmin','jmax','mch','mu0','mu1'].forEach(id=>$(id).addEventListener('input',()=>{ if(selMate<0)return; const m=mates[selMate]; m.min=+jmin.value;m.max=+jmax.value;m.motor.channel=+mch.value;m.motor.us0=+mu0.value;m.motor.us180=+mu1.value; tslider.min=m.min;tslider.max=m.max; }));
+$('tslider').addEventListener('input',()=>{ if(selMate<0)return; mates[selMate].angle=+tslider.value; $('tval').textContent=tslider.value; applyAngles(); });
+$('delMate').onclick=()=>{ mates.splice(selMate,1); selMate=-1; $('jedit').style.display='none'; renderMates(); rebuild(); };
+function subtreeParts(root){ const out=[root]; const st=[root]; while(st.length){ const p=st.pop(); mates.forEach(m=>{ if(m.parent===p && !out.includes(m.child)){ out.push(m.child); st.push(m.child); } }); } return out; }
+function editOffset(mate, dx,dy,dz, dRoll){
+  mates.forEach(m=>m.angle=90); applyAngles(); parts.forEach(p=>worldRoot.attach(p.mesh));   // 휴식 자세 + 평면화
+  const axis=new THREE.Vector3().fromArray(mate.axis).normalize(); const pivot=new THREE.Vector3().fromArray(mate.pivot);
+  const dv=new THREE.Vector3(dx,dy,dz); const q=new THREE.Quaternion().setFromAxisAngle(axis, d2r(dRoll));
+  const sub=subtreeParts(mate.child); const inSub=nm=>sub.includes(nm);
+  // 1) 부품 메시 이동/회전
+  sub.forEach(nm=>{ const m=partByName(nm).mesh;
+    if(dv.lengthSq()>0) m.position.add(dv);
+    if(dRoll){ const rel=m.position.clone().sub(pivot).applyQuaternion(q); m.position.copy(pivot.clone().add(rel)); m.quaternion.premultiply(q); } });
+  // 2) 서브트리 내부 결합의 중심선(pivot/axis)도 같이 이동·회전 → 회전축이 부품을 따라 옮겨짐
+  mates.forEach(m2=>{ if(!inSub(m2.child))return; const pv=new THREE.Vector3().fromArray(m2.pivot);
+    if(dv.lengthSq()>0) pv.add(dv);
+    if(dRoll){ const rel=pv.clone().sub(pivot).applyQuaternion(q); pv.copy(pivot.clone().add(rel)); m2.axis=new THREE.Vector3().fromArray(m2.axis).applyQuaternion(q).toArray().map(v=>+v.toFixed(4)); }
+    m2.pivot=pv.toArray().map(v=>+v.toFixed(2)); });
+  rebuild(); if(selMate>=0){ tslider.value=90; $('tval').textContent=90; }
+}
+function mOff(m){ return m.offset||(m.offset=[0,0,0]); }
+['aox','aoy','aoz'].forEach((id,ax)=>$(id).addEventListener('input',()=>{ if(selMate<0)return; const m=mates[selMate]; const off=mOff(m); const nv=+$(id).value; const d=[0,0,0]; d[ax]=nv-off[ax]; editOffset(m,d[0],d[1],d[2],0); off[ax]=nv; }));
+$('aroll').addEventListener('input',()=>{ if(selMate<0)return; const m=mates[selMate]; editOffset(m,0,0,0,(+aroll.value)-(m.roll||0)); m.roll=+aroll.value; });
+$('lockMate').onclick=()=>{ if(selMate<0)return; const m=mates[selMate]; m.locked=!m.locked; selectMate(selMate); renderMates(); };
+// 고정된 결합으로 연결된 부품들 = 하나의 강체 그룹 (조립 모드에서 통째 이동)
+function lockedGroup(name){ const set=new Set([name]); let add=true; while(add){ add=false; mates.forEach(m=>{ if(!m.locked)return; if(set.has(m.parent)&&!set.has(m.child)){set.add(m.child);add=true;} if(set.has(m.child)&&!set.has(m.parent)){set.add(m.parent);add=true;} }); } return [...set]; }
 
-function resize() { camera.aspect = vp.clientWidth / vp.clientHeight; camera.updateProjectionMatrix(); renderer.setSize(vp.clientWidth, vp.clientHeight); }
-window.addEventListener('resize', resize);
-(function loop() { requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); })();
+// ---- 계층 재구성 ----
+function rebuild(){
+  // 평면화하며 누적 부동소수 오차를 리셋(부품은 항상 scale=1) → 결합 반복 시 작아지는 버그 방지
+  parts.forEach(p=>{ worldRoot.attach(p.mesh); p.mesh.scale.set(1,1,1); p.mesh.quaternion.normalize(); });
+  Object.values(groups).forEach(g=>g.parent&&g.parent.remove(g)); groups={};
+  parts.forEach(p=>{ const g=new THREE.Group(); g.name=p.name; groups[p.name]=g; });
+  // 부모 먼저 attach (위상)
+  const childOf={}; mates.forEach(m=>childOf[m.child]=m);
+  const isRoot=n=>!childOf[n]; const placed=new Set();
+  parts.forEach(p=>{ if(isRoot(p.name)){ rigRoot.add(groups[p.name]); groups[p.name].attach(p.mesh); placed.add(p.name); } });
+  let guard=0;
+  while(placed.size<parts.length && guard++<200){
+    mates.forEach(m=>{ if(placed.has(m.child)||!placed.has(m.parent))return;
+      const pg=groups[m.parent], cg=groups[m.child]; pg.updateMatrixWorld(true);
+      if(m.type==='rev'){ const pv=new THREE.Group(); pv.name='pv_'+m.child; pg.attach(pv);
+        pg.updateMatrixWorld(true); pv.position.copy(pg.worldToLocal(new THREE.Vector3().fromArray(m.pivot))); pv.updateMatrixWorld(true);
+        pv.attach(cg); cg.attach(partByName(m.child).mesh); m._pv=pv; }
+      else { pg.attach(cg); cg.attach(partByName(m.child).mesh); m._pv=null; }
+      placed.add(m.child);
+    });
+  }
+  applyAngles();
+}
+function applyAngles(){ mates.forEach(m=>{ if(m.type!=='rev'||!m._pv)return; const ax=new THREE.Vector3().fromArray(m.axis); if(ax.lengthSq()<1e-6)ax.set(0,1,0); ax.normalize(); m._pv.quaternion.setFromAxisAngle(ax, d2r((m.angle||90)-90)); }); }
+
+// ---- 모드 ----
+function setMode(mo){ mode=mo; $('mAsm').classList.toggle('on',mo==='asm'); $('mMate').classList.toggle('on',mo==='mate'); $('mCtrl').classList.toggle('on',mo==='ctrl');
+  $('asmPane').style.display=mo==='asm'?'block':'none'; $('matePane').style.display=mo==='mate'?'block':'none'; $('ctrlPane').style.display=mo==='ctrl'?'block':'none';
+  $('phase').textContent=mo==='asm'?'1·조립':(mo==='mate'?'2·결합':'3·연동 제어');
+  deselectPart(); tc.detach(); pickFor=null; clrMarks(); $('matebar').style.display='none';
+  if(mo==='mate' || mo==='ctrl'){ rebuild(); if(mo==='ctrl'){ buildCtrlJoints(); refreshConn(); } }
+  else { parts.forEach(p=>{ worldRoot.attach(p.mesh); p.mesh.scale.set(1,1,1); p.mesh.quaternion.normalize(); }); Object.values(groups).forEach(g=>g.parent&&g.parent.remove(g)); groups={}; } }
+$('mAsm').onclick=()=>setMode('asm'); $('mMate').onclick=()=>setMode('mate'); $('mCtrl').onclick=()=>setMode('ctrl');
+
+// ---- ③ 연동 제어: 실물 로봇팔 ----
+const A_STAT="{% url 'armvision:arm_status' %}", A_CONN="{% url 'armvision:arm_connect' %}", A_DISC="{% url 'armvision:arm_disconnect' %}", A_MOVE="{% url 'armvision:arm_move' %}";
+let sync=false, connected=false;
+const revMates=()=>mates.filter(m=>m.type==='rev');
+function angToUs(m, ang){ let a=(ang==null)?(m.angle==null?90:m.angle):ang;
+  a=Math.max(m.min,Math.min(m.max,a));
+  a=180-a;                                           // 시뮬↔실물 방향이 반대 → 항상 미러(60°↔120°)
+  a=Math.max(0,Math.min(180,a));
+  return Math.round(m.motor.us0 + (a/180)*(m.motor.us180-m.motor.us0)); }
+// 스로틀 전송: 채널별 최신 펄스만 ~30ms 간격으로 (드래그 중 실시간)
+const _pend={}, _lastUs={}; let _lastSend=0, _timer=null; const SEND_MS=50;
+function flushSend(){ if(_timer){clearTimeout(_timer);_timer=null;} _lastSend=performance.now();
+  const joints=Object.entries(_pend).filter(([ch,us])=>_lastUs[ch]!==us).map(([ch,us])=>({channel:+ch,us}));  // 바뀐 값만
+  for(const k in _pend)delete _pend[k];
+  if(!joints.length||!connected)return;
+  joints.forEach(j=>_lastUs[j.channel]=j.us);
+  fetch(A_MOVE,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({joints})})
+    .then(r=>r.json()).then(res=>{ if(res&&res.ok===false&&res.disconnected) onArmLost(); }).catch(()=>{}); }
+function sendJoint(ch,us){ _pend[ch]=us; const now=performance.now();
+  if(now-_lastSend>=SEND_MS) flushSend(); else if(!_timer) _timer=setTimeout(flushSend,SEND_MS-(now-_lastSend)); }
+function onArmLost(){ connected=false; for(const k in _lastUs)delete _lastUs[k];   // 연동 끄지 않음 → 서버 자동 재연결 후 이어서 동작
+  $('connStat').textContent='⟳ 재연결 중… (전원/USB 확인)'; $('connStat').style.color='var(--warn)'; }
+function armAlign(){ if(connected) aligning=true; }   // 램프가 실물 명령각을 3D 자세로 천천히 이동시킴
+
+function buildCtrlJoints(){ const c=$('ctrlJoints'); c.innerHTML=''; aligning=false; const rm=revMates(); $('jcount').textContent=rm.length;
+  rm.forEach((m,i)=>{ const card=document.createElement('div'); card.className='card';
+    const nm=`J${i+1} · ${m.parent.replace('.stl','')}→${m.child.replace('.stl','')}`;
+    card.innerHTML=`<div class="row" style="justify-content:space-between;margin-bottom:6px"><span style="color:#fbbf24;font-weight:600">${nm}</span><span class="muted">ch${m.motor.channel} · <b class="cu">—</b>µs</span></div>
+      <div class="row" style="margin-bottom:0"><b class="ca" style="width:32px;text-align:right">${m.angle}</b><span class="muted">°</span><input class="slider cs" type="range" min="${m.min}" max="${m.max}" value="${m.angle}"></div>`;
+    const sl=card.querySelector('.cs'), ca=card.querySelector('.ca'), cu=card.querySelector('.cu');
+    m._tgt=(m.angle==null?90:m.angle); if(m._cmd==null)m._cmd=m._tgt; m._ui={sl,ca,cu};   // 목표각·명령각·UI 참조
+    cu.textContent=angToUs(m);
+    sl.addEventListener('input',()=>{ m._tgt=+sl.value; });   // 목표만 설정 → 램프가 천천히 이동
+    c.appendChild(card); }); }
+// ---- 속도 제한 램프 (ctrlSpeed °/s) ----
+// 2단: ① 3D 표시각(m.angle) → 슬라이더 목표(_tgt)   ② 실물 명령각(_cmd) → 3D 표시각
+// 펄스는 _cmd 기준으로 보냄. 정렬·연동 모두 같은 하단 속도로 천천히 움직인다.
+let ctrlSpeed=10, _rampT=null, aligning=false;   // 10°/s → 60°를 6초
+function rampCtrl(){
+  const now=performance.now(); const dt=_rampT?Math.min(0.1,(now-_rampT)/1000):0; _rampT=now;
+  if(mode!=='ctrl'||!dt) return; const step=ctrlSpeed*dt; let moved3d=false;
+  revMates().forEach(m=>{ let a=(m.angle==null?90:m.angle); if(m._tgt==null)m._tgt=a; if(m._cmd==null)m._cmd=a;
+    if(a!==m._tgt){ a=Math.abs(m._tgt-a)<=step?m._tgt:a+Math.sign(m._tgt-a)*step; m.angle=a; moved3d=true; if(m._ui)m._ui.ca.textContent=Math.round(a); }  // ① 3D
+    if((sync||aligning)&&connected){                                                      // ② 실물(천천히 따라감)
+      if(m._cmd!==a) m._cmd=Math.abs(a-m._cmd)<=step?a:m._cmd+Math.sign(a-m._cmd)*step;
+      const us=angToUs(m,m._cmd); if(m._ui)m._ui.cu.textContent=us; sendJoint(m.motor.channel,us);
+    } });   // 연동/정렬 아닐 땐 _cmd 고정 → 실물은 마지막 명령 위치에 머무름
+  if(moved3d) applyAngles();
+  if(aligning && revMates().every(m=>m._cmd===(m.angle==null?90:m.angle))) aligning=false;
+}
+
+async function refreshConn(){ try{ const s=await (await fetch(A_STAT)).json(); const was=connected; connected=!!s.connected;
+  if(s.reconnecting){ $('connStat').textContent='⟳ 재연결 중… (전원/USB 확인)'; $('connStat').style.color='var(--warn)'; }
+  else { $('connStat').textContent=connected?('연결됨 ✓ '+(s.port||'')):'미연결'; $('connStat').style.color=connected?'var(--c-ok)':'var(--c-mut)'; }
+  $('btnConn').textContent=connected?'해제':'연결';
+  if(connected && !was){ for(const k in _lastUs)delete _lastUs[k]; if(sync) armAlign(); }   // 재연결 직후 현재 자세 복구
+}catch(e){} }
+function setSync(on){ sync=on&&connected; $('btnSync').textContent=sync?'🟢 연동 ON (실물 동시 구동)':'🔌 연동 OFF'; $('btnSync').classList.toggle('on',sync); if(!sync) flushSend(); }
+$('btnConn').onclick=async ()=>{ if(connected){ await fetch(A_DISC,{method:'POST'}).catch(()=>{}); }
+  else { $('connStat').textContent='연결 중…'; try{ await fetch(A_CONN,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({port:$('comPort').value,baud:+$('comBaud').value})}); }catch(e){} }
+  refreshConn(); };
+$('btnSync').onclick=()=>{ if(!connected){ alert('먼저 아두이노를 연결하세요.'); return; }
+  if(!sync && !confirm('연동을 켜면 슬라이더 조작이 실제 로봇팔을 움직입니다.\n실물이 현재 3D 자세와 정렬돼 있는지 확인하세요. 계속할까요?')) return;
+  setSync(!sync); };
+$('btnAlign').onclick=()=>{ if(!connected){ alert('먼저 아두이노를 연결하세요.'); return; }
+  armAlign(); $('connStat').textContent='정렬 중… (천천히 이동)'; $('connStat').style.color='var(--c-ok)'; };
+$('btnEstop').onclick=()=>{ setSync(false); revMates().forEach(m=>m._tgt=(m.angle==null?90:m.angle)); $('connStat').textContent='정지 — 연동 꺼짐(서보는 현재 위치 유지)'; $('connStat').style.color='var(--warn)'; };
+$('ctrlSpeed').addEventListener('input',()=>{ ctrlSpeed=Math.max(1,+$('ctrlSpeed').value||10); });
+setInterval(()=>{ if(mode==='ctrl') refreshConn(); }, 2500);   // 끊김 자동 감지/표시
+
+// ---- 클릭 ----
+const ray=new THREE.Raycaster(), mouse=new THREE.Vector2();
+renderer.domElement.addEventListener('pointerdown',e=>{
+  if(tc.axis)return; const r=renderer.domElement.getBoundingClientRect(); mouse.x=((e.clientX-r.left)/r.width)*2-1; mouse.y=-((e.clientY-r.top)/r.height)*2+1; ray.setFromCamera(mouse,camera);
+  const hits=ray.intersectObjects(parts.filter(p=>p.mesh.visible).map(p=>p.mesh),false); if(!hits.length)return; const h=hits[0];
+  if(mode==='mate' && pickFor){
+    const isAxis=pickFor[0]==='a';
+    const geom=pickGeom(h.object, h.faceIndex, h.point, isAxis?'axis':'plane');
+    mp[pickFor]={mesh:h.object, geom};
+    const sideA=(pickFor[2]==='A');
+    if(isAxis){ const arr=sideA?arrowA:arrowB; arr.position.copy(geom.point); arr.setDirection(geom.dir); arr.setLength(70); arr.visible=true; }
+    else { const mk=sideA?markerPlA:markerPlB; mk.position.copy(geom.point); mk.visible=true; }
+    showHL(pickFor, geom.verts, sideA?0x33ff66:0xff8800);
+    $('s_'+pickFor).textContent = h.object.userData.part + (isAxis?' (원통)':' (평면)');
+    $('pk_'+pickFor).classList.remove('on');
+    const remain=['axA','plA','axB','plB'].filter(k=>!mp[k]);
+    pickFor=null;
+    setMatebar(remain.length? '남은 선택: '+remain.map(k=>SLOTLBL[k]).join(', ') : '4개 선택 완료 → 종류 후 결합 실행');
+    return;
+  }
+  if(mode==='asm') selectPart(h.object);
+});
+
+// ---- 저장/불러오기 ----
+$('save').onclick=async ()=>{ const wasMate=(mode==='mate'); if(wasMate){ mates.forEach(m=>m.angle=90); applyAngles(); parts.forEach(p=>worldRoot.attach(p.mesh)); }
+  const data={ parts: parts.map(p=>({name:p.name,pos:p.mesh.position.toArray().map(v=>+v.toFixed(2)),rot:[r2d(p.mesh.rotation.x),r2d(p.mesh.rotation.y),r2d(p.mesh.rotation.z)].map(v=>+v.toFixed(1)),visible:p.mesh.visible})), mates: mates.map(m=>({parent:m.parent,child:m.child,type:m.type,pivot:m.pivot,axis:m.axis,angle:m.angle,min:m.min,max:m.max,offset:m.offset||[0,0,0],roll:m.roll||0,locked:!!m.locked,motor:m.motor})) };
+  if(wasMate) rebuild();
+  const res=await (await fetch(SAVEU,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})).json(); $('status').textContent=res.ok?'저장됨 ✓':'실패'; setTimeout(()=>$('status').textContent='',2000); };
+$('load').onclick=()=>{ if(confirm('저장된 내용으로 다시 불러옵니다.\n현재 화면의 변경사항은 사라집니다. 계속할까요?')) location.reload(); };
+
+window.addEventListener('keydown',e=>{ if(mode==='asm'){ if(e.key==='g')gMove.click(); if(e.key==='r')gRot.click(); } if(e.key==='Escape'){deselectPart(); pickFor=null; document.querySelectorAll('.slot').forEach(b=>b.classList.remove('on')); $('matebar').style.display='none';} });
+function resize(){ camera.aspect=vp.clientWidth/vp.clientHeight; camera.updateProjectionMatrix(); renderer.setSize(vp.clientWidth,vp.clientHeight); }
+window.addEventListener('resize',resize);
+(function loop(){ requestAnimationFrame(loop); orbit.update(); updateLockLines(); rampCtrl(); renderer.render(scene,camera); })();
 </script>
 {% endblock %}
