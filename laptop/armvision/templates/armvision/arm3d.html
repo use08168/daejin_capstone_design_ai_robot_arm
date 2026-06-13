@@ -636,13 +636,20 @@ function _sampleVerts(geo){ const pos=geo.attributes.position, n=pos.count, step
   for(let i=0;i<n;i+=step) out.push(pos.getX(i),pos.getY(i),pos.getZ(i)); return new Float32Array(out); }
 function _gripPts(p){ if(!p._cpts) p._cpts=_sampleVerts(p.mesh.geometry); return p._cpts; }
 function _chainInfo(){
-  // 체인 깊이 → 가장 깊은(말단) 부품 = 그리퍼. 그리퍼+직속부모(손목)는 자기충돌 검사 제외(항상 닿음).
-  const parentOf={}; mates.forEach(m=>parentOf[m.child]=m.parent);
-  const depth={}; parts.forEach(p=>{ let n=p.name,d=0,g=0; while(parentOf[n]&&g++<60){ n=parentOf[n]; d++; } depth[p.name]=d; });
-  const maxd=Math.max(0,...parts.map(p=>depth[p.name]));
-  const grip=parts.filter(p=>depth[p.name]===maxd).map(p=>p.name);
-  const excl=new Set(grip); grip.forEach(g=>{ if(parentOf[g]) excl.add(parentOf[g]); });
-  return {grip, excl, isChild:Object.fromEntries(mates.map(m=>[m.child,1]))};
+  // 손(그리퍼) = 직렬 팔 체인이 처음으로 갈라지는 부품(gripper base)부터 모든 자손.
+  //   → 손 전체를 점 출처로, 손+장착링크(직속부모)를 자기충돌 대상에서 제외(내부/인접 오탐 방지).
+  const parentOf={}, childrenOf={}; mates.forEach(m=>{ parentOf[m.child]=m.parent; (childrenOf[m.parent]=childrenOf[m.parent]||[]).push(m.child); });
+  const isChild=Object.fromEntries(mates.map(m=>[m.child,1]));
+  const kinRoot=(mates.find(m=>!isChild[m.parent])||{}).parent;   // 운동학 루트(고정 베이스)
+  let node=kinRoot, handRoot=null;
+  for(let g=0; node && g<60; g++){ const ch=childrenOf[node]||[]; if(ch.length>1){ handRoot=node; break; } node=ch[0]; }
+  if(!handRoot){   // 갈래 없음(손가락 미장착) → 가장 깊은 부품으로 폴백
+    const depth={}; parts.forEach(p=>{ let n=p.name,d=0,g=0; while(parentOf[n]&&g++<60){ n=parentOf[n]; d++; } depth[p.name]=d; });
+    const maxd=Math.max(0,...parts.map(p=>depth[p.name])); handRoot=(parts.find(p=>depth[p.name]===maxd)||{}).name;
+  }
+  const hand=new Set(); if(handRoot){ const st=[handRoot]; while(st.length){ const x=st.pop(); hand.add(x); (childrenOf[x]||[]).forEach(c=>st.push(c)); } }
+  const excl=new Set(hand); if(handRoot&&parentOf[handRoot]) excl.add(parentOf[handRoot]);   // 장착 링크(인접)
+  return {grip:[...hand], excl, isChild, kinRoot};
 }
 const _wp=new THREE.Vector3(), _best=new THREE.Vector3();
 const _inv=new THREE.Matrix4(), _lp=new THREE.Vector3(), _sbest=new THREE.Vector3();
@@ -655,19 +662,21 @@ function _boxSigned(p, bb){   // 점 p(로컬) vs 박스 bb. 음수=내부(침�
 // 현재 자세의 충돌 코어 — HUD/스윕 공용. {floor 여유, self 여유, 대상부품, 최저점}
 function _collideOnce(){
   rigRoot.updateMatrixWorld(true); worldRoot.updateMatrixWorld(true);
-  const {grip, excl, isChild}=_chainInfo();
+  const {grip, excl, isChild, kinRoot}=_chainInfo();
   // ① 바닥: 움직이는 부품(루트 제외) 최저 y
   let minY=Infinity, who=null;
   parts.forEach(p=>{ if(!p.mesh.visible || !isChild[p.name]) return;
     const mw=p.mesh.matrixWorld, a=_gripPts(p);
     for(let i=0;i<a.length;i+=3){ _wp.set(a[i],a[i+1],a[i+2]).applyMatrix4(mw);
       if(_wp.y<minY){ minY=_wp.y; who=p.name; _best.copy(_wp); } } });
-  // ② 자기충돌: 그리퍼 점 vs 비인접 링크의 로컬 박스 → 부호거리 최소(=가장 가깝거나 깊은)
-  const gworld=[];
+  // ② 자기충돌: 손(그리퍼) 점 vs 비인접 링크의 로컬 박스 → 부호거리 최소(=가장 가깝거나 깊은)
+  const gworld=[]; const tot=grip.reduce((s,nm)=>{ const p=partByName(nm); return s+(p?_gripPts(p).length/3:0); },0);
+  const stride=Math.max(1,Math.floor(tot/600));   // 손 전체 ~600점으로 제한
   grip.forEach(nm=>{ const p=partByName(nm); if(!p||!p.mesh.visible)return; const mw=p.mesh.matrixWorld, a=_gripPts(p);
-    for(let i=0;i<a.length;i+=3) gworld.push(new THREE.Vector3(a[i],a[i+1],a[i+2]).applyMatrix4(mw)); });
+    for(let i=0;i<a.length;i+=3*stride) gworld.push(new THREE.Vector3(a[i],a[i+1],a[i+2]).applyMatrix4(mw)); });
   let sMin=Infinity, sTarget=null;
   parts.forEach(p=>{ if(excl.has(p.name)||!p.mesh.visible)return;
+    if(!isChild[p.name] && p.name!==kinRoot) return;   // 리깅된 체인 부품(+고정베이스)만 — 정적 .t 반쪽 제외
     const geo=p.mesh.geometry; if(!geo.boundingBox)geo.computeBoundingBox(); const bb=geo.boundingBox;
     _inv.copy(p.mesh.matrixWorld).invert();
     for(const w of gworld){ _lp.copy(w).applyMatrix4(_inv); const sd=_boxSigned(_lp,bb);
