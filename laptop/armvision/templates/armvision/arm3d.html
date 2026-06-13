@@ -139,7 +139,7 @@
         <div class="card" style="margin-top:10px;">
           <div class="ttl">콜드스타트 / 작업공간 수집 (단계 ⑥)</div>
           <div class="hintline">각 자세에서 마커를 측정해 모읍니다. 평평한 자세(J2=0)처럼 마커가 다 보일 때 추가하세요. (연동 ON 필요)</div>
-          <div class="row"><button class="primary" id="csAdd" style="flex:1">📌 이 자세 추가</button><button class="ghost" id="csAuto">⟳ 자동 스윕(J1)</button></div>
+          <div class="row"><button class="primary" id="csAdd" style="flex:1">📌 이 자세 추가</button><button class="ghost" id="csAuto">🎬 검증 시퀀스</button></div>
           <div class="row"><span class="muted">수집 <b id="csN">0</b>자세</span><span style="flex:1"></span><button class="ghost" id="csCsv">⬇ CSV</button><button class="ghost" id="csSave">💾 저장</button><button class="ghost" id="csClear">초기화</button></div>
           <div class="hintline" id="csStat" style="margin:0;">검증용: 한 자세에서 안 움직이고 여러 번 '추가'=반복성, 한 관절만 바꿔 '추가'=관절별. → CSV로 내보내 분석.</div>
         </div>
@@ -486,7 +486,7 @@ $('btnSync').onclick=()=>{ if(!connected){ alert('먼저 아두이노를 연결�
 $('btnHome').onclick=()=>{ revMates().forEach(m=>m._cmd=90); saveCmd(); $('connStat').textContent='홈(90°) 기준 설정됨 (저장됨 — 페이지 이동해도 유지)'; $('connStat').style.color='var(--c-ok)'; };
 $('btnAlign').onclick=()=>{ if(!connected){ alert('먼저 아두이노를 연결하세요.'); return; }
   armAlign(); $('connStat').textContent='정렬 중… (홈에서 천천히 이동)'; $('connStat').style.color='var(--c-ok)'; };
-$('btnEstop').onclick=()=>{ setSync(false); revMates().forEach(m=>m._tgt=(m.angle==null?90:m.angle)); $('connStat').textContent='정지 — 연동 꺼짐(서보는 현재 위치 유지)'; $('connStat').style.color='var(--warn)'; };
+$('btnEstop').onclick=()=>{ seqAbort=true; setSync(false); revMates().forEach(m=>m._tgt=(m.angle==null?90:m.angle)); $('connStat').textContent='정지 — 연동 꺼짐(서보는 현재 위치 유지)'; $('connStat').style.color='var(--warn)'; };
 $('ctrlSpeed').addEventListener('input',()=>{ ctrlSpeed=Math.max(1,+$('ctrlSpeed').value||10); });
 setInterval(()=>{ if(mode==='ctrl'){ refreshConn(); saveCmd(); } }, 2500);   // 끊김 자동 감지 + 명령각 저장
 
@@ -511,21 +511,33 @@ async function csSave(){
       : (d.ok? `저장 ✓ ${d.poses}자세 (엔드 마커 없어 작업공간 계산 불가)` : '저장 실패');
   }catch(e){ $('csStat').textContent='저장 실패'; }
 }
-async function csAutoSweep(){
+// 검증 시퀀스 생성: 기준 자세(J2=0·J5=180, 평평·마커 다 보임)에서 반복성 + 관절별 단독 변경
+let seqAbort=false;
+function genValidationPoses(){
+  const n=revMates().length;
+  const base={J1:90,J2:0,J3:90,J4:90,J5:180,J6:90};
+  const arr=()=>Array.from({length:n},(_,i)=>base['J'+(i+1)]!=null?base['J'+(i+1)]:90);
+  const list=[]; const push=ov=>{ const a=arr(); for(const k in ov){ const i=+k.slice(1)-1; if(i<n)a[i]=ov[k]; } list.push(a); };
+  for(let r=0;r<15;r++) push({});                          // 반복성 15회
+  const sw={J3:[70,90,110,130],J4:[70,90,110,130],J1:[60,75,90,105,120],J5:[0,90,180],J2:[0,30,60]};
+  for(const j in sw) for(const ang of sw[j]) for(let r=0;r<3;r++) push({[j]:ang});   // 관절별 × 3회
+  return list;
+}
+// 포즈 리스트를 순서대로 실행하며 측정 (← 추후 AI 서버 명령 시퀀스 실행 경로와 동일 구조)
+async function runSequence(list){
   if(!connected||!sync){ alert('실물 연결 + 연동 ON 상태에서 실행하세요.'); return; }
-  const rm=revMates(); if(rm.length<1){ alert('관절이 없습니다.'); return; }
-  if(!confirm('자동 스윕: J2→0°, J5→180° 후 J1을 0→180° 30°씩 돌리며 측정합니다.\n주변 충돌 정리 확인. 계속할까요?')) return;
-  $('csStat').textContent='준비(J2=0, J5=180)…';
-  if(rm[1]){ rm[1]._tgt=0; } if(rm[4]){ rm[4]._tgt=180; }
-  await _waitSettled(); await _sleep(1500);
-  const j1=rm[0];
-  for(let a=j1.min; a<=j1.max+0.1; a+=30){
-    j1._tgt=a; $('csStat').textContent=`J1=${a}° 이동 중…`;
-    await _waitSettled(); await _sleep(1500);           // 실물 서보 도착 대기
+  if(!confirm(`자동 시퀀스 ${list.length}자세를 순서대로 실행하며 측정합니다.\n(■ 정지로 중단 가능) 주변 충돌 정리 확인. 계속할까요?`)) return;
+  seqAbort=false; const rm=revMates();
+  for(let k=0;k<list.length;k++){
+    if(seqAbort){ $('csStat').textContent=`중지됨 — ${csPoses.length}자세 수집`; return; }
+    if(!connected){ $('csStat').textContent='연결 끊김 — 중지'; return; }
+    rm.forEach((m,i)=>{ if(list[k][i]!=null) m._tgt=list[k][i]; });
+    $('csStat').textContent=`${k+1}/${list.length} 이동 중…`;
+    await _waitSettled(); await _sleep(1200);              // 램프 정착 + 실물 도착 대기
     const ok=await csAdd(true);
-    $('csStat').textContent=`J1=${a}° ${ok?'측정 ✓':'마커 부족'} · 수집 ${csPoses.length}자세`;
+    $('csStat').textContent=`${k+1}/${list.length} ${ok?'측정 ✓':'마커부족'} · 수집 ${csPoses.length}`;
   }
-  await csSave();
+  $('csStat').textContent=`시퀀스 완료 — ${csPoses.length}자세. [⬇ CSV]로 내보내세요.`;
 }
 function csExportCSV(){
   if(!csPoses.length){ $('csStat').textContent='수집된 자세가 없습니다.'; return; }
@@ -540,7 +552,7 @@ function csExportCSV(){
   $('csStat').textContent=`CSV 내보냄 (${csPoses.length}행) — 파일을 공유해 주세요`;
 }
 $('csAdd').onclick=()=>csAdd(false);
-$('csAuto').onclick=csAutoSweep;
+$('csAuto').onclick=()=>runSequence(genValidationPoses());
 $('csSave').onclick=csSave;
 $('csCsv').onclick=csExportCSV;
 $('csClear').onclick=()=>{ csPoses=[]; $('csN').textContent='0'; $('csStat').textContent='초기화됨'; };
