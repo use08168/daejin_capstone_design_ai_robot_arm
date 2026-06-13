@@ -75,9 +75,16 @@ def compute_base_transform(frameL, frameR):
     c = np.load(CAL)
     cal = {k: c[k] for k in ("K1", "d1", "K2", "d2", "P1", "P2")}
     P = _triangulate(mL[BASE_ID], mR[BASE_ID], cal)
-    T, info = _frame_from_corners(P)
+    T, info = _frame_from_corners(P)               # 방향·원점: id0
+    origin = "id0"
+    # 원점을 J1 회전축(id1)으로 이동 — 로봇 실제 중심 기준 (방향은 정적 id0 유지)
+    if 1 in mL and 1 in mR:
+        p1 = _triangulate(mL[1], mR[1], cal).mean(0)
+        p1r = (T @ np.array([p1[0], p1[1], p1[2], 1.0]))[:3]   # id0 프레임에서 본 id1 위치
+        T[:3, 3] = T[:3, 3] - p1r                              # 원점 = id1
+        origin = "id1(J1축)"
     np.savez(T_PATH, T=T)
-    return {"ok": True, **{k: round(v, 1) for k, v in info.items()}}
+    return {"ok": True, "origin": origin, **{k: round(v, 1) for k, v in info.items()}}
 
 
 def marker_status(frameL, frameR):
