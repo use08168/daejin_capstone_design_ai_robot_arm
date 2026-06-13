@@ -12,6 +12,7 @@ from .camera import get_camera, get_config, mjpeg_frames
 from .detector import detections as detect_objects
 
 CAPTURE_DIR = r"C:\robotic_arm\laptop\calibration\captures"
+COLDSTART_PATH = r"C:\robotic_arm\laptop\calibration\coldstart_data.json"
 
 
 def _cams():
@@ -274,6 +275,61 @@ def marker_status(request):
     st["base_ok"] = (markers.BASE_ID in st["left"] and markers.BASE_ID in st["right"])
     st["has_T"] = markers.has_transform()
     return JsonResponse(st)
+
+
+@csrf_exempt
+def coldstart_save(request):
+    """스윕으로 모은 {자세 관절각, 마커 3D} 데이터셋 저장 + 엔드이펙터 마커로 작업공간 산출."""
+    if request.method != "POST":
+        return JsonResponse({"ok": False, "error": "POST only"})
+    import json
+    import math
+    data = json.loads(request.body.decode("utf-8"))
+    poses = data.get("poses", [])
+
+    all_ids = set()
+    for p in poses:
+        for k in p.get("markers", {}):
+            all_ids.add(int(k))
+    ws = None
+    if all_ids and poses:
+        ee = max(all_ids)                        # 가장 끝(엔드이펙터) 마커
+        # J1 회전축 = id1 평균 위치 (로봇팔의 실제 중심축). 없으면 원점(id0) 기준.
+        id1 = [p["markers"].get("1") for p in poses if p.get("markers", {}).get("1")]
+        if id1:
+            cx = sum(v[0] for v in id1) / len(id1)
+            cy = sum(v[1] for v in id1) / len(id1)
+            cz = sum(v[2] for v in id1) / len(id1)
+            axis_spread = round(max(math.hypot(v[0] - cx, v[1] - cy) for v in id1), 1)
+            axis_id, axis = 1, [round(cx, 1), round(cy, 1), round(cz, 1)]
+        else:
+            cx = cy = cz = 0.0
+            axis_spread, axis_id, axis = None, 0, [0, 0, 0]
+        pts = [p["markers"].get(str(ee)) for p in poses if p.get("markers", {}).get(str(ee))]
+        if pts:
+            # J1 축 기준 상대좌표 + 수평 도달거리
+            xs = [v[0] - cx for v in pts]; ys = [v[1] - cy for v in pts]; zs = [v[2] - cz for v in pts]
+            reach = [math.hypot(v[0] - cx, v[1] - cy) for v in pts]
+            ws = {"ee_id": ee, "axis_id": axis_id, "axis": axis, "axis_spread": axis_spread,
+                  "n": len(pts),
+                  "x": [round(min(xs), 1), round(max(xs), 1)],
+                  "y": [round(min(ys), 1), round(max(ys), 1)],
+                  "z": [round(min(zs), 1), round(max(zs), 1)],
+                  "reach_min": round(min(reach), 1), "reach_max": round(max(reach), 1)}
+    os.makedirs(os.path.dirname(COLDSTART_PATH), exist_ok=True)
+    with open(COLDSTART_PATH, "w", encoding="utf-8") as f:
+        json.dump({"poses": poses, "workspace": ws}, f, ensure_ascii=False, indent=1)
+    return JsonResponse({"ok": True, "poses": len(poses), "workspace": ws})
+
+
+def measure_markers(request):
+    """현재 프레임에서 공통 마커들을 로봇 기준 3D로 측정 (단계 ⑥ 기본기)."""
+    cam_left, cam_right = _cams()
+    fL = get_camera(cam_left).read()
+    fR = get_camera(cam_right).read()
+    if fL is None or fR is None:
+        return JsonResponse({"ok": False, "error": "프레임 없음"})
+    return JsonResponse(markers.measure(fL, fR))
 
 
 @csrf_exempt

@@ -77,8 +77,11 @@
 
   <!-- 6 -->
   <div class="step" id="step6">
-    <h2><span class="num">6</span> 로봇 관절 위치 파악 &amp; 작업공간 <span class="badge wip" id="b6">구현 예정</span></h2>
-    <div class="desc">추적 마커(id1~)로 각 링크/그리퍼 위치 측정 + 도달 작업공간 범위 확정 → 현재 작업환경 기본정보 확정.</div>
+    <h2><span class="num">6</span> 로봇 관절 위치 측정 &amp; 작업공간 (콜드스타트) <span class="badge wip" id="b6">진행중</span></h2>
+    <div class="desc">각 링크 마커(id1~)를 <b>로봇 기준 3D</b>로 측정. 먼저 현재 자세에서 측정이 되는지 확인 → 이후 <b>스윕 자동화</b>로 작업공간·운동학 보정(다음 단계).</div>
+    <button id="measM">현재 자세 마커 측정</button>
+    <div class="result" id="r6"></div>
+    <table style="margin-top:8px; max-width:420px;"><thead><tr><th>마커</th><th>X (mm)</th><th>Y (mm)</th><th>Z (mm)</th></tr></thead><tbody id="mtbl"></tbody></table>
   </div>
 {% endblock %}
 
@@ -92,6 +95,7 @@
   const RESETU = "{% url 'armvision:reset_calibration' %}";
   const MSU = "{% url 'armvision:marker_status' %}";
   const CTU = "{% url 'armvision:compute_transform' %}";
+  const MEASU = "{% url 'armvision:measure_markers' %}";
   const NEED = 15;  // 최소 권장 쌍
 
   const $ = id => document.getElementById(id);
@@ -192,11 +196,26 @@
         const sane = Math.abs(d.marker_mm - 70) < 7;   // 마커 실측 70mm 와 비교
         badge($('b5'), '완료', 'done');
         $('r5').className = 'result ' + (sane ? 'ok' : 'err');
-        $('r5').textContent = `${sane ? '✓' : '⚠'} 변환 T 저장됨 — 베이스 마커 거리 ${d.dist_mm}mm · 마커 변 ${d.marker_mm}mm(${sane ? '70mm 근접 OK' : '70mm와 차이 큼 → 캘리브레이션 점검'}). 이제 1페이지 3D가 로봇 기준 mm.`;
+        $('r5').textContent = `${sane ? '✓' : '⚠'} 변환 T 저장됨 — 원점 ${d.origin || 'id0'} · 베이스 거리 ${d.dist_mm}mm · 마커 변 ${d.marker_mm}mm(${sane ? '70mm 근접 OK' : '70mm와 차이 큼 → 캘리브레이션 점검'}). 이제 1페이지 3D가 로봇 기준 mm.`;
       } else {
         $('r5').className = 'result err'; $('r5').textContent = '✗ ' + (d.error || '실패');
       }
     } catch (e) { $('r5').className = 'result err'; $('r5').textContent = '✗ 실패'; }
+  });
+
+  // 6단계: 현재 자세 마커 측정 (로봇 기준 3D)
+  $('measM').addEventListener('click', async () => {
+    $('r6').className = 'result'; $('r6').textContent = '측정 중…'; $('mtbl').innerHTML = '';
+    try {
+      const d = await (await fetch(MEASU)).json();
+      if (!d.ok) { $('r6').className = 'result err'; $('r6').textContent = '✗ ' + (d.error || '실패'); return; }
+      const ids = Object.keys(d.markers);
+      $('r6').className = 'result ' + (ids.length ? 'ok' : 'err');
+      const onlyMsg = (d.left_only.length || d.right_only.length) ? ` · 한쪽만(측정불가): 좌[${d.left_only}] 우[${d.right_only}]` : '';
+      $('r6').textContent = `${ids.length}개 측정 (${d.frame === 'robot' ? '로봇 기준 mm' : '⚠ 카메라 기준 — 5단계 T 먼저'})${onlyMsg}`;
+      $('mtbl').innerHTML = ids.map(id =>
+        `<tr><td>id ${id}</td><td class="coord">${d.markers[id][0]}</td><td class="coord">${d.markers[id][1]}</td><td class="coord">${d.markers[id][2]}</td></tr>`).join('');
+    } catch (e) { $('r6').className = 'result err'; $('r6').textContent = '✗ 실패'; }
   });
 
   // 검증 실행
