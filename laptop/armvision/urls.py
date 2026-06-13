@@ -33,4 +33,7 @@ urlpatterns = [
     path("setup/charuco_status/", views.calibrate_status, name="calibrate_status"),
     path("setup/run_calibration/", views.run_calibration, name="run_calibration"),
     path("setup/run_validation/", views.run_validation, name="run_validation"),
+    path("setup/reset/", views.reset_calibration, name="reset_calibration"),
+    path("setup/marker_status/", views.marker_status, name="marker_status"),
+    path("setup/compute_transform/", views.compute_transform, name="compute_transform"),
 ]
