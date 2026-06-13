@@ -13,18 +13,33 @@ import cv2
 import numpy as np
 
 CAL = r"C:\robotic_arm\laptop\calibration\stereo_calib.npz"
+T_PATH = r"C:\robotic_arm\laptop\calibration\camera_robot_T.npz"
 
 _calib = None
+_T = "unset"   # 'unset' = 미로딩, None = 파일없음, ndarray = 로딩됨
 
 
 def is_calibrated() -> bool:
     return os.path.exists(CAL)
 
 
+def has_robot_frame() -> bool:
+    return os.path.exists(T_PATH)
+
+
 def reload():
-    """캘리브레이션 파일 재로딩(캘리브레이션 실행 직후 호출)."""
-    global _calib
+    """캘리브레이션/변환 파일 재로딩(실행 직후 호출)."""
+    global _calib, _T
     _calib = None
+    _T = "unset"
+
+
+def _load_T():
+    """카메라→로봇 변환 T(4x4). 없으면 None (카메라 좌표 그대로)."""
+    global _T
+    if _T == "unset":
+        _T = np.load(T_PATH)["T"] if os.path.exists(T_PATH) else None
+    return _T
 
 
 def _load():
@@ -51,6 +66,8 @@ def match_and_triangulate(dets_left, dets_right, max_epi_px=60.0):
     if cal is None:
         return []
     F = cal["F"]
+    T = _load_T()                 # 카메라→로봇 변환 (없으면 카메라 좌표)
+    frame = "robot" if T is not None else "camera"
     out = []
     used = set()
     for dl in dets_left:
@@ -71,8 +88,11 @@ def match_and_triangulate(dets_left, dets_right, max_epi_px=60.0):
             used.add(best)
             dr = dets_right[best]
             xyz = _triangulate(dl["center"], dr["center"], cal)
+            if T is not None:     # 로봇 베이스 기준으로 변환
+                xyz = (T @ np.array([xyz[0], xyz[1], xyz[2], 1.0]))[:3].tolist()
             out.append({
                 "class": dl["class"],
+                "frame": frame,
                 "xyz_mm": [round(v, 1) for v in xyz],
                 "uvL": [round(x0, 1), round(y0, 1)],
                 "uvR": [round(dr["center"][0], 1), round(dr["center"][1], 1)],

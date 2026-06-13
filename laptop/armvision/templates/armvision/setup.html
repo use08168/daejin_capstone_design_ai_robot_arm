@@ -61,14 +61,18 @@
 
   <!-- 4 -->
   <div class="step" id="step4">
-    <h2><span class="num">4</span> 로봇팔 배치 &amp; 베이스 마커 부착 <span class="badge wip" id="b4">구현 예정</span></h2>
-    <div class="desc">①②③ 통과 후, 겨냥했던 자리에 로봇 설치. <b>움직이지 않는 베이스</b>에 <b>ArUco id0(70mm)</b> 부착, 양 카메라에 보이게(팔은 홈 자세). 마커 부착 후 이 단계를 구현합니다.</div>
+    <h2><span class="num">4</span> 로봇팔 배치 &amp; 베이스 마커(id0) 부착 <span class="badge todo" id="b4">대기</span></h2>
+    <div class="desc">①②③ 통과 후 겨냥한 자리에 로봇 설치. <b>움직이지 않는 베이스</b>에 <b>ArUco id0(70mm)</b>를 카메라 향하게 부착(팔은 홈 자세로 안 가리게). 아래에서 <b>좌·우 동시 검출</b>되면 5단계로.</div>
+    <div class="live">베이스 id0 — 좌:<span id="m0L">○</span> 우:<span id="m0R">○</span> &nbsp;·&nbsp; 검출 마커 좌[<span id="mIDL">–</span>] 우[<span id="mIDR">–</span>]</div>
+    <div class="result" id="r4"></div>
   </div>
 
   <!-- 5 -->
   <div class="step" id="step5">
-    <h2><span class="num">5</span> 카메라→로봇 변환 T (움직이지 않는 부분) <span class="badge wip" id="b5">구현 예정</span></h2>
-    <div class="desc">베이스 마커 포즈로 카메라 좌표 → 로봇 베이스 좌표 변환 T를 산출·저장. 이후 물체 3D가 로봇 기준으로 표시됩니다.</div>
+    <h2><span class="num">5</span> 카메라→로봇 변환 T 산출 <span class="badge todo" id="b5">대기</span></h2>
+    <div class="desc">베이스 마커로 카메라 좌표 → <b>로봇 베이스 좌표</b> 변환 T를 산출·저장. 이후 1페이지 <b>3D 좌표가 로봇 기준 mm</b>로 표시됩니다. (id0가 <b>좌·우 모두</b> 보일 때 실행)</div>
+    <button id="runT">변환 T 산출</button>
+    <div class="result" id="r5"></div>
   </div>
 
   <!-- 6 -->
@@ -86,6 +90,8 @@
   const CALU = "{% url 'armvision:run_calibration' %}";
   const VALU = "{% url 'armvision:run_validation' %}";
   const RESETU = "{% url 'armvision:reset_calibration' %}";
+  const MSU = "{% url 'armvision:marker_status' %}";
+  const CTU = "{% url 'armvision:compute_transform' %}";
   const NEED = 15;  // 최소 권장 쌍
 
   const $ = id => document.getElementById(id);
@@ -159,6 +165,38 @@
     } else {
       $('r2').className = 'result err'; $('r2').textContent = '✗ ' + (d.error||'실패');
     }
+  });
+
+  // 4단계: 베이스 마커 실시간 검출 상태
+  async function pollMarkers() {
+    try {
+      const d = await (await fetch(MSU)).json();
+      const L = d.left || [], R = d.right || [];
+      $('m0L').textContent = L.includes(0) ? '✓' : '○'; $('m0L').style.color = L.includes(0) ? '#6f6' : '#fa6';
+      $('m0R').textContent = R.includes(0) ? '✓' : '○'; $('m0R').style.color = R.includes(0) ? '#6f6' : '#fa6';
+      $('mIDL').textContent = L.length ? L.join(',') : '–';
+      $('mIDR').textContent = R.length ? R.join(',') : '–';
+      if (d.base_ok) badge($('b4'), '검출됨 ✓', 'done');
+      else badge($('b4'), '대기', 'todo');
+      if (d.has_T) badge($('b5'), '완료', 'done');
+    } catch (e) {}
+  }
+  setInterval(pollMarkers, 900); pollMarkers();
+
+  // 5단계: 카메라→로봇 변환 T 산출
+  $('runT').addEventListener('click', async () => {
+    $('r5').className = 'result'; $('r5').textContent = '산출 중…';
+    try {
+      const d = await (await fetch(CTU, { method: 'POST' })).json();
+      if (d.ok) {
+        const sane = Math.abs(d.marker_mm - 70) < 7;   // 마커 실측 70mm 와 비교
+        badge($('b5'), '완료', 'done');
+        $('r5').className = 'result ' + (sane ? 'ok' : 'err');
+        $('r5').textContent = `${sane ? '✓' : '⚠'} 변환 T 저장됨 — 베이스 마커 거리 ${d.dist_mm}mm · 마커 변 ${d.marker_mm}mm(${sane ? '70mm 근접 OK' : '70mm와 차이 큼 → 캘리브레이션 점검'}). 이제 1페이지 3D가 로봇 기준 mm.`;
+      } else {
+        $('r5').className = 'result err'; $('r5').textContent = '✗ ' + (d.error || '실패');
+      }
+    } catch (e) { $('r5').className = 'result err'; $('r5').textContent = '✗ 실패'; }
   });
 
   // 검증 실행

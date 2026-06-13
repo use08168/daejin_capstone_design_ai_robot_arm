@@ -7,7 +7,7 @@ from django.http import JsonResponse, StreamingHttpResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 
-from . import charuco, stereo3d
+from . import charuco, markers, stereo3d
 from .camera import get_camera, get_config, mjpeg_frames
 from .detector import detections as detect_objects
 
@@ -261,6 +261,35 @@ def run_calibration(request):
 def run_validation(request):
     from calibration import validate_triangulation
     return JsonResponse(validate_triangulation.run())
+
+
+def marker_status(request):
+    """양 카메라에서 보이는 로봇 ArUco 마커 id 목록 + 베이스(id0) 동시 검출 여부."""
+    cam_left, cam_right = _cams()
+    fL = get_camera(cam_left).read()
+    fR = get_camera(cam_right).read()
+    if fL is None or fR is None:
+        return JsonResponse({"left": [], "right": [], "base_ok": False, "error": "프레임 없음"})
+    st = markers.marker_status(fL, fR)
+    st["base_ok"] = (markers.BASE_ID in st["left"] and markers.BASE_ID in st["right"])
+    st["has_T"] = markers.has_transform()
+    return JsonResponse(st)
+
+
+@csrf_exempt
+def compute_transform(request):
+    """단계 ⑤ — id0 베이스 마커로 카메라→로봇 변환 T 산출·저장."""
+    if request.method != "POST":
+        return JsonResponse({"ok": False, "error": "POST only"})
+    cam_left, cam_right = _cams()
+    fL = get_camera(cam_left).read()
+    fR = get_camera(cam_right).read()
+    if fL is None or fR is None:
+        return JsonResponse({"ok": False, "error": "프레임 없음"})
+    res = markers.compute_base_transform(fL, fR)
+    if res.get("ok"):
+        stereo3d.reload()   # 새 T 반영 → 이후 3D 좌표가 로봇 기준
+    return JsonResponse(res)
 
 
 @csrf_exempt
