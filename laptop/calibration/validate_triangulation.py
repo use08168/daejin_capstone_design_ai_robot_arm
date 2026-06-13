@@ -18,6 +18,7 @@ BOARD = cv2.aruco.CharucoBoard((6, 8), 30.0, 23.0, DICT)   # mm
 DET = cv2.aruco.CharucoDetector(BOARD)
 CHESS = BOARD.getChessboardCorners()   # (35,3) mm
 MIN = 6
+GRID_C, GRID_R = 6, 4   # 커버리지 격자 (가로 6 × 세로 4)
 
 
 def triangulate(ptsL, ptsR, K1, d1, K2, d2, P1, P2):
@@ -33,12 +34,14 @@ def run():
     c = np.load(CAL)
     K1, d1, K2, d2 = c["K1"], c["d1"], c["K2"], c["d2"]
     P1, P2 = c["P1"], c["P2"]
+    W, H = (int(c["image_size"][0]), int(c["image_size"][1])) if "image_size" in c else (1280, 720)
 
     lefts = sorted(f for f in os.listdir(CAP) if f.endswith("_L.png"))
     all_err = []
     all_scale = []
     depths = []
     used = 0
+    grid = [[0] * GRID_C for _ in range(GRID_R)]   # 좌 카메라 코너 분포
 
     for lf in lefts:
         idx = lf.replace("_L.png", "")
@@ -56,6 +59,10 @@ def run():
         mapR = {int(i): ccR[k][0] for k, i in enumerate(idsR)}
         ptsL = np.array([mapL[int(i)] for i in common], np.float32)
         ptsR = np.array([mapR[int(i)] for i in common], np.float32)
+        for pt in ptsL:   # 커버리지: 두 카메라가 "공통으로" 본 코너만(=삼각측량 가능 영역, 좌 카메라 좌표)
+            gx = min(GRID_C - 1, max(0, int(pt[0] / W * GRID_C)))
+            gy = min(GRID_R - 1, max(0, int(pt[1] / H * GRID_R)))
+            grid[gy][gx] += 1
         P3 = triangulate(ptsL, ptsR, K1, d1, K2, d2, P1, P2)
         depths.append(float(np.mean(P3[:, 2])))
 
@@ -72,6 +79,29 @@ def run():
     if len(all_err) == 0:
         return {"ok": False, "error": "검증할 코너쌍 없음 — 촬영/캘리브레이션을 확인하세요."}
     all_err = np.array(all_err); all_scale = np.array(all_scale)
+    scale_mean = float(all_scale.mean())
+
+    # ---- 커버리지 분석: 어디가 부족한지 + 무엇을 더 찍을지 ----
+    nz = sorted(n for row in grid for n in row if n > 0)
+    med = nz[len(nz) // 2] if nz else 0
+    thr = max(1, med * 0.2)
+    weak = [[cc, r] for r in range(GRID_R) for cc in range(GRID_C) if grid[r][cc] < thr]
+    dmin, dmax, davg = float(min(depths)), float(max(depths)), float(np.mean(depths))
+    advice = []
+    if any(wk[0] in (0, GRID_C - 1) or wk[1] in (0, GRID_R - 1) for wk in weak):
+        advice.append("부족한 칸이 화면 가장자리라면: 그곳이 로봇 작업 영역(팔이 닿고 물체가 놓이는 곳)이면 채우고, 팔이 닿지 않는 끝부분이면 무시해도 됩니다. 정확도는 '로봇이 실제 쓰는 영역 + 물체 거리'에서만 좋으면 충분합니다.")
+    if weak:
+        advice.append(f"부족한 칸 {len(weak)}곳(빨간 테두리)에 보드를 놓고, **두 화면 모두에** 보이게 더 촬영하세요. (격자는 '양쪽 카메라 공통' 코너 기준 = 3D 가능 영역)")
+        advice.append("특정 칸이 계속 빨가면 두 카메라 공통 시야 밖입니다. 라이브 화면에서 그 위치에 보드를 대 좌·우 모두 잡히는지 먼저 확인 — 한쪽만 잡히면 카메라를 모아야 하는데, 카메라를 움직이면 보정이 무효라 [새 환경으로 초기화] 후 전부 재촬영해야 합니다. 그래서 카메라 배치(겹침)는 촬영 '전에' 확정하세요. 옮기기 싫으면 그 영역은 작업공간에서 제외.")
+    if dmin > 0 and dmax / dmin < 1.5:
+        advice.append(f"촬영 거리가 비슷합니다({dmin:.0f}~{dmax:.0f}mm). 더 가깝게·멀게 거리를 다양화하세요.")
+    if davg > 900:
+        advice.append(f"평균 거리 {davg:.0f}mm로 먼 편 — 보드를 더 가까이(화면을 크게 채우게) 찍으면 코너가 정확해집니다.")
+    if abs(scale_mean - 1) > 0.005:
+        advice.append(f"스케일 {scale_mean:.4f}(이상 1.0). 위 커버리지·거리 다양화로 개선됩니다. 인쇄 배율 100%·보드 평탄도도 확인.")
+    if not advice:
+        advice.append("커버리지 양호 — 오차가 크면 보드 평탄도/인쇄 배율(100%)·마커 실측 mm를 확인하세요.")
+
     return {
         "ok": True,
         "pairs_used": used,
@@ -79,10 +109,12 @@ def run():
         "mean_abs_err_mm": round(float(np.abs(all_err).mean()), 2),
         "bias_mm": round(float(all_err.mean()), 2),
         "std_mm": round(float(all_err.std()), 2),
-        "scale": round(float(all_scale.mean()), 4),
+        "scale": round(scale_mean, 4),
         "depth_mm": round(float(np.mean(depths)), 0),
-        "depth_min": round(float(min(depths)), 0),
-        "depth_max": round(float(max(depths)), 0),
+        "depth_min": round(dmin, 0),
+        "depth_max": round(dmax, 0),
+        "grid": grid, "grid_cols": GRID_C, "grid_rows": GRID_R,
+        "weak_cells": weak, "advice": advice,
     }
 
 

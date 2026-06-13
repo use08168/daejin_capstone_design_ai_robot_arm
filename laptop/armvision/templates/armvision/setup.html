@@ -11,6 +11,10 @@
   .feeds .cam { flex:1 1 360px; }
   .live span { font-weight:bold; font-variant-numeric:tabular-nums; }
   .num { display:inline-flex; width:26px; height:26px; border-radius:50%; background:#222; color:#9cf; align-items:center; justify-content:center; font-size:14px; }
+  .feedwrap { position:relative; line-height:0; }
+  .gridov { position:absolute; inset:0; pointer-events:none; display:grid; }
+  .gridov > div { border:1px solid rgba(255,255,255,.25); box-sizing:border-box; }
+  .gridov > div.weak { background:rgba(255,60,60,.32); border-color:rgba(255,90,90,.9); }
 {% endblock %}
 {% block content %}
   <h1>2 · 초기 캘리브레이션 (6단계)</h1>
@@ -19,17 +23,22 @@
   <!-- 1 -->
   <div class="step active" id="step1">
     <h2><span class="num">1</span> ChArUco 촬영 <span class="badge todo" id="b1">대기</span></h2>
-    <div class="desc">카메라를 로봇 놓일 자리에 고정하고, 보드를 위치·기울기·거리를 바꿔가며 <b>20~30쌍</b> 촬영. 좌·우 코너가 둘 다 초록일 때 캡처.</div>
+    <div class="desc">카메라를 로봇 놓일 자리에 <b>겹치게 배치·고정</b>하고, 보드를 위치·기울기·거리를 바꿔가며 <b>20~30쌍</b> 촬영. <b>좌·우 코너가 둘 다 초록</b>일 때만 3D에 유효(한쪽만 보이면 렌즈 보정에만 도움). ⚠ <b>촬영 중·후 카메라를 움직이면 보정 무효</b> → [새 환경으로 초기화] 후 처음부터. 그러니 카메라 배치는 <b>촬영 전에 확정</b>하세요.</div>
     <div class="feeds">
-      <div class="cam"><div class="label">좌 카메라 — index {{ cam_left }}</div><img src="{% url 'armvision:video_feed' %}?cam={{ cam_left }}&charuco=1"></div>
-      <div class="cam"><div class="label">우 카메라 — index {{ cam_right }}</div><img src="{% url 'armvision:video_feed' %}?cam={{ cam_right }}&charuco=1"></div>
+      <div class="cam"><div class="label">좌 카메라 — index {{ cam_left }}</div>
+        <div class="feedwrap"><img src="{% url 'armvision:video_feed' %}?cam={{ cam_left }}&charuco=1"><div class="gridov"></div></div></div>
+      <div class="cam"><div class="label">우 카메라 — index {{ cam_right }}</div>
+        <div class="feedwrap"><img src="{% url 'armvision:video_feed' %}?cam={{ cam_right }}&charuco=1"><div class="gridov"></div></div></div>
     </div>
+    <div class="hint" style="margin:6px 0 0;">6×4 격자는 3단계 커버리지 맵과 같은 칸. 검증 후 <b style="color:#f66">빨간 칸</b> = <b>양쪽 카메라 공통</b> 코너가 부족한 위치 → 그 칸에 보드를 두되 <b>좌·우 화면 모두</b>에 보이게 촬영하세요.</div>
     <div class="hint" style="margin:0 0 10px;">좌/우 카메라는 <a href="{% url 'armvision:index' %}">1페이지</a>에서 선택한 설정을 따릅니다.</div>
     <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
       <button id="cap" class="primary">📸 캡처 (좌·우 동시)</button>
       <span>저장: <b id="saved">0</b> 쌍</span>
       <span class="live">실시간 코너 — 좌:<span id="lL">0</span> 우:<span id="lR">0</span></span>
+      <button id="resetCal" style="background:#622; margin-left:auto;">🔄 새 환경으로 초기화</button>
     </div>
+    <div class="hint" style="margin:8px 0 0;"><b>새 환경으로 초기화</b> = 카메라를 옮겼거나 좌/우 카메라가 바뀌어 처음부터 다시 보정할 때. 기존 촬영본·캘리브레이션은 <b>보관(archive)</b> 후 0부터 새로 시작합니다.</div>
     <div class="result" id="r1"></div>
   </div>
 
@@ -47,6 +56,7 @@
     <div class="desc">보드 30mm 칸을 3D로 복원해 오차를 확인합니다. (오차 &lt;~2mm, 스케일≈1 이면 통과)</div>
     <button id="runVal">검증 실행</button>
     <div class="result" id="r3"></div>
+    <div id="cov"></div>
   </div>
 
   <!-- 4 -->
@@ -75,10 +85,24 @@
   const CHU = "{% url 'armvision:calibrate_status' %}";
   const CALU = "{% url 'armvision:run_calibration' %}";
   const VALU = "{% url 'armvision:run_validation' %}";
+  const RESETU = "{% url 'armvision:reset_calibration' %}";
   const NEED = 15;  // 최소 권장 쌍
 
   const $ = id => document.getElementById(id);
   function badge(el, txt, cls) { el.textContent = txt; el.className = 'badge ' + cls; }
+
+  // 라이브 피드 위 6×4 격자(3단계 커버리지 맵과 동일 칸) — 검증 후 부족 칸은 빨갛게
+  const GCOLS = 6, GROWS = 4;
+  document.querySelectorAll('.gridov').forEach(ov => {
+    ov.style.gridTemplateColumns = `repeat(${GCOLS},1fr)`;
+    ov.style.gridTemplateRows = `repeat(${GROWS},1fr)`;
+    for (let i = 0; i < GCOLS * GROWS; i++) ov.appendChild(document.createElement('div'));
+  });
+  function markWeakOnFeeds(weak) {
+    const set = new Set((weak || []).map(w => w[1] * GCOLS + w[0]));
+    document.querySelectorAll('.gridov').forEach(ov =>
+      [...ov.children].forEach((c, i) => c.classList.toggle('weak', set.has(i))));
+  }
 
   // 실시간 코너 + 저장 수
   async function poll() {
@@ -108,6 +132,22 @@
     $('r1').textContent = `#${d.saved} 저장 — 좌 ${d.cornersL} / 우 ${d.cornersR} ${d.ok?'✓':'⚠ 코너 부족(건너뛰어도 됨)'}`;
   });
 
+  // 새 환경으로 초기화 (보관 후 0부터)
+  $('resetCal').addEventListener('click', async () => {
+    if (!confirm('새 환경으로 다시 캘리브레이션합니다.\n기존 촬영본과 캘리브레이션 결과는 보관(archive)되고 0부터 새로 시작합니다.\n(보정 완료 전까지 1페이지 3D 좌표는 비활성)\n\n계속할까요?')) return;
+    $('r1').className = 'result'; $('r1').textContent = '초기화 중…';
+    try {
+      const d = await (await fetch(RESETU, { method: 'POST' })).json();
+      if (!d.ok) { $('r1').className = 'result err'; $('r1').textContent = '✗ ' + (d.error || '초기화 실패'); return; }
+      $('saved').textContent = '0'; $('lL').textContent = '0'; $('lR').textContent = '0';
+      badge($('b1'), '대기', 'todo'); badge($('b2'), '대기', 'todo'); badge($('b3'), '대기', 'todo');
+      $('r2').textContent = ''; $('r2').className = 'result'; $('r3').textContent = ''; $('r3').className = 'result';
+      $('cov').innerHTML = ''; markWeakOnFeeds([]);   // 초기화 시 격자 하이라이트도 리셋
+      $('r1').className = 'result ok';
+      $('r1').textContent = `✓ 초기화됨 — 촬영본 ${d.archived_pairs}쌍${d.calib_archived ? ' + 기존 캘리브레이션' : ''} 보관(${d.stamp}). 새 환경에서 다시 촬영하세요.`;
+    } catch (e) { $('r1').className = 'result err'; $('r1').textContent = '✗ 초기화 실패'; }
+  });
+
   // 캘리브레이션 실행
   $('runCal').addEventListener('click', async () => {
     $('r2').className = 'result'; $('r2').textContent = '실행 중…';
@@ -123,16 +163,47 @@
 
   // 검증 실행
   $('runVal').addEventListener('click', async () => {
-    $('r3').className = 'result'; $('r3').textContent = '실행 중…';
+    $('r3').className = 'result'; $('r3').textContent = '실행 중…'; $('cov').innerHTML = '';
     const d = await (await fetch(VALU)).json();
     if (d.ok) {
       const pass = d.mean_abs_err_mm < 2.0 && Math.abs(d.scale-1) < 0.01;
       badge($('b3'), pass?'완료':'점검', pass?'done':'wip');
       $('r3').className = 'result ' + (pass?'ok':'err');
       $('r3').textContent = `${pass?'✓':'⚠'} 거리오차 ${d.mean_abs_err_mm}mm · 스케일 ${d.scale} · 깊이 ${d.depth_mm}mm (${d.depth_min}~${d.depth_max}) · 코너쌍 ${d.corner_pairs}`;
+      renderCoverage(d);
     } else {
       $('r3').className = 'result err'; $('r3').textContent = '✗ ' + (d.error||'실패');
     }
   });
+
+  // 커버리지 히트맵: 좌 카메라에서 보드 코너가 어디에 분포했는지 → 부족한 영역 표시
+  function renderCoverage(d) {
+    const host = $('cov'); host.innerHTML = '';
+    markWeakOnFeeds(d.weak_cells);   // 1단계 라이브 화면에도 부족 칸 표시
+    if (!d.grid) return;
+    const G = d.grid, R = d.grid_rows, C = d.grid_cols;
+    const max = Math.max(1, ...G.flat());
+    const weak = new Set((d.weak_cells||[]).map(w => w[1]*C + w[0]));
+    const title = document.createElement('div'); title.className='hint'; title.style.margin='10px 0 4px';
+    title.innerHTML = '<b>커버리지 맵</b> (양쪽 카메라 <b>공통</b> 코너 = 3D 가능 영역 · 좌 화면 배치) — 칸 숫자=공통 코너 수, <b style="color:#f55">빨간 테두리</b>=부족 → 그 위치에 보드를 <b>두 화면 모두</b>에 보이게 촬영';
+    host.appendChild(title);
+    const grid = document.createElement('div');
+    grid.style.cssText = `display:grid;grid-template-columns:repeat(${C},1fr);gap:3px;max-width:560px;`;
+    for (let r=0;r<R;r++) for (let cc=0;cc<C;cc++) {
+      const n = G[r][cc], t = n/max;
+      const cell = document.createElement('div');
+      const bg = n===0 ? '#3a1414' : `hsl(${Math.round(t*120)} 55% ${18+t*22}%)`;
+      cell.style.cssText = `background:${bg};border-radius:4px;min-height:36px;display:flex;align-items:center;justify-content:center;font-size:12px;color:#eee;${weak.has(r*C+cc)?'outline:2px solid #f55;outline-offset:-2px;':''}`;
+      cell.textContent = n;
+      grid.appendChild(cell);
+    }
+    host.appendChild(grid);
+    if (d.advice && d.advice.length) {
+      const ul = document.createElement('ul');
+      ul.style.cssText = 'margin:10px 0 0;padding-left:18px;font-size:13px;line-height:1.7;color:#ddd;';
+      d.advice.forEach(a => { const li = document.createElement('li'); li.textContent = a; ul.appendChild(li); });
+      host.appendChild(ul);
+    }
+  }
 </script>
 {% endblock %}

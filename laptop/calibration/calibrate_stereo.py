@@ -5,7 +5,7 @@ ChArUco 스테레오 캘리브레이션.
 출력: calibration/stereo_calib.npz  (K1,d1,K2,d2,R,T,E,F,P1,P2,imageSize, 오차)
 
 단위: 보드를 mm 로 정의 → 모든 3D 결과(T, 삼각측량)가 mm.
-좌 = index 2(LEFT, 기준 카메라), 우 = index 1(RIGHT).
+좌/우(L/R)는 1페이지에서 선택한 카메라로 촬영된 pair_*_L.png / _R.png 로 결정된다(좌=기준 카메라).
 """
 import os
 

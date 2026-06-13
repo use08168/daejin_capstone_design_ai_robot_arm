@@ -1,4 +1,6 @@
+import datetime
 import os
+import shutil
 
 import cv2
 from django.http import JsonResponse, StreamingHttpResponse
@@ -259,3 +261,34 @@ def run_calibration(request):
 def run_validation(request):
     from calibration import validate_triangulation
     return JsonResponse(validate_triangulation.run())
+
+
+@csrf_exempt
+def reset_calibration(request):
+    """새 환경 캘리브레이션 — 기존 촬영본·캘리브레이션 결과를 타임스탬프 폴더로 **보관(archive)** 하고
+    촬영 수를 0으로 초기화한다. 삭제가 아니라 이동이라 `_archive_*` 폴더에서 복구 가능."""
+    if request.method != "POST":
+        return JsonResponse({"ok": False, "error": "POST only"})
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # 1) 촬영본 보관
+    moved = 0
+    if os.path.isdir(CAPTURE_DIR):
+        arch = os.path.join(CAPTURE_DIR, f"_archive_{ts}")
+        for f in os.listdir(CAPTURE_DIR):
+            if f.endswith("_L.png") or f.endswith("_R.png"):
+                os.makedirs(arch, exist_ok=True)
+                shutil.move(os.path.join(CAPTURE_DIR, f), os.path.join(arch, f))
+                moved += 1
+
+    # 2) 기존 캘리브레이션 결과 보관 → is_calibrated() False → 새로 보정 전까지 3D 비활성
+    calib_archived = False
+    if os.path.isfile(stereo3d.CAL):
+        bak = os.path.join(os.path.dirname(stereo3d.CAL), "_archive")
+        os.makedirs(bak, exist_ok=True)
+        shutil.move(stereo3d.CAL, os.path.join(bak, f"stereo_calib_{ts}.npz"))
+        stereo3d.reload()
+        calib_archived = True
+
+    return JsonResponse({"ok": True, "archived_pairs": moved // 2,
+                         "calib_archived": calib_archived, "stamp": ts})
