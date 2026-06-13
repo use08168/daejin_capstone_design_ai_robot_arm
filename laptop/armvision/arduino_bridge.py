@@ -17,6 +17,8 @@ _port = None
 _baud = 115200
 _want = False          # 사용자가 연결 유지를 원하는 상태 (자동 재연결 판단)
 _mon_started = False
+_reader_started = False
+_reset_count = 0       # 펌웨어 부팅 배너 감지 횟수 = 아두이노 리셋(전압부족 등) 횟수
 _lock = threading.Lock()
 
 
@@ -69,6 +71,33 @@ def _start_monitor():
     threading.Thread(target=_monitor, daemon=True).start()
 
 
+def _reader():
+    """시리얼 수신을 읽어 펌웨어 부팅 배너('===...준비 완료')를 감지한다.
+    배너가 나오면 = 아두이노가 리셋된 것(전압 부족/브라운아웃 등) → _reset_count 증가.
+    동시에 RX 버퍼를 비워 오버플로도 방지."""
+    global _reset_count
+    while True:
+        ser = _ser
+        if ser is None or not getattr(ser, "is_open", False):
+            time.sleep(0.3)
+            continue
+        try:
+            line = ser.readline()      # read timeout=0.2s
+        except Exception:
+            time.sleep(0.3)
+            continue
+        if line and b"===" in line:    # 부팅 배너에만 있는 표식
+            _reset_count += 1
+
+
+def _start_reader():
+    global _reader_started
+    if _reader_started:
+        return
+    _reader_started = True
+    threading.Thread(target=_reader, daemon=True).start()
+
+
 def connect(port: str = "COM9", baud: int = 115200):
     global _want
     with _lock:
@@ -78,6 +107,7 @@ def connect(port: str = "COM9", baud: int = 115200):
         _open_locked(port, int(baud))
         _want = True
     _start_monitor()
+    _start_reader()
     return {"ok": True, "port": port}
 
 
@@ -92,7 +122,8 @@ def disconnect():
 
 def status():
     return {"connected": is_connected(), "port": _port,
-            "reconnecting": bool(_want and not is_connected())}
+            "reconnecting": bool(_want and not is_connected()),
+            "resets": _reset_count}
 
 
 def _write(channel: int, us: int):
