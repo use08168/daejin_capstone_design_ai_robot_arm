@@ -12,6 +12,7 @@
 | [web_app.md](web_app.md) | Django 웹앱 4페이지 + 엔드포인트 기능 명세 |
 | [object_detection_model.md](object_detection_model.md) | 객체 탐지 모델 선정 (YOLO-World, 오픈 보캐뷸러리) |
 | [coordinate_3d_pipeline.md](coordinate_3d_pipeline.md) | ChArUco 스테레오 캘리브레이션 + 삼각측량 3D 파이프라인 |
+| [measurement_validation.md](measurement_validation.md) | **측정 검증** — 마커 3D가 실제 강체 운동학과 일치(불변점·강체거리·축복원) |
 | [arm3d_simulator.md](arm3d_simulator.md) | **STL 3D 시뮬레이터 + 실물 연동(4페이지)** — 조립·면결합·관절제어 |
 | [setup_procedure.md](setup_procedure.md) | 환경 구성 / 실행 절차 |
 | [aruco_markers.md](aruco_markers.md) | ArUco / ChArUco 마커 명세 |
