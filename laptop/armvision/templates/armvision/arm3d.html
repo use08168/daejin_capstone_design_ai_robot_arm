@@ -149,6 +149,13 @@
           <div class="row"><span class="muted">수집 <b id="csN">0</b>자세</span><span style="flex:1"></span><button class="ghost" id="csCsv">⬇ CSV</button><button class="ghost" id="csSave">💾 저장</button><button class="ghost" id="csClear">초기화</button></div>
           <div class="hintline" id="csStat" style="margin:0;">검증용: 한 자세에서 안 움직이고 여러 번 '추가'=반복성, 한 관절만 바꿔 '추가'=관절별. → CSV로 내보내 분석.</div>
         </div>
+
+        <div class="card" style="margin-top:10px;">
+          <div class="ttl">C-space 충돌 지도 (#3 — 가상 학습 데이터)</div>
+          <div class="hintline">J2·J3·J4를 격자로 전부 회전시켜 각 조합의 바닥여유·자기충돌을 시뮬에서 자동 기록 → CSV. (실물 불필요)</div>
+          <div class="row" style="margin-bottom:0"><span class="muted" style="width:38px">간격</span><input id="csStep" type="number" value="5" step="1" min="2" max="15" style="width:56px"><span class="muted">°</span><span style="flex:1"></span><button class="primary" id="csSweep">🗺 C-space 스윕</button></div>
+          <div class="hintline" id="csSweepStat" style="margin:6px 0 0;">J2·J3·J4 전 조합 검사 → 충돌 경계 데이터.</div>
+        </div>
       </div>
 
       <div class="sect">부품 (<span id="pcount">0</span>) <span class="muted" id="ploading">로딩…</span></div>
@@ -468,6 +475,7 @@ function buildCtrlJoints(){ const c=$('ctrlJoints'); c.innerHTML=''; aligning=fa
 // 펄스는 _cmd 기준으로 보냄. 정렬·연동 모두 같은 하단 속도로 천천히 움직인다.
 let ctrlSpeed=10, _rampT=null, aligning=false;   // 10°/s → 60°를 6초
 function rampCtrl(){
+  if(_sweeping) return;   // C-space 스윕 중엔 각도를 스윕이 직접 제어
   const now=performance.now(); const dt=_rampT?Math.min(0.1,(now-_rampT)/1000):0; _rampT=now;
   if(mode!=='ctrl'||!dt) return; const step=ctrlSpeed*dt; let moved3d=false;
   const drive=(!sync)||connected;   // 연동 중엔 연결됐을 때만 3D 전진 → 실물 못 따라오면 3D도 멈춤(동기화 유지)
@@ -619,7 +627,7 @@ window.addEventListener('resize',resize);
 
 // ===== 충돌 감지 — ① 바닥(STL정점 vs y=0) ② 자기충돌(그리퍼 점 vs 비인접 링크) =====
 // 마진 = 콜드스타트로 측정한 sim-real gap → "시뮬 안전 ⇒ 실물 안전".
-let collOn=true; let SAFE_MARGIN=10; let SELF_MARGIN=8;   // mm
+let collOn=true; let SAFE_MARGIN=10; let SELF_MARGIN=8; let _sweeping=false;   // mm
 $('collTog').addEventListener('change',e=>{ collOn=e.target.checked; });
 function _mkMark(c){ const m=new THREE.Mesh(new THREE.SphereGeometry(6,14,10), new THREE.MeshBasicMaterial({color:c,depthTest:false})); m.renderOrder=1000; m.visible=false; scene.add(m); return m; }
 const collMark=_mkMark(0xff3b3b);   // 바닥
@@ -638,44 +646,78 @@ function _chainInfo(){
 }
 const _wp=new THREE.Vector3(), _best=new THREE.Vector3();
 const _inv=new THREE.Matrix4(), _lp=new THREE.Vector3(), _sbest=new THREE.Vector3();
-function updateCollision(){
-  const hud=$('collHud'), txt=$('collTxt'); if(!hud) return;
-  if(!collOn || mode!=='ctrl'){ hud.className=''; collMark.visible=selfMark.visible=false; txt.textContent=collOn?'제어 모드에서 작동':'꺼짐'; return; }
+function _boxSigned(p, bb){   // 점 p(로컬) vs 박스 bb. 음수=내부(침투깊이), 양수=외부(여유거리)
+  const ox=Math.max(bb.min.x-p.x,0,p.x-bb.max.x), oy=Math.max(bb.min.y-p.y,0,p.y-bb.max.y), oz=Math.max(bb.min.z-p.z,0,p.z-bb.max.z);
+  const out=Math.hypot(ox,oy,oz);
+  if(out>0) return out;
+  return -Math.min(p.x-bb.min.x,bb.max.x-p.x,p.y-bb.min.y,bb.max.y-p.y,p.z-bb.min.z,bb.max.z-p.z);
+}
+// 현재 자세의 충돌 코어 — HUD/스윕 공용. {floor 여유, self 여유, 대상부품, 최저점}
+function _collideOnce(){
   rigRoot.updateMatrixWorld(true); worldRoot.updateMatrixWorld(true);
   const {grip, excl, isChild}=_chainInfo();
-
-  // ① 바닥 — 움직이는 부품(루트 제외) 최저 y
+  // ① 바닥: 움직이는 부품(루트 제외) 최저 y
   let minY=Infinity, who=null;
   parts.forEach(p=>{ if(!p.mesh.visible || !isChild[p.name]) return;
     const mw=p.mesh.matrixWorld, a=_gripPts(p);
     for(let i=0;i<a.length;i+=3){ _wp.set(a[i],a[i+1],a[i+2]).applyMatrix4(mw);
       if(_wp.y<minY){ minY=_wp.y; who=p.name; _best.copy(_wp); } } });
-  const fHit=minY<0, fWarn=minY<SAFE_MARGIN;
-  collMark.visible=fWarn; if(fWarn) collMark.position.copy(_best);
-
-  // ② 자기충돌 — 그리퍼 점들을 각 비인접 링크의 로컬 OBB(±SELF_MARGIN)에 넣어 침투 검사
+  // ② 자기충돌: 그리퍼 점 vs 비인접 링크의 로컬 박스 → 부호거리 최소(=가장 가깝거나 깊은)
   const gworld=[];
   grip.forEach(nm=>{ const p=partByName(nm); if(!p||!p.mesh.visible)return; const mw=p.mesh.matrixWorld, a=_gripPts(p);
     for(let i=0;i<a.length;i+=3) gworld.push(new THREE.Vector3(a[i],a[i+1],a[i+2]).applyMatrix4(mw)); });
-  let sTarget=null, sPen=0;
+  let sMin=Infinity, sTarget=null;
   parts.forEach(p=>{ if(excl.has(p.name)||!p.mesh.visible)return;
     const geo=p.mesh.geometry; if(!geo.boundingBox)geo.computeBoundingBox(); const bb=geo.boundingBox;
     _inv.copy(p.mesh.matrixWorld).invert();
-    for(const w of gworld){ _lp.copy(w).applyMatrix4(_inv);
-      const dx=Math.min(_lp.x-(bb.min.x-SELF_MARGIN),(bb.max.x+SELF_MARGIN)-_lp.x);
-      const dy=Math.min(_lp.y-(bb.min.y-SELF_MARGIN),(bb.max.y+SELF_MARGIN)-_lp.y);
-      const dz=Math.min(_lp.z-(bb.min.z-SELF_MARGIN),(bb.max.z+SELF_MARGIN)-_lp.z);
-      const pen=Math.min(dx,dy,dz);   // >0 = 박스(여유포함) 안 → 깊이
-      if(pen>0 && pen>sPen){ sPen=pen; sTarget=p.name; _sbest.copy(w); } } });
-  const sHit=sTarget && sPen>SELF_MARGIN, sWarn=!!sTarget;   // 실박스 침투=충돌, 마진내=근접
-  selfMark.visible=sWarn; if(sWarn) selfMark.position.copy(_sbest);
-
-  // HUD — 둘 중 나쁜 상태로 색
+    for(const w of gworld){ _lp.copy(w).applyMatrix4(_inv); const sd=_boxSigned(_lp,bb);
+      if(sd<sMin){ sMin=sd; sTarget=p.name; _sbest.copy(w); } } });
+  return {floor:minY, floorWho:who, self:(sTarget?sMin:Infinity), selfWho:sTarget};
+}
+function updateCollision(){
+  const hud=$('collHud'), txt=$('collTxt'); if(!hud) return;
+  if(_sweeping) return;   // 스윕 중엔 스윕이 HUD를 갱신
+  if(!collOn || mode!=='ctrl'){ hud.className=''; collMark.visible=selfMark.visible=false; txt.textContent=collOn?'제어 모드에서 작동':'꺼짐'; return; }
+  const r=_collideOnce();
+  const minY=r.floor, who=r.floorWho, sd=r.self, sTarget=r.selfWho;
+  const fHit=minY<0, fWarn=minY<SAFE_MARGIN;
+  collMark.visible=fWarn&&who!=null; if(collMark.visible) collMark.position.copy(_best);
+  const sHit=sd<0, sWarn=sTarget&&sd<SELF_MARGIN;
+  selfMark.visible=!!sWarn; if(sWarn) selfMark.position.copy(_sbest);
   hud.className=(fHit||sHit)?'hit':((fWarn||sWarn)?'warn':'ok');
   const ftag=fHit?`⛔충돌(${who})`:fWarn?`⚠위험(${who})`:'✓';
   const stag=sHit?`⛔충돌(${sTarget})`:sWarn?`⚠근접(${sTarget})`:'✓';
-  txt.innerHTML=`바닥 <b>${minY.toFixed(0)}mm</b> ${ftag} · 자기 ${stag}<span class="mg">마진 ${SAFE_MARGIN}/${SELF_MARGIN}</span>`;
+  txt.innerHTML=`바닥 <b>${who!=null?minY.toFixed(0):'-'}mm</b> ${ftag} · 자기 ${stag}<span class="mg">마진 ${SAFE_MARGIN}/${SELF_MARGIN}</span>`;
 }
+
+// ===== #3 C-space 충돌 지도 — J2·J3·J4 격자 스윕 → CSV =====
+async function sweepCspace(){
+  if(_sweeping) return;
+  if(mode!=='ctrl'){ alert('제어 모드에서 실행하세요.'); return; }
+  const rm=revMates(); if(rm.length<4){ alert('관절(J2·J3·J4)이 부족합니다.'); return; }
+  const mJ2=rm[1], mJ3=rm[2], mJ4=rm[3], step=Math.max(2,+$('csStep').value||5);
+  const combos=[];
+  for(let a2=mJ2.min;a2<=mJ2.max+1e-6;a2+=step)
+   for(let a3=mJ3.min;a3<=mJ3.max+1e-6;a3+=step)
+    for(let a4=mJ4.min;a4<=mJ4.max+1e-6;a4+=step) combos.push([a2,a3,a4]);
+  if(combos.length>300000){ alert(`조합이 너무 많습니다(${combos.length}). 간격을 키우세요.`); return; }
+  if(!confirm(`C-space 스윕: ${combos.length}개 조합(J2·J3·J4, ${step}°격자).\n시뮬에서 전부 회전시켜 충돌을 기록합니다. 진행할까요?`)) return;
+  _sweeping=true; collMark.visible=selfMark.visible=false;
+  const saved=rm.map(m=>m.angle), stat=$('csSweepStat');
+  const rows=[['J2','J3','J4','floor_clear_mm','self_clear_mm','self_target','collision']];
+  for(let i=0;i<combos.length;i++){
+    const c=combos[i]; mJ2.angle=c[0]; mJ3.angle=c[1]; mJ4.angle=c[2]; applyAngles();
+    const r=_collideOnce(); const coll=(r.floor<0 || r.self<0)?1:0;
+    rows.push([c[0],c[1],c[2], r.floor.toFixed(1), isFinite(r.self)?r.self.toFixed(1):'', r.selfWho||'', coll]);
+    if(i%150===0){ stat.textContent=`스윕 ${i}/${combos.length} (${(100*i/combos.length).toFixed(0)}%)`; await new Promise(res=>setTimeout(res)); }
+  }
+  rm.forEach((m,i)=>m.angle=saved[i]); applyAngles(); _sweeping=false;
+  const nColl=rows.slice(1).filter(r=>r[6]===1).length;
+  const csv=rows.map(r=>r.join(',')).join('\n'), blob=new Blob([csv],{type:'text/csv'}), url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download='cspace_map.csv'; a.click(); URL.revokeObjectURL(url);
+  stat.innerHTML=`완료: ${combos.length}조합 중 충돌 <b>${nColl}</b> (${(100*nColl/combos.length).toFixed(1)}%) → cspace_map.csv 저장됨`;
+}
+$('csSweep').onclick=sweepCspace;
 
 (function loop(){ requestAnimationFrame(loop); orbit.update(); updateLockLines(); rampCtrl(); updateCollision(); renderer.render(scene,camera); })();
 </script>
