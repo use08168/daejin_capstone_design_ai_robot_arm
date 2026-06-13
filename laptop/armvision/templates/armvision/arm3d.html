@@ -134,6 +134,14 @@
         </div>
         <div class="sect">관절 (<span id="jcount">0</span>) — 슬라이더로 회전</div>
         <div id="ctrlJoints"></div>
+
+        <div class="card" style="margin-top:10px;">
+          <div class="ttl">콜드스타트 / 작업공간 수집 (단계 ⑥)</div>
+          <div class="hintline">각 자세에서 마커를 측정해 모읍니다. 평평한 자세(J2=0)처럼 마커가 다 보일 때 추가하세요. (연동 ON 필요)</div>
+          <div class="row"><button class="primary" id="csAdd" style="flex:1">📌 이 자세 추가</button><button class="ghost" id="csAuto">⟳ 자동 스윕(J1)</button></div>
+          <div class="row"><span class="muted">수집 <b id="csN">0</b>자세</span><span style="flex:1"></span><button class="ghost" id="csSave">💾 저장</button><button class="ghost" id="csClear">초기화</button></div>
+          <div class="hintline" id="csStat" style="margin:0;"></div>
+        </div>
       </div>
 
       <div class="sect">부품 (<span id="pcount">0</span>) <span class="muted" id="ploading">로딩…</span></div>
@@ -407,6 +415,7 @@ $('mAsm').onclick=()=>setMode('asm'); $('mMate').onclick=()=>setMode('mate'); $(
 
 // ---- ③ 연동 제어: 실물 로봇팔 ----
 const A_STAT="{% url 'armvision:arm_status' %}", A_CONN="{% url 'armvision:arm_connect' %}", A_DISC="{% url 'armvision:arm_disconnect' %}", A_MOVE="{% url 'armvision:arm_move' %}";
+const MEASU="{% url 'armvision:measure_markers' %}", CSAVE="{% url 'armvision:coldstart_save' %}";
 let sync=false, connected=false;
 const revMates=()=>mates.filter(m=>m.type==='rev');
 function angToUs(m, ang){ let a=(ang==null)?(m.angle==null?90:m.angle):ang;
@@ -473,7 +482,49 @@ $('btnAlign').onclick=()=>{ if(!connected){ alert('먼저 아두이노를 연결
   armAlign(); $('connStat').textContent='정렬 중… (천천히 이동)'; $('connStat').style.color='var(--c-ok)'; };
 $('btnEstop').onclick=()=>{ setSync(false); revMates().forEach(m=>m._tgt=(m.angle==null?90:m.angle)); $('connStat').textContent='정지 — 연동 꺼짐(서보는 현재 위치 유지)'; $('connStat').style.color='var(--warn)'; };
 $('ctrlSpeed').addEventListener('input',()=>{ ctrlSpeed=Math.max(1,+$('ctrlSpeed').value||10); });
-setInterval(()=>{ if(mode==='ctrl') refreshConn(); }, 2500);   // 끊김 자동 감지/표시
+setInterval(()=>{ if(mode==='ctrl') refreshConn(); }, 2500);   // 끊김 자동 감지
+
+// ---- 콜드스타트 / 작업공간 수집 (단계 ⑥) ----
+let csPoses=[];
+const _sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function _waitSettled(timeout=10000){ return new Promise(res=>{ const t0=performance.now(); const iv=setInterval(()=>{ const done=revMates().every(m=>Math.abs((m.angle==null?90:m.angle)-(m._tgt==null?90:m._tgt))<0.6); if(done||performance.now()-t0>timeout){ clearInterval(iv); res(); } },120); }); }
+async function csAdd(silent){
+  try{ const d=await (await fetch(MEASU)).json();
+    if(!d.ok || !Object.keys(d.markers).length){ if(!silent)$('csStat').textContent='마커가 안 잡힙니다 — 자세/가시성 확인'; return false; }
+    const angles={}; revMates().forEach((m,i)=>angles['J'+(i+1)]=+((m.angle==null?90:m.angle)).toFixed(1));
+    csPoses.push({angles, markers:d.markers}); $('csN').textContent=csPoses.length;
+    if(!silent)$('csStat').textContent=`추가됨 — 마커 ${Object.keys(d.markers).length}개 (${d.frame==='robot'?'로봇기준':'⚠카메라기준(T없음)'})`;
+    return true;
+  }catch(e){ if(!silent)$('csStat').textContent='측정 실패'; return false; }
+}
+async function csSave(){
+  if(!csPoses.length){ $('csStat').textContent='수집된 자세가 없습니다.'; return; }
+  try{ const d=await (await fetch(CSAVE,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({poses:csPoses})})).json();
+    const w=d.workspace;
+    $('csStat').textContent = (d.ok&&w)? `저장 ✓ ${d.poses}자세 · 작업공간(id${w.ee_id}) X[${w.x}] Y[${w.y}] Z[${w.z}] · 도달 ${w.reach_min}~${w.reach_max}mm`
+      : (d.ok? `저장 ✓ ${d.poses}자세 (엔드 마커 없어 작업공간 계산 불가)` : '저장 실패');
+  }catch(e){ $('csStat').textContent='저장 실패'; }
+}
+async function csAutoSweep(){
+  if(!connected||!sync){ alert('실물 연결 + 연동 ON 상태에서 실행하세요.'); return; }
+  const rm=revMates(); if(rm.length<1){ alert('관절이 없습니다.'); return; }
+  if(!confirm('자동 스윕: J2→0°, J5→180° 후 J1을 0→180° 30°씩 돌리며 측정합니다.\n주변 충돌 정리 확인. 계속할까요?')) return;
+  $('csStat').textContent='준비(J2=0, J5=180)…';
+  if(rm[1]){ rm[1]._tgt=0; } if(rm[4]){ rm[4]._tgt=180; }
+  await _waitSettled(); await _sleep(1500);
+  const j1=rm[0];
+  for(let a=j1.min; a<=j1.max+0.1; a+=30){
+    j1._tgt=a; $('csStat').textContent=`J1=${a}° 이동 중…`;
+    await _waitSettled(); await _sleep(1500);           // 실물 서보 도착 대기
+    const ok=await csAdd(true);
+    $('csStat').textContent=`J1=${a}° ${ok?'측정 ✓':'마커 부족'} · 수집 ${csPoses.length}자세`;
+  }
+  await csSave();
+}
+$('csAdd').onclick=()=>csAdd(false);
+$('csAuto').onclick=csAutoSweep;
+$('csSave').onclick=csSave;
+$('csClear').onclick=()=>{ csPoses=[]; $('csN').textContent='0'; $('csStat').textContent='초기화됨'; };/표시
 
 // ---- 클릭 ----
 const ray=new THREE.Raycaster(), mouse=new THREE.Vector2();

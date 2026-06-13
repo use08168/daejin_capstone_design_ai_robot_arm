@@ -12,6 +12,7 @@ from .camera import get_camera, get_config, mjpeg_frames
 from .detector import detections as detect_objects
 
 CAPTURE_DIR = r"C:\robotic_arm\laptop\calibration\captures"
+COLDSTART_PATH = r"C:\robotic_arm\laptop\calibration\coldstart_data.json"
 
 
 def _cams():
@@ -274,6 +275,38 @@ def marker_status(request):
     st["base_ok"] = (markers.BASE_ID in st["left"] and markers.BASE_ID in st["right"])
     st["has_T"] = markers.has_transform()
     return JsonResponse(st)
+
+
+@csrf_exempt
+def coldstart_save(request):
+    """스윕으로 모은 {자세 관절각, 마커 3D} 데이터셋 저장 + 엔드이펙터 마커로 작업공간 산출."""
+    if request.method != "POST":
+        return JsonResponse({"ok": False, "error": "POST only"})
+    import json
+    import math
+    data = json.loads(request.body.decode("utf-8"))
+    poses = data.get("poses", [])
+
+    all_ids = set()
+    for p in poses:
+        for k in p.get("markers", {}):
+            all_ids.add(int(k))
+    ws = None
+    if all_ids and poses:
+        ee = max(all_ids)                        # 가장 끝(엔드이펙터) 마커
+        pts = [p["markers"].get(str(ee)) for p in poses if p.get("markers", {}).get(str(ee))]
+        if pts:
+            xs = [v[0] for v in pts]; ys = [v[1] for v in pts]; zs = [v[2] for v in pts]
+            reach = [math.hypot(v[0], v[1]) for v in pts]
+            ws = {"ee_id": ee, "n": len(pts),
+                  "x": [round(min(xs), 1), round(max(xs), 1)],
+                  "y": [round(min(ys), 1), round(max(ys), 1)],
+                  "z": [round(min(zs), 1), round(max(zs), 1)],
+                  "reach_min": round(min(reach), 1), "reach_max": round(max(reach), 1)}
+    os.makedirs(os.path.dirname(COLDSTART_PATH), exist_ok=True)
+    with open(COLDSTART_PATH, "w", encoding="utf-8") as f:
+        json.dump({"poses": poses, "workspace": ws}, f, ensure_ascii=False, indent=1)
+    return JsonResponse({"ok": True, "poses": len(poses), "workspace": ws})
 
 
 def measure_markers(request):
