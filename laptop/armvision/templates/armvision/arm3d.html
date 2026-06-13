@@ -140,8 +140,8 @@
           <div class="ttl">콜드스타트 / 작업공간 수집 (단계 ⑥)</div>
           <div class="hintline">각 자세에서 마커를 측정해 모읍니다. 평평한 자세(J2=0)처럼 마커가 다 보일 때 추가하세요. (연동 ON 필요)</div>
           <div class="row"><button class="primary" id="csAdd" style="flex:1">📌 이 자세 추가</button><button class="ghost" id="csAuto">⟳ 자동 스윕(J1)</button></div>
-          <div class="row"><span class="muted">수집 <b id="csN">0</b>자세</span><span style="flex:1"></span><button class="ghost" id="csSave">💾 저장</button><button class="ghost" id="csClear">초기화</button></div>
-          <div class="hintline" id="csStat" style="margin:0;"></div>
+          <div class="row"><span class="muted">수집 <b id="csN">0</b>자세</span><span style="flex:1"></span><button class="ghost" id="csCsv">⬇ CSV</button><button class="ghost" id="csSave">💾 저장</button><button class="ghost" id="csClear">초기화</button></div>
+          <div class="hintline" id="csStat" style="margin:0;">검증용: 한 자세에서 안 움직이고 여러 번 '추가'=반복성, 한 관절만 바꿔 '추가'=관절별. → CSV로 내보내 분석.</div>
         </div>
       </div>
 
@@ -527,9 +527,22 @@ async function csAutoSweep(){
   }
   await csSave();
 }
+function csExportCSV(){
+  if(!csPoses.length){ $('csStat').textContent='수집된 자세가 없습니다.'; return; }
+  const jkeys=Object.keys(csPoses[0].angles); const mids=[0,1,2,3,4,5,6,7];
+  const head=['idx',...jkeys,...mids.flatMap(i=>[`id${i}_x`,`id${i}_y`,`id${i}_z`])];
+  const rows=csPoses.map((p,i)=>{ const a=jkeys.map(k=>p.angles[k]);
+    const m=mids.flatMap(id=>{ const v=p.markers[id]; return v?[v[0],v[1],v[2]]:['','','']; });
+    return [i+1,...a,...m].join(','); });
+  const csv=[head.join(','),...rows].join('\n');
+  const url=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  const a=document.createElement('a'); a.href=url; a.download='measure_data.csv'; a.click(); URL.revokeObjectURL(url);
+  $('csStat').textContent=`CSV 내보냄 (${csPoses.length}행) — 파일을 공유해 주세요`;
+}
 $('csAdd').onclick=()=>csAdd(false);
 $('csAuto').onclick=csAutoSweep;
 $('csSave').onclick=csSave;
+$('csCsv').onclick=csExportCSV;
 $('csClear').onclick=()=>{ csPoses=[]; $('csN').textContent='0'; $('csStat').textContent='초기화됨'; };
 
 // ---- 클릭 ----
