@@ -439,13 +439,17 @@ function onArmLost(){ connected=false; for(const k in _lastUs)delete _lastUs[k];
   $('connStat').textContent='⟳ 재연결 중… (전원/USB 확인)'; $('connStat').style.color='var(--warn)'; }
 function armAlign(){ if(connected) aligning=true; }   // 램프가 실물 명령각을 3D 자세로 천천히 이동시킴
 
+// 명령각(_cmd) 영속 — 페이지 이동/새로고침 후에도 홈/마지막 자세 기준 유지
+const CMD_KEY='armCmd_v1';
+function saveCmd(){ try{ const o={}; revMates().forEach(m=>{ if(m._cmd!=null)o[m.parent+'>'+m.child]=+(+m._cmd).toFixed(1); }); localStorage.setItem(CMD_KEY,JSON.stringify(o)); }catch(e){} }
+function loadCmd(m){ try{ const o=JSON.parse(localStorage.getItem(CMD_KEY)||'{}'); const v=o[m.parent+'>'+m.child]; return typeof v==='number'?v:null; }catch(e){ return null; } }
 function buildCtrlJoints(){ const c=$('ctrlJoints'); c.innerHTML=''; aligning=false; const rm=revMates(); $('jcount').textContent=rm.length;
   rm.forEach((m,i)=>{ const card=document.createElement('div'); card.className='card';
     const nm=`J${i+1} · ${m.parent.replace('.stl','')}→${m.child.replace('.stl','')}`;
     card.innerHTML=`<div class="row" style="justify-content:space-between;margin-bottom:6px"><span style="color:#fbbf24;font-weight:600">${nm}</span><span class="muted">ch${m.motor.channel} · <b class="cu">—</b>µs</span></div>
       <div class="row" style="margin-bottom:0"><b class="ca" style="width:32px;text-align:right">${m.angle}</b><span class="muted">°</span><input class="slider cs" type="range" min="${m.min}" max="${m.max}" value="${m.angle}"></div>`;
     const sl=card.querySelector('.cs'), ca=card.querySelector('.ca'), cu=card.querySelector('.cu');
-    m._tgt=(m.angle==null?90:m.angle); if(m._cmd==null)m._cmd=90; m._ui={sl,ca,cu};   // 명령각 기준=홈(90°)
+    m._tgt=(m.angle==null?90:m.angle); if(m._cmd==null){ const s=loadCmd(m); m._cmd=(s!=null)?s:90; } m._ui={sl,ca,cu};   // 명령각: 저장값 복원, 없으면 홈(90°)
     cu.textContent=angToUs(m);
     sl.addEventListener('input',()=>{ m._tgt=+sl.value; });   // 목표만 설정 → 램프가 천천히 이동
     c.appendChild(card); }); }
@@ -479,12 +483,12 @@ $('btnConn').onclick=async ()=>{ if(connected){ await fetch(A_DISC,{method:'POST
 $('btnSync').onclick=()=>{ if(!connected){ alert('먼저 아두이노를 연결하세요.'); return; }
   if(!sync && !confirm('연동을 켜면 슬라이더 조작이 실제 로봇팔을 움직입니다.\n실물이 현재 3D 자세와 정렬돼 있는지 확인하세요. 계속할까요?')) return;
   setSync(!sync); };
-$('btnHome').onclick=()=>{ revMates().forEach(m=>m._cmd=90); $('connStat').textContent='홈(90°) 기준 설정됨 — 이제 정렬/이동이 천천히'; $('connStat').style.color='var(--c-ok)'; };
+$('btnHome').onclick=()=>{ revMates().forEach(m=>m._cmd=90); saveCmd(); $('connStat').textContent='홈(90°) 기준 설정됨 (저장됨 — 페이지 이동해도 유지)'; $('connStat').style.color='var(--c-ok)'; };
 $('btnAlign').onclick=()=>{ if(!connected){ alert('먼저 아두이노를 연결하세요.'); return; }
   armAlign(); $('connStat').textContent='정렬 중… (홈에서 천천히 이동)'; $('connStat').style.color='var(--c-ok)'; };
 $('btnEstop').onclick=()=>{ setSync(false); revMates().forEach(m=>m._tgt=(m.angle==null?90:m.angle)); $('connStat').textContent='정지 — 연동 꺼짐(서보는 현재 위치 유지)'; $('connStat').style.color='var(--warn)'; };
 $('ctrlSpeed').addEventListener('input',()=>{ ctrlSpeed=Math.max(1,+$('ctrlSpeed').value||10); });
-setInterval(()=>{ if(mode==='ctrl') refreshConn(); }, 2500);   // 끊김 자동 감지
+setInterval(()=>{ if(mode==='ctrl'){ refreshConn(); saveCmd(); } }, 2500);   // 끊김 자동 감지 + 명령각 저장
 
 // ---- 콜드스타트 / 작업공간 수집 (단계 ⑥) ----
 let csPoses=[];
