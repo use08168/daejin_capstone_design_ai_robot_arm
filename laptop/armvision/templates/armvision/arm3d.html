@@ -153,8 +153,9 @@
         <div class="card" style="margin-top:10px;">
           <div class="ttl">C-space 충돌 지도 (#3 — 가상 학습 데이터)</div>
           <div class="hintline">J2·J3·J4를 격자로 전부 회전시켜 각 조합의 바닥여유·자기충돌을 시뮬에서 자동 기록 → CSV. (실물 불필요)</div>
-          <div class="row" style="margin-bottom:0"><span class="muted" style="width:38px">간격</span><input id="csStep" type="number" value="5" step="1" min="2" max="15" style="width:56px"><span class="muted">°</span><span style="flex:1"></span><button class="primary" id="csSweep">🗺 C-space 스윕</button></div>
-          <div class="hintline" id="csSweepStat" style="margin:6px 0 0;">J2·J3·J4 전 조합 검사 → 충돌 경계 데이터.</div>
+          <div class="row" style="margin-bottom:6px"><span class="muted" style="width:38px">간격</span><input id="csStep" type="number" value="5" step="1" min="2" max="15" style="width:56px"><span class="muted">°</span><span style="flex:1"></span><button class="primary" id="csSweep">🗺 격자(J2·J3·J4)</button></div>
+          <div class="row" style="margin-bottom:0"><span class="muted" style="width:38px">샘플</span><input id="csN5" type="number" value="40000" step="5000" min="1000" style="width:72px"><span class="muted">개</span><span style="flex:1"></span><button class="ghost" id="csRand">🎲 랜덤(J2~J6)</button></div>
+          <div class="hintline" id="csSweepStat" style="margin:6px 0 0;">격자=J2·J3·J4 전조합(히트맵용). 랜덤=J2~J6 무작위(고차원 학습용, J1은 수직축이라 충돌 불변→고정).</div>
         </div>
       </div>
 
@@ -699,34 +700,48 @@ function updateCollision(){
   txt.innerHTML=`바닥 <b>${who!=null?minY.toFixed(0):'-'}mm</b> ${ftag} · 자기 ${stag}<span class="mg">마진 ${SAFE_MARGIN}/${SELF_MARGIN}</span>`;
 }
 
-// ===== #3 C-space 충돌 지도 — J2·J3·J4 격자 스윕 → CSV =====
-async function sweepCspace(){
-  if(_sweeping) return;
-  if(mode!=='ctrl'){ alert('제어 모드에서 실행하세요.'); return; }
-  const rm=revMates(); if(rm.length<4){ alert('관절(J2·J3·J4)이 부족합니다.'); return; }
-  const mJ2=rm[1], mJ3=rm[2], mJ4=rm[3], step=Math.max(2,+$('csStep').value||5);
-  const combos=[];
-  for(let a2=mJ2.min;a2<=mJ2.max+1e-6;a2+=step)
-   for(let a3=mJ3.min;a3<=mJ3.max+1e-6;a3+=step)
-    for(let a4=mJ4.min;a4<=mJ4.max+1e-6;a4+=step) combos.push([a2,a3,a4]);
-  if(combos.length>300000){ alert(`조합이 너무 많습니다(${combos.length}). 간격을 키우세요.`); return; }
-  if(!confirm(`C-space 스윕: ${combos.length}개 조합(J2·J3·J4, ${step}°격자).\n시뮬에서 전부 회전시켜 충돌을 기록합니다. 진행할까요?`)) return;
-  _sweeping=true; collMark.visible=selfMark.visible=false;
-  const saved=rm.map(m=>m.angle), stat=$('csSweepStat');
-  const rows=[['J2','J3','J4','floor_clear_mm','self_clear_mm','self_target','collision']];
-  for(let i=0;i<combos.length;i++){
-    const c=combos[i]; mJ2.angle=c[0]; mJ3.angle=c[1]; mJ4.angle=c[2]; applyAngles();
-    const r=_collideOnce(); const coll=(r.floor<0 || r.self<0)?1:0;
-    rows.push([c[0],c[1],c[2], r.floor.toFixed(1), isFinite(r.self)?r.self.toFixed(1):'', r.selfWho||'', coll]);
-    if(i%150===0){ stat.textContent=`스윕 ${i}/${combos.length} (${(100*i/combos.length).toFixed(0)}%)`; await new Promise(res=>setTimeout(res)); }
-  }
-  rm.forEach((m,i)=>m.angle=saved[i]); applyAngles(); _sweeping=false;
-  const nColl=rows.slice(1).filter(r=>r[6]===1).length;
+// ===== #3 C-space 충돌 지도 — 격자(J2·J3·J4) / 랜덤(J2~J6) 스윕 → CSV =====
+// J1은 수직축(yaw) → 높이·부품거리 불변 → 충돌과 무관하므로 항상 고정.
+const CS_HDR=['J1','J2','J3','J4','J5','J6','floor_clear_mm','self_clear_mm','self_target','collision'];
+function _csRow(rm){ const r=_collideOnce(); const coll=(r.floor<0||r.self<0)?1:0;
+  const ang=[0,1,2,3,4,5].map(i=>rm[i]?+(+rm[i].angle).toFixed(1):90);
+  return [...ang, r.floor.toFixed(1), isFinite(r.self)?r.self.toFixed(1):'', r.selfWho||'', coll]; }
+function _csDownload(rows, fname){
+  const n=rows.length-1, nColl=rows.slice(1).filter(r=>r[r.length-1]===1).length;
   const csv=rows.map(r=>r.join(',')).join('\n'), blob=new Blob([csv],{type:'text/csv'}), url=URL.createObjectURL(blob);
-  const a=document.createElement('a'); a.href=url; a.download='cspace_map.csv'; a.click(); URL.revokeObjectURL(url);
-  stat.innerHTML=`완료: ${combos.length}조합 중 충돌 <b>${nColl}</b> (${(100*nColl/combos.length).toFixed(1)}%) → cspace_map.csv 저장됨`;
+  const a=document.createElement('a'); a.href=url; a.download=fname; a.click(); URL.revokeObjectURL(url);
+  return {n, nColl};
 }
-$('csSweep').onclick=sweepCspace;
+async function sweepGrid(){
+  if(_sweeping) return; if(mode!=='ctrl'){ alert('제어 모드에서 실행하세요.'); return; }
+  const rm=revMates(); if(rm.length<4){ alert('관절(J2·J3·J4)이 부족합니다.'); return; }
+  const mJ2=rm[1], mJ3=rm[2], mJ4=rm[3], step=Math.max(2,+$('csStep').value||5), combos=[];
+  for(let a2=mJ2.min;a2<=mJ2.max+1e-6;a2+=step) for(let a3=mJ3.min;a3<=mJ3.max+1e-6;a3+=step) for(let a4=mJ4.min;a4<=mJ4.max+1e-6;a4+=step) combos.push([a2,a3,a4]);
+  if(combos.length>300000){ alert(`조합이 너무 많습니다(${combos.length}). 간격을 키우세요.`); return; }
+  if(!confirm(`격자 스윕: ${combos.length}조합(J2·J3·J4, ${step}°). 진행할까요?`)) return;
+  _sweeping=true; collMark.visible=selfMark.visible=false;
+  const saved=rm.map(m=>m.angle), stat=$('csSweepStat'), rows=[CS_HDR];
+  for(let i=0;i<combos.length;i++){ const c=combos[i]; mJ2.angle=c[0]; mJ3.angle=c[1]; mJ4.angle=c[2]; applyAngles(); rows.push(_csRow(rm));
+    if(i%150===0){ stat.textContent=`격자 ${i}/${combos.length} (${(100*i/combos.length).toFixed(0)}%)`; await new Promise(res=>setTimeout(res)); } }
+  rm.forEach((m,i)=>m.angle=saved[i]); applyAngles(); _sweeping=false;
+  const {n,nColl}=_csDownload(rows,'cspace_grid.csv');
+  stat.innerHTML=`완료(격자): ${n}조합 중 충돌 <b>${nColl}</b> (${(100*nColl/n).toFixed(1)}%) → cspace_grid.csv`;
+}
+async function sweepRandom(){
+  if(_sweeping) return; if(mode!=='ctrl'){ alert('제어 모드에서 실행하세요.'); return; }
+  const rm=revMates(); if(rm.length<6){ alert('관절(J2~J6)이 부족합니다.'); return; }
+  const N=Math.max(1000,Math.min(300000,+$('csN5').value||40000)), varj=[1,2,3,4,5];   // J2~J6 무작위(J1 고정)
+  if(!confirm(`랜덤 스윕: ${N}개 샘플(J2~J6 무작위, J1 고정).\n고차원 C-space를 학습용으로 수집합니다. 진행할까요?`)) return;
+  _sweeping=true; collMark.visible=selfMark.visible=false;
+  const saved=rm.map(m=>m.angle), stat=$('csSweepStat'), rows=[CS_HDR];
+  for(let i=0;i<N;i++){ varj.forEach(j=>{ const m=rm[j]; m.angle=m.min+Math.random()*(m.max-m.min); }); applyAngles(); rows.push(_csRow(rm));
+    if(i%150===0){ stat.textContent=`랜덤 ${i}/${N} (${(100*i/N).toFixed(0)}%)`; await new Promise(res=>setTimeout(res)); } }
+  rm.forEach((m,i)=>m.angle=saved[i]); applyAngles(); _sweeping=false;
+  const {n,nColl}=_csDownload(rows,'cspace_rand.csv');
+  stat.innerHTML=`완료(랜덤): ${n}샘플 중 충돌 <b>${nColl}</b> (${(100*nColl/n).toFixed(1)}%) → cspace_rand.csv`;
+}
+$('csSweep').onclick=sweepGrid;
+$('csRand').onclick=sweepRandom;
 
 (function loop(){ requestAnimationFrame(loop); orbit.update(); updateLockLines(); rampCtrl(); updateCollision(); renderer.render(scene,camera); })();
 </script>

@@ -36,45 +36,63 @@ BIG = 1e6
 
 def load(path, fm, sm):
     rows = list(csv.DictReader(open(path, encoding="utf-8")))
-    X = np.array([[float(r["J2"]), float(r["J3"]), float(r["J4"])] for r in rows])
+    jcols = [j for j in ["J1", "J2", "J3", "J4", "J5", "J6"] if j in rows[0]]
+    arr = {j: np.array([float(r[j]) for r in rows]) for j in jcols}
+    feats = [j for j in jcols if len(np.unique(arr[j])) > 1]   # 실제로 변하는 관절만 입력특징
+    X = np.column_stack([arr[j] for j in feats])
     fc = np.array([float(r["floor_clear_mm"]) for r in rows])
     sc = np.array([float(r["self_clear_mm"]) if r["self_clear_mm"] not in ("", None) else BIG for r in rows])
     y = ((fc < fm) | (sc < sm)).astype(int)   # 1 = 위험
-    return X, y
+    return X, y, feats
 
 
-def fig_compare(model, scaler, X, y, thr):
-    """J2 슬라이스별: 모델 예측 위험확률(히트맵) + 실제 충돌경계(검은선)."""
-    u2 = np.unique(X[:, 0]); u3 = np.unique(X[:, 1]); u4 = np.unique(X[:, 2])
-    slices = u2[np.linspace(0, len(u2) - 1, 6).round().astype(int)]
+def fig_compare(model, scaler, feats, X, y, thr):
+    """슬라이스별 모델 예측 위험확률(히트맵). 그리드 데이터면 실제 충돌경계(검은선)도.
+    facet=J6(있으면, 바닥핵심 신규관절) 아니면 J2. 축=J3×J4. 나머지 관절은 고정."""
+    idx = {j: i for i, j in enumerate(feats)}
+    facet = "J6" if "J6" in feats else ("J2" if "J2" in feats else feats[0])
+    ay, ax_ = "J3", "J4"
+    others = [j for j in feats if j not in (facet, ay, ax_)]
+    # 바닥은 J2가 작을 때 잘 닿음 → facet이 J6일 땐 J2=0으로 고정해 위험을 드러냄
+    fixed = {j: (0.0 if (j == "J2" and facet == "J6") else 90.0) for j in others}
+    grid_gt = (len(others) == 0)   # 다른 관절이 고정된 격자 데이터일 때만 실제경계 오버레이
+
+    uy = np.unique(X[:, idx[ay]]); ux = np.unique(X[:, idx[ax_]]); uf = np.unique(X[:, idx[facet]])
+    slices = uf if len(uf) <= 6 else uf[np.linspace(0, len(uf) - 1, 6).round().astype(int)]
     fig, axes = plt.subplots(2, 3, figsize=(12.6, 7.2), squeeze=False)
-    for k, a2 in enumerate(slices):
+    for k in range(6):
         ax = axes[k // 3][k % 3]
-        gg3, gg4 = np.meshgrid(u3, u4, indexing="ij")
-        grid = np.c_[np.full(gg3.size, a2), gg3.ravel(), gg4.ravel()]
-        prob = model.predict_proba(scaler.transform(grid))[:, 1].reshape(gg3.shape)
+        if k >= len(slices): ax.axis("off"); continue
+        fv = slices[k]
+        gy, gx = np.meshgrid(uy, ux, indexing="ij")
+        cols = np.zeros((gy.size, len(feats)))
+        for j in feats:
+            cols[:, idx[j]] = (gy.ravel() if j == ay else gx.ravel() if j == ax_
+                               else fv if j == facet else fixed.get(j, 90.0))
+        prob = model.predict_proba(scaler.transform(cols))[:, 1].reshape(gy.shape)
         im = ax.imshow(prob, origin="lower", aspect="auto", cmap="RdYlGn_r", vmin=0, vmax=1,
-                       extent=[u4.min(), u4.max(), u3.min(), u3.max()])
-        # 실제(ground truth) 위험 경계
-        sel = X[:, 0] == a2
-        tg = np.full((len(u3), len(u4)), 0.0)
-        for (j2, j3, j4), yy in zip(X[sel], y[sel]):
-            tg[np.where(u3 == j3)[0][0], np.where(u4 == j4)[0][0]] = yy
-        ax.contour(u4, u3, tg, levels=[0.5], colors="k", linewidths=1.4)
-        ax.set_title(f"J2={a2:.0f}°", fontsize=10)
-        if k % 3 == 0: ax.set_ylabel("J3 (°)")
-        if k // 3 == 1: ax.set_xlabel("J4 (°)")
+                       extent=[ux.min(), ux.max(), uy.min(), uy.max()])
+        if grid_gt:
+            sel = X[:, idx[facet]] == fv
+            tg = np.zeros((len(uy), len(ux)))
+            for row, yy in zip(X[sel], y[sel]):
+                tg[np.where(uy == row[idx[ay]])[0][0], np.where(ux == row[idx[ax_]])[0][0]] = yy
+            ax.contour(ux, uy, tg, levels=[0.5], colors="k", linewidths=1.4)
+        ax.set_title(f"{facet}={fv:.0f}°", fontsize=10)
+        if k % 3 == 0: ax.set_ylabel(f"{ay} (°)")
+        if k // 3 == 1: ax.set_xlabel(f"{ax_} (°)")
     fig.subplots_adjust(hspace=0.3, wspace=0.18)
     fig.colorbar(im, ax=axes, shrink=0.7, label="model P(unsafe)")
-    fig.suptitle(f"Learned collision predictor — color=model, black=ground-truth boundary (thr={thr:.2f})", y=1.02)
+    ctx = ", ".join(f"{j}={int(v)}" for j, v in fixed.items()) or "grid"
+    fig.suptitle(f"Learned predictor [{'·'.join(feats)}] — facet {facet}, fixed {ctx} (thr={thr:.2f})", y=1.02)
     p = os.path.join(OUT_DIR, "cspace-learned.png"); fig.savefig(p, dpi=130, bbox_inches="tight"); plt.close()
     return p
 
 
 def main(path, fm, sm):
     os.makedirs(OUT_DIR, exist_ok=True)
-    X, y = load(path, fm, sm)
-    print(f"데이터 {len(X)}조합 · 위험 {y.sum()} ({100*y.mean():.1f}%)  [margin floor≥{fm} self≥{sm}]")
+    X, y, feats = load(path, fm, sm)
+    print(f"데이터 {len(X)}조합 · 입력관절 {feats} ({len(feats)}D) · 위험 {y.sum()} ({100*y.mean():.1f}%)  [margin floor≥{fm} self≥{sm}]")
 
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25, random_state=0, stratify=y)
     scaler = StandardScaler().fit(Xtr)
@@ -105,7 +123,7 @@ def main(path, fm, sm):
     clf.predict(Xs); dt = (time.perf_counter() - t0) / len(Xs) * 1e6
     print(f"\n추론 속도 ≈ {dt:.1f} µs/질의 ({len(Xs)}개) — AI가 자세 안전성을 실시간 질의 가능")
 
-    print(f"\n[figure] {fig_compare(clf, scaler, X, y, thr)}")
+    print(f"\n[figure] {fig_compare(clf, scaler, feats, X, y, thr)}")
 
 
 if __name__ == "__main__":
