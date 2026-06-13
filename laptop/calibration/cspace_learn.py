@@ -42,8 +42,9 @@ def load(path, fm, sm):
     X = np.column_stack([arr[j] for j in feats])
     fc = np.array([float(r["floor_clear_mm"]) for r in rows])
     sc = np.array([float(r["self_clear_mm"]) if r["self_clear_mm"] not in ("", None) else BIG for r in rows])
-    y = ((fc < fm) | (sc < sm)).astype(int)   # 1 = 위험
-    return X, y, feats
+    y = ((fc < fm) | (sc < sm)).astype(int)               # 1 = 위험
+    sclr = np.minimum(fc - fm, sc - sm)                    # 안전여유(마진반영, 음수=위험·깊이)
+    return X, y, feats, sclr
 
 
 def fig_compare(model, scaler, feats, X, y, thr):
@@ -91,10 +92,10 @@ def fig_compare(model, scaler, feats, X, y, thr):
 
 def main(path, fm, sm):
     os.makedirs(OUT_DIR, exist_ok=True)
-    X, y, feats = load(path, fm, sm)
+    X, y, feats, sclr = load(path, fm, sm)
     print(f"데이터 {len(X)}조합 · 입력관절 {feats} ({len(feats)}D) · 위험 {y.sum()} ({100*y.mean():.1f}%)  [margin floor≥{fm} self≥{sm}]")
 
-    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25, random_state=0, stratify=y)
+    Xtr, Xte, ytr, yte, _, scte = train_test_split(X, y, sclr, test_size=0.25, random_state=0, stratify=y)
     scaler = StandardScaler().fit(Xtr)
     clf = MLPClassifier(hidden_layer_sizes=(64, 64), max_iter=400, random_state=0)
     clf.fit(scaler.transform(Xtr), ytr)
@@ -118,6 +119,13 @@ def main(path, fm, sm):
     print(f"\n[안전 임계 {thr:.3f}] 위험 재현율 {recall_score(yte,predS)*100:.2f}%  "
           f"미탐 {cmS[1,0]}개  오경보율 {fp_rate*100:.1f}%(안전을 위험으로)")
 
+    # 잔존 위험: 놓친 위험(FN)이 실제로 얼마나 깊은 충돌인가 → 안전 주장의 핵심
+    fn = (yte == 1) & (predS == 0)
+    if fn.sum():
+        d = -scte[fn]   # 침투 깊이(mm, 클수록 위험)
+        print(f"  └ 놓친 위험 {fn.sum()}개의 실제 침투깊이: 중앙값 {np.median(d):.1f}mm · 최악 {d.max():.1f}mm")
+        print(f"    (경계 근처 얕은 미탐이면 잔존위험 낮음 — 마진이 이미 {fm}/{sm}mm 흡수)")
+
     # 추론 속도(검증층 가치): 메시검사 대신 모델 질의
     Xs = scaler.transform(Xte); t0 = time.perf_counter()
     clf.predict(Xs); dt = (time.perf_counter() - t0) / len(Xs) * 1e6
@@ -127,7 +135,9 @@ def main(path, fm, sm):
 
 
 if __name__ == "__main__":
-    path = sys.argv[1] if len(sys.argv) > 1 else r"calibration/validation_data/cspace_map.csv"
-    fm = float(sys.argv[2]) if len(sys.argv) > 2 else 15.0
-    sm = float(sys.argv[3]) if len(sys.argv) > 3 else 10.0
+    # 기본 마진 = 콜드스타트 실측 sim-real gap. floor=30(말단 위치 최악잔차 30.8mm, 외부 평면),
+    # self=15(상대 기하라 오차 일부 상쇄 → 절반). → "시뮬 안전 ⇒ 실물 안전" 측정 근거.
+    path = sys.argv[1] if len(sys.argv) > 1 else r"calibration/validation_data/cspace_rand.csv"
+    fm = float(sys.argv[2]) if len(sys.argv) > 2 else 30.0
+    sm = float(sys.argv[3]) if len(sys.argv) > 3 else 15.0
     main(path, fm, sm)

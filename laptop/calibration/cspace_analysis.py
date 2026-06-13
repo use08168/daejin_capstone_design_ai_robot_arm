@@ -104,6 +104,6 @@ def main(path, fm, sm):
 
 if __name__ == "__main__":
     path = sys.argv[1] if len(sys.argv) > 1 else r"C:\Users\use08\Downloads\cspace_map.csv"
-    fm = float(sys.argv[2]) if len(sys.argv) > 2 else 15.0
-    sm = float(sys.argv[3]) if len(sys.argv) > 3 else 10.0
+    fm = float(sys.argv[2]) if len(sys.argv) > 2 else 30.0   # 콜드스타트 실측 sim-real gap
+    sm = float(sys.argv[3]) if len(sys.argv) > 3 else 15.0
     main(path, fm, sm)
