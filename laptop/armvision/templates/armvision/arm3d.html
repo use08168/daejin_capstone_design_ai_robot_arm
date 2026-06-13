@@ -511,33 +511,40 @@ async function csSave(){
       : (d.ok? `저장 ✓ ${d.poses}자세 (엔드 마커 없어 작업공간 계산 불가)` : '저장 실패');
   }catch(e){ $('csStat').textContent='저장 실패'; }
 }
-// 검증 시퀀스 생성: 기준 자세(J2=0·J5=180, 평평·마커 다 보임)에서 반복성 + 관절별 단독 변경
+// ── 검증 시퀀스: "한 번에 한 모터만" + 사이클(이동→측정→복귀) + 끝까지 다음 단계 금지 ──
+// (동시 구동 시 전압강하로 아두이노 리셋되는 문제 → 단일 관절만 움직임)
 let seqAbort=false;
-function genValidationPoses(){
-  const n=revMates().length;
-  const base={J1:90,J2:0,J3:90,J4:90,J5:180,J6:90};
-  const arr=()=>Array.from({length:n},(_,i)=>base['J'+(i+1)]!=null?base['J'+(i+1)]:90);
-  const list=[]; const push=ov=>{ const a=arr(); for(const k in ov){ const i=+k.slice(1)-1; if(i<n)a[i]=ov[k]; } list.push(a); };
-  for(let r=0;r<15;r++) push({});                          // 반복성 15회
-  const sw={J3:[70,90,110,130],J4:[70,90,110,130],J1:[60,75,90,105,120],J5:[0,90,180],J2:[0,30,60]};
-  for(const j in sw) for(const ang of sw[j]) for(let r=0;r<3;r++) push({[j]:ang});   // 관절별 × 3회
-  return list;
+async function moveJoint(idx, angle){            // 한 관절만 이동, 3D 정착 + 실물 서보 도착까지 대기
+  const m=revMates()[idx]; if(!m) return;
+  if(Math.abs((m.angle==null?90:m.angle)-angle)<0.5){ m._tgt=angle; return; }   // 이미 도착
+  m._tgt=angle;
+  await _waitSettled(20000);                     // 3D 램프 정착(이 관절만 움직임)
+  await _sleep(1000);                            // 실물 서보 최종 도착 여유(다음 단계 금지)
 }
-// 포즈 리스트를 순서대로 실행하며 측정 (← 추후 AI 서버 명령 시퀀스 실행 경로와 동일 구조)
-async function runSequence(list){
+async function runValidation(){
   if(!connected||!sync){ alert('실물 연결 + 연동 ON 상태에서 실행하세요.'); return; }
-  if(!confirm(`자동 시퀀스 ${list.length}자세를 순서대로 실행하며 측정합니다.\n(■ 정지로 중단 가능) 주변 충돌 정리 확인. 계속할까요?`)) return;
-  seqAbort=false; const rm=revMates();
-  for(let k=0;k<list.length;k++){
-    if(seqAbort){ $('csStat').textContent=`중지됨 — ${csPoses.length}자세 수집`; return; }
-    if(!connected){ $('csStat').textContent='연결 끊김 — 중지'; return; }
-    rm.forEach((m,i)=>{ if(list[k][i]!=null) m._tgt=list[k][i]; });
-    $('csStat').textContent=`${k+1}/${list.length} 이동 중…`;
-    await _waitSettled(); await _sleep(1200);              // 램프 정착 + 실물 도착 대기
-    const ok=await csAdd(true);
-    $('csStat').textContent=`${k+1}/${list.length} ${ok?'측정 ✓':'마커부족'} · 수집 ${csPoses.length}`;
-  }
-  $('csStat').textContent=`시퀀스 완료 — ${csPoses.length}자세. [⬇ CSV]로 내보내세요.`;
+  const rm=revMates(), n=rm.length;
+  const base={J1:90,J2:0,J3:90,J4:90,J5:180,J6:90};   // 평평·마커 다 보임
+  const baseAng=i=>base['J'+(i+1)]!=null?base['J'+(i+1)]:90;
+  const REPEAT=10, TESTS={J3:[70,110,130],J4:[70,110,130],J1:[60,75,105,120],J5:[0,90],J2:[30,60]};
+  if(!confirm('검증 시퀀스 시작.\n· 모터는 항상 한 개씩만 이동(전압 리셋 방지)\n· 기준 자세 → 반복성 '+REPEAT+'회 → 관절별 사이클(이동→측정→복귀)\n· [■ 정지]로 언제든 중단\n계속할까요?')) return;
+  seqAbort=false;
+  const stop=()=>seqAbort||!connected;
+  try{
+    // 1) 기준 자세로 — 한 관절씩
+    for(let i=0;i<n;i++){ if(stop())return; $('csStat').textContent=`기준 자세 J${i+1}→${baseAng(i)}°…`; await moveJoint(i, baseAng(i)); }
+    // 2) 반복성 — 기준 자세에서 움직임 없이 반복 측정
+    for(let r=0;r<REPEAT;r++){ if(stop())break; await _sleep(300); const ok=await csAdd(true);
+      $('csStat').textContent=`반복성 ${r+1}/${REPEAT} ${ok?'✓':'마커부족'} · 수집 ${csPoses.length}`; }
+    // 3) 관절별 단독 사이클: 기준 → 목표(측정) → 기준 복귀  (각 단계 한 관절만)
+    for(const j in TESTS){ const idx=+j.slice(1)-1; if(idx>=n)continue;
+      for(const ang of TESTS[j]){ if(stop())return;
+        $('csStat').textContent=`${j}→${ang}° 이동…`; await moveJoint(idx, ang);   if(stop())return;
+        const ok=await csAdd(true); $('csStat').textContent=`${j}=${ang}° ${ok?'측정 ✓':'마커부족'} · 수집 ${csPoses.length} · 복귀…`;
+        await moveJoint(idx, baseAng(idx)); }   // 기준 복귀
+    }
+    $('csStat').textContent=`완료 — ${csPoses.length}자세. [⬇ CSV]로 내보내세요.`;
+  }catch(e){ $('csStat').textContent='시퀀스 오류 — 중단'; }
 }
 function csExportCSV(){
   if(!csPoses.length){ $('csStat').textContent='수집된 자세가 없습니다.'; return; }
@@ -552,7 +559,7 @@ function csExportCSV(){
   $('csStat').textContent=`CSV 내보냄 (${csPoses.length}행) — 파일을 공유해 주세요`;
 }
 $('csAdd').onclick=()=>csAdd(false);
-$('csAuto').onclick=()=>runSequence(genValidationPoses());
+$('csAuto').onclick=runValidation;
 $('csSave').onclick=csSave;
 $('csCsv').onclick=csExportCSV;
 $('csClear').onclick=()=>{ csPoses=[]; $('csN').textContent='0'; $('csStat').textContent='초기화됨'; };
