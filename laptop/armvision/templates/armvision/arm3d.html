@@ -7,6 +7,11 @@
   #viewport{ flex:1; background:#0b0b0d; border:1px solid var(--c-line); border-radius:12px; position:relative; overflow:hidden; }
   #hint3d{ position:absolute; left:14px; bottom:14px; color:#888; font-size:12px; pointer-events:none; background:rgba(10,10,12,.55); padding:5px 11px; border-radius:8px; }
   #matebar{ position:absolute; top:14px; left:14px; max-width:62%; background:rgba(20,22,30,.93); border:1px solid var(--c-line); padding:9px 13px; border-radius:10px; font-size:13px; display:none; }
+  #collHud{ position:absolute; right:14px; top:14px; font-size:12px; padding:6px 11px; border-radius:8px; background:rgba(10,10,12,.7); border:1px solid var(--c-line); color:#aaa; }
+  #collHud label{ cursor:pointer; user-select:none; }
+  #collHud.ok{ color:#7ee0a0; } #collHud.warn{ color:#ffd24a; border-color:#7a5a00; }
+  #collHud.hit{ color:#ff8080; border-color:#7a1f1f; background:rgba(60,12,12,.7); }
+  #collHud .mg{ color:#777; margin-left:8px; }
   #panel{ width:330px; flex:0 0 330px; background:var(--c-card); border:1px solid var(--c-line); border-radius:12px; padding:14px; overflow:auto; }
   #panel::-webkit-scrollbar{ width:8px; } #panel::-webkit-scrollbar-thumb{ background:#33333c; border-radius:4px; }
   /* 세그먼트 모드 토글 */
@@ -57,6 +62,7 @@
     <div id="viewport">
       <div id="matebar"></div>
       <div id="hint3d">조립=기즈모 배치 · 결합=면 클릭으로 부품 연결 · 드래그=뷰 · 휠=줌</div>
+      <div id="collHud"><label><input type="checkbox" id="collTog" checked> 충돌</label> <span id="collTxt">제어 모드에서 작동</span></div>
     </div>
     <div id="panel">
       <div class="seg">
@@ -610,6 +616,35 @@ $('load').onclick=()=>{ if(confirm('저장된 내용으로 다시 불러옵니�
 window.addEventListener('keydown',e=>{ if(mode==='asm'){ if(e.key==='g')gMove.click(); if(e.key==='r')gRot.click(); } if(e.key==='Escape'){deselectPart(); pickFor=null; document.querySelectorAll('.slot').forEach(b=>b.classList.remove('on')); $('matebar').style.display='none';} });
 function resize(){ camera.aspect=vp.clientWidth/vp.clientHeight; camera.updateProjectionMatrix(); renderer.setSize(vp.clientWidth,vp.clientHeight); }
 window.addEventListener('resize',resize);
-(function loop(){ requestAnimationFrame(loop); orbit.update(); updateLockLines(); rampCtrl(); renderer.render(scene,camera); })();
+
+// ===== 바닥 충돌 감지 (STL 정점 포인트 샘플링, 바닥평면 y=0) =====
+// STL 정점을 다운샘플한 점군을 매 프레임 월드로 변환 → 최저 y가 바닥(0) 대비 여유.
+// 마진(SAFE_MARGIN) = 콜드스타트로 측정한 sim-real gap → "시뮬 안전 ⇒ 실물 안전".
+let collOn=true; let SAFE_MARGIN=10;   // mm
+$('collTog').addEventListener('change',e=>{ collOn=e.target.checked; });
+const collMark=new THREE.Mesh(new THREE.SphereGeometry(6,14,10), new THREE.MeshBasicMaterial({color:0xff3b3b,depthTest:false}));
+collMark.renderOrder=1000; collMark.visible=false; scene.add(collMark);
+function _sampleVerts(geo){ const pos=geo.attributes.position, n=pos.count, step=Math.max(1,Math.floor(n/400)), out=[];
+  for(let i=0;i<n;i+=step) out.push(pos.getX(i),pos.getY(i),pos.getZ(i)); return new Float32Array(out); }
+const _wp=new THREE.Vector3(), _best=new THREE.Vector3();
+function updateCollision(){
+  const hud=$('collHud'), txt=$('collTxt'); if(!hud) return;
+  if(!collOn || mode!=='ctrl'){ hud.className=''; collMark.visible=false; txt.textContent=collOn?'제어 모드에서 작동':'꺼짐'; return; }
+  rigRoot.updateMatrixWorld(true); worldRoot.updateMatrixWorld(true);
+  const isChild={}; mates.forEach(m=>isChild[m.child]=1);   // child=움직이는 부품, 루트(베이스)는 제외
+  let minY=Infinity, who=null;
+  parts.forEach(p=>{ if(!p.mesh.visible || !isChild[p.name]) return;
+    if(!p._cpts) p._cpts=_sampleVerts(p.mesh.geometry);
+    const mw=p.mesh.matrixWorld, a=p._cpts;
+    for(let i=0;i<a.length;i+=3){ _wp.set(a[i],a[i+1],a[i+2]).applyMatrix4(mw);
+      if(_wp.y<minY){ minY=_wp.y; who=p.name; _best.copy(_wp); } } });
+  if(who==null){ hud.className=''; collMark.visible=false; txt.textContent='—'; return; }
+  const hit=minY<0, danger=minY<SAFE_MARGIN;
+  collMark.visible=danger; if(danger) collMark.position.copy(_best);
+  hud.className=hit?'hit':(danger?'warn':'ok');
+  txt.innerHTML=`바닥 여유 <b>${minY.toFixed(0)}mm</b> `+(hit?`· ⛔ 충돌(${who})`:danger?`· ⚠ 위험(${who})`:'· ✓ 안전')+`<span class="mg">마진 ${SAFE_MARGIN}</span>`;
+}
+
+(function loop(){ requestAnimationFrame(loop); orbit.update(); updateLockLines(); rampCtrl(); updateCollision(); renderer.render(scene,camera); })();
 </script>
 {% endblock %}
