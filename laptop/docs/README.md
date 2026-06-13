@@ -13,6 +13,8 @@
 | [object_detection_model.md](object_detection_model.md) | 객체 탐지 모델 선정 (YOLO-World, 오픈 보캐뷸러리) |
 | [coordinate_3d_pipeline.md](coordinate_3d_pipeline.md) | ChArUco 스테레오 캘리브레이션 + 삼각측량 3D 파이프라인 |
 | [measurement_validation.md](measurement_validation.md) | **측정 검증** — 마커 3D가 실제 강체 운동학과 일치(불변점·강체거리·축복원) |
+| [coldstart_procedure.md](coldstart_procedure.md) | **콜드스타트 절차** — 비전-운동학 자가보정(축복원·PoE FK·sim-real gap·계층 역할) |
+| [digital_twin_safety.md](digital_twin_safety.md) | **디지털 트윈 안전 + 자가학습** — C-space 충돌지도·충돌예측 신경망·능동학습·AI 검증층 |
 | [arm3d_simulator.md](arm3d_simulator.md) | **STL 3D 시뮬레이터 + 실물 연동(4페이지)** — 조립·면결합·관절제어 |
 | [setup_procedure.md](setup_procedure.md) | 환경 구성 / 실행 절차 |
 | [aruco_markers.md](aruco_markers.md) | ArUco / ChArUco 마커 명세 |
