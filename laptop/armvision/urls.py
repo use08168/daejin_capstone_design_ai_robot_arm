@@ -36,4 +36,5 @@ urlpatterns = [
     path("setup/reset/", views.reset_calibration, name="reset_calibration"),
     path("setup/marker_status/", views.marker_status, name="marker_status"),
     path("setup/compute_transform/", views.compute_transform, name="compute_transform"),
+    path("setup/measure_markers/", views.measure_markers, name="measure_markers"),
 ]

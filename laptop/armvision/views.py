@@ -276,6 +276,16 @@ def marker_status(request):
     return JsonResponse(st)
 
 
+def measure_markers(request):
+    """현재 프레임에서 공통 마커들을 로봇 기준 3D로 측정 (단계 ⑥ 기본기)."""
+    cam_left, cam_right = _cams()
+    fL = get_camera(cam_left).read()
+    fR = get_camera(cam_right).read()
+    if fL is None or fR is None:
+        return JsonResponse({"ok": False, "error": "프레임 없음"})
+    return JsonResponse(markers.measure(fL, fR))
+
+
 @csrf_exempt
 def compute_transform(request):
     """단계 ⑤ — id0 베이스 마커로 카메라→로봇 변환 T 산출·저장."""

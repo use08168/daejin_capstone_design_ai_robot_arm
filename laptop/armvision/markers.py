@@ -85,5 +85,28 @@ def marker_status(frameL, frameR):
     return {"left": sorted(detect(frameL).keys()), "right": sorted(detect(frameR).keys())}
 
 
+def measure(frameL, frameR):
+    """양 카메라 공통 마커들을 삼각측량 → 중심 3D. T 있으면 로봇 기준 mm.
+    반환: {ok, frame, markers:{id:[x,y,z]}, left_only, right_only}."""
+    if not os.path.exists(CAL):
+        return {"ok": False, "error": "스테레오 캘리브레이션 필요 (3단계까지)."}
+    c = np.load(CAL)
+    cal = {k: c[k] for k in ("K1", "d1", "K2", "d2", "P1", "P2")}
+    T = np.load(T_PATH)["T"] if os.path.exists(T_PATH) else None
+    mL, mR = detect(frameL), detect(frameR)
+    common = sorted(set(mL) & set(mR))
+    res = {}
+    for mid in common:
+        P = _triangulate(mL[mid], mR[mid], cal)      # (4,3) 좌 카메라 좌표
+        ctr = P.mean(0)
+        if T is not None:
+            ctr = (T @ np.array([ctr[0], ctr[1], ctr[2], 1.0]))[:3]
+        res[mid] = [round(float(v), 1) for v in ctr]
+    return {"ok": True, "frame": "robot" if T is not None else "camera",
+            "markers": res,
+            "left_only": sorted(set(mL) - set(mR)),
+            "right_only": sorted(set(mR) - set(mL))}
+
+
 def has_transform() -> bool:
     return os.path.exists(T_PATH)
