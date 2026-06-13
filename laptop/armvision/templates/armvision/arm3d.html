@@ -127,7 +127,8 @@
         </div>
         <div class="card">
           <div class="ttl">시뮬레이션 ↔ 실물 연동</div>
-          <div class="hintline">연동을 켜기 전, <b>정렬</b>로 실물을 현재 3D 자세에 먼저 맞추세요.</div>
+          <div class="hintline">서보는 위치 피드백이 없어, 실물의 시작 자세를 알려줘야 천천히 움직입니다.<br><b>① 실물 팔을 홈(수직, 모든 관절 ~90°)에 두고 → ② [🏠 홈 기준] → ③ 정렬/연동</b></div>
+          <button class="ghost" id="btnHome" style="width:100%; margin-bottom:8px;">🏠 실물이 홈(90°)에 있음 — 기준 설정</button>
           <button id="btnSync" style="width:100%; margin-bottom:8px;">🔌 연동 OFF</button>
           <div class="row"><button class="ghost" id="btnAlign" style="flex:1">실물을 3D에 맞추기 (정렬)</button><button class="danger" id="btnEstop">■ 정지</button></div>
           <div class="row" style="margin-bottom:0"><span class="muted" style="width:38px">속도</span><input id="ctrlSpeed" type="number" value="10" step="1" min="1" style="width:56px"><span class="muted">°/s (60°≈6초)</span></div>
@@ -444,7 +445,7 @@ function buildCtrlJoints(){ const c=$('ctrlJoints'); c.innerHTML=''; aligning=fa
     card.innerHTML=`<div class="row" style="justify-content:space-between;margin-bottom:6px"><span style="color:#fbbf24;font-weight:600">${nm}</span><span class="muted">ch${m.motor.channel} · <b class="cu">—</b>µs</span></div>
       <div class="row" style="margin-bottom:0"><b class="ca" style="width:32px;text-align:right">${m.angle}</b><span class="muted">°</span><input class="slider cs" type="range" min="${m.min}" max="${m.max}" value="${m.angle}"></div>`;
     const sl=card.querySelector('.cs'), ca=card.querySelector('.ca'), cu=card.querySelector('.cu');
-    m._tgt=(m.angle==null?90:m.angle); if(m._cmd==null)m._cmd=m._tgt; m._ui={sl,ca,cu};   // 목표각·명령각·UI 참조
+    m._tgt=(m.angle==null?90:m.angle); if(m._cmd==null)m._cmd=90; m._ui={sl,ca,cu};   // 명령각 기준=홈(90°)
     cu.textContent=angToUs(m);
     sl.addEventListener('input',()=>{ m._tgt=+sl.value; });   // 목표만 설정 → 램프가 천천히 이동
     c.appendChild(card); }); }
@@ -455,7 +456,7 @@ let ctrlSpeed=10, _rampT=null, aligning=false;   // 10°/s → 60°를 6초
 function rampCtrl(){
   const now=performance.now(); const dt=_rampT?Math.min(0.1,(now-_rampT)/1000):0; _rampT=now;
   if(mode!=='ctrl'||!dt) return; const step=ctrlSpeed*dt; let moved3d=false;
-  revMates().forEach(m=>{ let a=(m.angle==null?90:m.angle); if(m._tgt==null)m._tgt=a; if(m._cmd==null)m._cmd=a;
+  revMates().forEach(m=>{ let a=(m.angle==null?90:m.angle); if(m._tgt==null)m._tgt=a; if(m._cmd==null)m._cmd=90;
     if(a!==m._tgt){ a=Math.abs(m._tgt-a)<=step?m._tgt:a+Math.sign(m._tgt-a)*step; m.angle=a; moved3d=true; if(m._ui)m._ui.ca.textContent=Math.round(a); }  // ① 3D
     if((sync||aligning)&&connected){                                                      // ② 실물(천천히 따라감)
       if(m._cmd!==a) m._cmd=Math.abs(a-m._cmd)<=step?a:m._cmd+Math.sign(a-m._cmd)*step;
@@ -478,8 +479,9 @@ $('btnConn').onclick=async ()=>{ if(connected){ await fetch(A_DISC,{method:'POST
 $('btnSync').onclick=()=>{ if(!connected){ alert('먼저 아두이노를 연결하세요.'); return; }
   if(!sync && !confirm('연동을 켜면 슬라이더 조작이 실제 로봇팔을 움직입니다.\n실물이 현재 3D 자세와 정렬돼 있는지 확인하세요. 계속할까요?')) return;
   setSync(!sync); };
+$('btnHome').onclick=()=>{ revMates().forEach(m=>m._cmd=90); $('connStat').textContent='홈(90°) 기준 설정됨 — 이제 정렬/이동이 천천히'; $('connStat').style.color='var(--c-ok)'; };
 $('btnAlign').onclick=()=>{ if(!connected){ alert('먼저 아두이노를 연결하세요.'); return; }
-  armAlign(); $('connStat').textContent='정렬 중… (천천히 이동)'; $('connStat').style.color='var(--c-ok)'; };
+  armAlign(); $('connStat').textContent='정렬 중… (홈에서 천천히 이동)'; $('connStat').style.color='var(--c-ok)'; };
 $('btnEstop').onclick=()=>{ setSync(false); revMates().forEach(m=>m._tgt=(m.angle==null?90:m.angle)); $('connStat').textContent='정지 — 연동 꺼짐(서보는 현재 위치 유지)'; $('connStat').style.color='var(--warn)'; };
 $('ctrlSpeed').addEventListener('input',()=>{ ctrlSpeed=Math.max(1,+$('ctrlSpeed').value||10); });
 setInterval(()=>{ if(mode==='ctrl') refreshConn(); }, 2500);   // 끊김 자동 감지
