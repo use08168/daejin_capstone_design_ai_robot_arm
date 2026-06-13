@@ -501,7 +501,7 @@ async function csSave(){
   if(!csPoses.length){ $('csStat').textContent='수집된 자세가 없습니다.'; return; }
   try{ const d=await (await fetch(CSAVE,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({poses:csPoses})})).json();
     const w=d.workspace;
-    $('csStat').textContent = (d.ok&&w)? `저장 ✓ ${d.poses}자세 · 작업공간(id${w.ee_id}) X[${w.x}] Y[${w.y}] Z[${w.z}] · 도달 ${w.reach_min}~${w.reach_max}mm`
+    $('csStat').textContent = (d.ok&&w)? `저장 ✓ ${d.poses}자세 · J1축(id${w.axis_id}) 기준 작업공간 X[${w.x}] Y[${w.y}] Z[${w.z}] · 도달 ${w.reach_min}~${w.reach_max}mm`+(w.axis_spread!=null?` · 축흔들림 ${w.axis_spread}mm`:'')
       : (d.ok? `저장 ✓ ${d.poses}자세 (엔드 마커 없어 작업공간 계산 불가)` : '저장 실패');
   }catch(e){ $('csStat').textContent='저장 실패'; }
 }

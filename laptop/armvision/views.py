@@ -294,11 +294,24 @@ def coldstart_save(request):
     ws = None
     if all_ids and poses:
         ee = max(all_ids)                        # 가장 끝(엔드이펙터) 마커
+        # J1 회전축 = id1 평균 위치 (로봇팔의 실제 중심축). 없으면 원점(id0) 기준.
+        id1 = [p["markers"].get("1") for p in poses if p.get("markers", {}).get("1")]
+        if id1:
+            cx = sum(v[0] for v in id1) / len(id1)
+            cy = sum(v[1] for v in id1) / len(id1)
+            cz = sum(v[2] for v in id1) / len(id1)
+            axis_spread = round(max(math.hypot(v[0] - cx, v[1] - cy) for v in id1), 1)
+            axis_id, axis = 1, [round(cx, 1), round(cy, 1), round(cz, 1)]
+        else:
+            cx = cy = cz = 0.0
+            axis_spread, axis_id, axis = None, 0, [0, 0, 0]
         pts = [p["markers"].get(str(ee)) for p in poses if p.get("markers", {}).get(str(ee))]
         if pts:
-            xs = [v[0] for v in pts]; ys = [v[1] for v in pts]; zs = [v[2] for v in pts]
-            reach = [math.hypot(v[0], v[1]) for v in pts]
-            ws = {"ee_id": ee, "n": len(pts),
+            # J1 축 기준 상대좌표 + 수평 도달거리
+            xs = [v[0] - cx for v in pts]; ys = [v[1] - cy for v in pts]; zs = [v[2] - cz for v in pts]
+            reach = [math.hypot(v[0] - cx, v[1] - cy) for v in pts]
+            ws = {"ee_id": ee, "axis_id": axis_id, "axis": axis, "axis_spread": axis_spread,
+                  "n": len(pts),
                   "x": [round(min(xs), 1), round(max(xs), 1)],
                   "y": [round(min(ys), 1), round(max(ys), 1)],
                   "z": [round(min(zs), 1), round(max(zs), 1)],
