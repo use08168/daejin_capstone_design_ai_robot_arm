@@ -435,8 +435,9 @@ function flushSend(){ if(_timer){clearTimeout(_timer);_timer=null;} _lastSend=pe
     .then(r=>r.json()).then(res=>{ if(res&&res.ok===false&&res.disconnected) onArmLost(); }).catch(()=>{}); }
 function sendJoint(ch,us){ _pend[ch]=us; const now=performance.now();
   if(now-_lastSend>=SEND_MS) flushSend(); else if(!_timer) _timer=setTimeout(flushSend,SEND_MS-(now-_lastSend)); }
-function onArmLost(){ connected=false; for(const k in _lastUs)delete _lastUs[k];   // 연동 끄지 않음 → 서버 자동 재연결 후 이어서 동작
-  $('connStat').textContent='⟳ 재연결 중… (전원/USB 확인)'; $('connStat').style.color='var(--warn)'; }
+function onArmLost(){ connected=false; seqAbort=true; revMates().forEach(m=>m._tgt=(m.angle==null?90:m.angle));  // 3D 동결(앞서가지 않게) + 시퀀스 중단
+  for(const k in _lastUs)delete _lastUs[k];
+  $('connStat').textContent='⟳ 재연결 중… (전원/USB 확인) — 3D 동결'; $('connStat').style.color='var(--warn)'; }
 function armAlign(){ if(connected) aligning=true; }   // 램프가 실물 명령각을 3D 자세로 천천히 이동시킴
 
 // 명령각(_cmd) 영속 — 페이지 이동/새로고침 후에도 홈/마지막 자세 기준 유지
@@ -460,8 +461,9 @@ let ctrlSpeed=10, _rampT=null, aligning=false;   // 10°/s → 60°를 6초
 function rampCtrl(){
   const now=performance.now(); const dt=_rampT?Math.min(0.1,(now-_rampT)/1000):0; _rampT=now;
   if(mode!=='ctrl'||!dt) return; const step=ctrlSpeed*dt; let moved3d=false;
+  const drive=(!sync)||connected;   // 연동 중엔 연결됐을 때만 3D 전진 → 실물 못 따라오면 3D도 멈춤(동기화 유지)
   revMates().forEach(m=>{ let a=(m.angle==null?90:m.angle); if(m._tgt==null)m._tgt=a; if(m._cmd==null)m._cmd=90;
-    if(a!==m._tgt){ a=Math.abs(m._tgt-a)<=step?m._tgt:a+Math.sign(m._tgt-a)*step; m.angle=a; moved3d=true; if(m._ui)m._ui.ca.textContent=Math.round(a); }  // ① 3D
+    if(drive && a!==m._tgt){ a=Math.abs(m._tgt-a)<=step?m._tgt:a+Math.sign(m._tgt-a)*step; m.angle=a; moved3d=true; if(m._ui)m._ui.ca.textContent=Math.round(a); }  // ① 3D
     if((sync||aligning)&&connected){                                                      // ② 실물(천천히 따라감)
       if(m._cmd!==a) m._cmd=Math.abs(a-m._cmd)<=step?a:m._cmd+Math.sign(a-m._cmd)*step;
       const us=angToUs(m,m._cmd); if(m._ui)m._ui.cu.textContent=us; sendJoint(m.motor.channel,us);
@@ -470,11 +472,17 @@ function rampCtrl(){
   if(aligning && revMates().every(m=>m._cmd===(m.angle==null?90:m.angle))) aligning=false;
 }
 
+let _lastResets=null;
 async function refreshConn(){ try{ const s=await (await fetch(A_STAT)).json(); const was=connected; connected=!!s.connected;
+  // 아두이노 리셋(전압 부족 등) 감지: 부팅 배너 카운트 증가 → 시퀀스 중단 + 3D 동결
+  if(connected && _lastResets!=null && (s.resets||0)>_lastResets){
+    _lastResets=s.resets; seqAbort=true; revMates().forEach(m=>m._tgt=(m.angle==null?90:m.angle));
+    $('connStat').textContent='⚠ 아두이노 리셋 감지! 전압 부족 의심 — 시퀀스 중단·서보 풀림. 전원 점검 필요'; $('connStat').style.color='var(--warn)'; return;
+  }
   if(s.reconnecting){ $('connStat').textContent='⟳ 재연결 중… (전원/USB 확인)'; $('connStat').style.color='var(--warn)'; }
   else { $('connStat').textContent=connected?('연결됨 ✓ '+(s.port||'')):'미연결'; $('connStat').style.color=connected?'var(--c-ok)':'var(--c-mut)'; }
   $('btnConn').textContent=connected?'해제':'연결';
-  if(connected && !was){ for(const k in _lastUs)delete _lastUs[k]; if(sync) armAlign(); }   // 재연결 직후 현재 자세 복구
+  if(connected && !was){ _lastResets=s.resets||0; for(const k in _lastUs)delete _lastUs[k]; if(sync) armAlign(); }   // 연결 직후: 리셋 기준선 설정
 }catch(e){} }
 function setSync(on){ sync=on&&connected; $('btnSync').textContent=sync?'🟢 연동 ON (실물 동시 구동)':'🔌 연동 OFF'; $('btnSync').classList.toggle('on',sync); if(!sync) flushSend(); }
 $('btnConn').onclick=async ()=>{ if(connected){ await fetch(A_DISC,{method:'POST'}).catch(()=>{}); }
