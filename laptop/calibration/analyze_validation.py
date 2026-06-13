@@ -120,6 +120,127 @@ def fig_axis(data, joint, marker, base_key):
     return p, r, len(angs)
 
 
+MARKER_COLORS = ["#111827", "#ef4444", "#f97316", "#eab308",
+                 "#22c55e", "#06b6d4", "#3b82f6", "#a855f7"]
+
+
+def _set_equal_3d(ax, pts):
+    """3D 축 비율을 1:1:1로 (왜곡 없는 형상)."""
+    pts = np.array(pts)
+    c = pts.mean(0)
+    rng = (pts.max(0) - pts.min(0)).max() / 2 or 1.0
+    ax.set_xlim(c[0] - rng, c[0] + rng)
+    ax.set_ylim(c[1] - rng, c[1] + rng)
+    ax.set_zlim(c[2] - rng, c[2] + rng)
+    ax.set_xlabel("X (mm)"); ax.set_ylabel("Y (mm)"); ax.set_zlabel("Z (mm)")
+
+
+def fig3d_workspace(data):
+    """모든 자세의 마커 3D 위치 점군 — 작업공간 + 측정 일관성을 눈으로."""
+    fig = plt.figure(figsize=(7, 6))
+    ax = fig.add_subplot(111, projection="3d")
+    allp = []
+    ids = sorted({i for d in data for i in d["mk"]})
+    for i in ids:
+        pts = np.array([d["mk"][i] for d in data if i in d["mk"]])
+        allp.extend(pts)
+        ax.scatter(pts[:, 0], pts[:, 1], pts[:, 2], s=14,
+                   color=MARKER_COLORS[i % 8], label=f"id{i}", depthshade=True)
+    _set_equal_3d(ax, allp)
+    ax.set_title(f"Workspace marker cloud ({len(data)} poses)")
+    ax.legend(fontsize=8, ncol=2, loc="upper left")
+    ax.view_init(elev=22, azim=-60)
+    plt.tight_layout()
+    p = os.path.join(OUT_DIR, "val-3d-workspace.png"); plt.savefig(p, dpi=130); plt.close()
+    return p, len(allp)
+
+
+def fig3d_axis(data, joint, marker, base_key):
+    """관절 단독 변경 시 marker 궤적 + 피팅 원 + 회전축선을 실제 3D 공간에 표시."""
+    others = [j for j in JOINTS if j != joint]
+    base = dict(base_key)
+    sel = {}
+    for d in data:
+        if marker not in d["mk"] or joint not in d["ang"]:
+            continue
+        if all(abs(d["ang"].get(o, base.get(o, 90)) - base.get(o, 90)) < 1 for o in others):
+            sel[d["ang"][joint]] = d["mk"][marker]
+    if len(sel) < 3:
+        return None
+    angs = sorted(sel); pts = np.array([sel[a] for a in angs])
+    center, r, normal, _ = fit_circle_3d(pts)
+    # 평면 내 원 200점 생성
+    _, _, vt = np.linalg.svd(pts - pts.mean(0))
+    e1, e2 = vt[0], vt[1]
+    th = np.linspace(0, 2 * np.pi, 200)
+    circ = center + r * (np.outer(np.cos(th), e1) + np.outer(np.sin(th), e2))
+
+    fig = plt.figure(figsize=(6.4, 5.8))
+    ax = fig.add_subplot(111, projection="3d")
+    ax.plot(circ[:, 0], circ[:, 1], circ[:, 2], color="#9ca3af", lw=1, label=f"fit r={r:.0f}mm")
+    ax.scatter(pts[:, 0], pts[:, 1], pts[:, 2], s=45, color="#3b82f6", depthshade=False)
+    for a, q in zip(angs, pts):
+        ax.text(q[0], q[1], q[2], f" {a:.0f}°", fontsize=8)
+    ax.scatter(*center, s=70, marker="x", color="#ef4444", label="axis center")
+    axis = np.array([center - normal * r * 0.9, center + normal * r * 0.9])
+    ax.plot(axis[:, 0], axis[:, 1], axis[:, 2], "--", color="#ef4444", lw=1.5, label="rotation axis")
+    _set_equal_3d(ax, np.vstack([circ, pts, axis]))
+    ax.set_title(f"{joint} axis recovery in 3D (marker id{marker})")
+    ax.legend(fontsize=8); ax.view_init(elev=20, azim=-70)
+    plt.tight_layout()
+    p = os.path.join(OUT_DIR, f"val-3d-axis-{joint.lower()}.png"); plt.savefig(p, dpi=130); plt.close()
+    return p, r, len(angs)
+
+
+def fig3d_skeleton(data, base_key):
+    """대표 자세들의 팔 골격 — 링크별 마커쌍 중점을 이어 팔 형상을 3D로."""
+    # 링크 척추: base(id0) → mid(1,2) → mid(3,4) → mid(5,6) → end(id7)
+    def spine(mk):
+        nodes = []
+        if 0 in mk:
+            nodes.append(mk[0])
+        for a, b in [(1, 2), (3, 4), (5, 6)]:
+            if a in mk and b in mk:
+                nodes.append((mk[a] + mk[b]) / 2)
+            elif a in mk:
+                nodes.append(mk[a])
+        if 7 in mk:
+            nodes.append(mk[7])
+        return np.array(nodes)
+
+    base = dict(base_key)
+
+    def label(ang):
+        diff = [f"{j}={int(v)}" for j, v in sorted(ang.items()) if abs(v - base.get(j, 90)) > 1]
+        return ", ".join(diff) if diff else "base"
+
+    # 자세 다양성: 바뀐 관절이 서로 다른 자세를 우선 선택(관절별 1개씩 + base)
+    seen_lab, picks = set(), []
+    for d in data:
+        sk = spine(d["mk"])
+        lab = label(d["ang"])
+        if len(sk) >= 3 and lab not in seen_lab:
+            seen_lab.add(lab); picks.append((d, sk, lab))
+        if len(picks) >= 7:
+            break
+    if not picks:
+        return None
+    fig = plt.figure(figsize=(7, 6))
+    ax = fig.add_subplot(111, projection="3d")
+    cmap = plt.get_cmap("viridis")
+    allp = []
+    for k, (d, sk, lab) in enumerate(picks):
+        col = cmap(k / max(1, len(picks) - 1))
+        ax.plot(sk[:, 0], sk[:, 1], sk[:, 2], "-o", color=col, ms=5, lw=2, label=lab)
+        allp.extend(sk)
+    _set_equal_3d(ax, allp)
+    ax.set_title("Arm skeleton across poses (link-pair midpoints)")
+    ax.legend(fontsize=7, loc="upper left"); ax.view_init(elev=20, azim=-65)
+    plt.tight_layout()
+    p = os.path.join(OUT_DIR, "val-3d-skeleton.png"); plt.savefig(p, dpi=130); plt.close()
+    return p, len(picks)
+
+
 def main(path):
     os.makedirs(OUT_DIR, exist_ok=True)
     data = load(path)
@@ -141,6 +262,17 @@ def main(path):
             print(f"[axis {joint}] {res[0]}  반경 {res[1]:.0f}mm ({res[2]}각도)")
         else:
             print(f"[axis {joint}] 데이터 부족(마커 누락/각도<3)")
+
+    # ── 3D 그래프 ──
+    p, npts = fig3d_workspace(data)
+    print(f"[3d-workspace] {p}  점 {npts}개")
+    for joint, marker in [("J1", 7), ("J3", 4), ("J4", 6)]:
+        res = fig3d_axis(data, joint, marker, base_key)
+        if res:
+            print(f"[3d-axis {joint}] {res[0]}  반경 {res[1]:.0f}mm ({res[2]}각도)")
+    res = fig3d_skeleton(data, base_key)
+    if res:
+        print(f"[3d-skeleton] {res[0]}  자세 {res[1]}개")
 
 
 if __name__ == "__main__":

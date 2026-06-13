@@ -539,7 +539,7 @@ async function runValidation(){
   const rm=revMates(), n=rm.length;
   const base={J1:90,J2:0,J3:90,J4:90,J5:180,J6:90};   // 평평·마커 다 보임
   const baseAng=i=>base['J'+(i+1)]!=null?base['J'+(i+1)]:90;
-  const REPEAT=10, TESTS={J3:[70,110,130],J4:[70,110,130],J1:[60,75,105,120],J5:[0,90],J2:[30,60]};
+  const REPEAT=20, REPS=2, TESTS={J1:[50,65,80,95,110,125],J3:[60,75,105,120,135],J4:[60,75,105,120,135],J5:[0,60,120],J2:[20,40]};
   if(!confirm('검증 시퀀스 시작.\n· 모터는 항상 한 개씩만 이동(전압 리셋 방지)\n· 기준 자세 → 반복성 '+REPEAT+'회 → 관절별 사이클(이동→측정→복귀)\n· [■ 정지]로 언제든 중단\n계속할까요?')) return;
   seqAbort=false;
   const stop=()=>seqAbort||!connected;
