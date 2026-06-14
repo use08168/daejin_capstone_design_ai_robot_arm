@@ -154,11 +154,11 @@ tr.addEventListener('click', async e=>{
   const jo=jget();
   for(const a of acts){
     const from=(a.joint in jo)?jo[a.joint]:90;
+    jo[a.joint]=a.angle; localStorage.setItem('armJoint_v1',JSON.stringify(jo));   // 미러 즉시 램프 시작(실물과 동시)
     try{ const r=await (await fetch(AEXEC,{method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({joint:a.joint, angle:a.angle, from})})).json();
-      if(r.ok){ jo[a.joint]=a.angle; localStorage.setItem('armJoint_v1',JSON.stringify(jo)); }
-      else { b.textContent='✗ '+(r.error||'실패'); b.disabled=false; return; }
-    }catch(err){ b.textContent='✗ 오류'; b.disabled=false; return; }
+      if(!r.ok){ jo[a.joint]=from; localStorage.setItem('armJoint_v1',JSON.stringify(jo)); b.textContent='✗ '+(r.error||'실패'); b.disabled=false; return; }
+    }catch(err){ jo[a.joint]=from; localStorage.setItem('armJoint_v1',JSON.stringify(jo)); b.textContent='✗ 오류'; b.disabled=false; return; }
   }
   b.textContent='✓ 실행됨 (3D 미러 반영)';
 });
