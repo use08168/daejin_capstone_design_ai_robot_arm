@@ -15,21 +15,38 @@
   .srv { font-size:12px; padding:3px 10px; border-radius:10px; margin-left:8px; }
   .srv.ok{background:#163;color:#9be29b} .srv.no{background:#511;color:#ffabab} .srv.wait{background:#430;color:var(--warn)}
   .opt { color:var(--muted); font-size:12px; margin:8px 0 0; display:flex; align-items:center; gap:6px; }
+  .wrap3 { display:flex; gap:14px; align-items:flex-start; }
+  .left { flex:1; min-width:0; }
+  .right { width:360px; flex:0 0 360px; display:flex; flex-direction:column; gap:10px; }
+  .pane { background:#000; border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  .pane .lbl { background:#1a1a1a; color:#9cf; font-size:12px; padding:5px 10px; }
+  .pane img { width:100%; display:block; }
+  .pane iframe { width:100%; height:320px; border:0; display:block; background:#0b0b0d; }
 {% endblock %}
 {% block content %}
   <h1>3 · 자연어 제어 <span id="srv" class="srv wait">서버 확인 중…</span></h1>
   <div class="hint" style="margin:0 0 14px;">한국어 문장으로 명령하면 EdgeXpert(Gemma)가 의도를 파악해 동작(DSL)을 만듭니다.
     물체 명령은 현재 웹캠 화면을 함께 분석합니다. (추론에 최대 1분)</div>
 
-  <div class="chat">
-    <div class="transcript" id="tr">
-      <div class="msg bot">예) "J1 모터를 180도로 움직여줘" · "지금 작업공간에 뭐가 있어?" · "빨간 캔을 집어줘"</div>
+  <div class="wrap3">
+    <div class="left">
+      <div class="chat">
+        <div class="transcript" id="tr">
+          <div class="msg bot">예) "J1 모터를 180도로 움직여줘" · "지금 작업공간에 뭐가 있어?" · "빨간 캔을 집어줘"</div>
+        </div>
+        <div class="composer">
+          <input type="text" id="cmd" placeholder="명령 입력… (예: 빨간 캔을 집어줘)" autocomplete="off">
+          <button class="primary" id="send">전송</button>
+        </div>
+        <label class="opt"><input type="checkbox" id="vis" checked> 웹캠 화면 함께 분석(물체 명령 시 필요)</label>
+      </div>
     </div>
-    <div class="composer">
-      <input type="text" id="cmd" placeholder="명령 입력… (예: 빨간 캔을 집어줘)" autocomplete="off">
-      <button class="primary" id="send">전송</button>
+    <div class="right">
+      <div class="pane"><div class="lbl">웹캠 (현재 화면)</div>
+        <img src="{% url 'armvision:video_feed' %}?cam={{ cam_left }}" alt="webcam"></div>
+      <div class="pane"><div class="lbl">로봇팔 현재 자세 (미러)</div>
+        <iframe src="{% url 'armvision:arm3d' %}?embed=1" title="arm pose"></iframe></div>
     </div>
-    <label class="opt"><input type="checkbox" id="vis" checked> 웹캠 화면 함께 분석(물체 명령 시 필요)</label>
   </div>
 {% endblock %}
 {% block script %}

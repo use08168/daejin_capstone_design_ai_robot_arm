@@ -69,8 +69,10 @@ def setup(request):
 
 
 def control(request):
-    """3페이지 — 자연어 제어(골격, 추후 구현)."""
-    return render(request, "armvision/control.html")
+    """3페이지 — 자연어 제어(AI 서버 연동) + 웹캠/로봇팔 자세 미러."""
+    cam_left, cam_right = _cams()
+    return render(request, "armvision/control.html",
+                  {"cam_left": cam_left, "cam_right": cam_right})
 
 
 def arm3d(request):

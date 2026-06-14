@@ -55,6 +55,9 @@
   .list .p .nm, .list .j .nm{ flex:1; cursor:pointer; }
   .list .j .muted{ font-size:11px; }
   .muted{ color:var(--c-mut); font-size:12px; }
+  /* 임베드(읽기전용 미러, 3페이지 iframe) — UI 숨기고 3D만 */
+  body.embed nav, body.embed h1, body.embed #panel, body.embed #hint3d, body.embed #matebar, body.embed #collHud { display:none !important; }
+  body.embed main{ padding:0 !important; } body.embed .wrap{ height:100vh !important; min-height:0 !important; gap:0 !important; }
 {% endblock %}
 {% block content %}
   <h1>4 · 3D 시뮬레이션 <span class="badge3d" id="phase">조립/결합</span></h1>
@@ -228,6 +231,7 @@ const mat=new THREE.MeshStandardMaterial({color:0xdddddd,metalness:0.05,roughnes
 const parts=[];   // {name, mesh}
 let mates=[];      // {parent, child, type:'rev'|'fix', pivot:[xyz], axis:[xyz], angle, min, max, motor}
 let mode='asm', selPart=null, selMate=-1, groups={};
+const EMBED=new URLSearchParams(location.search).has('embed');   // 3페이지 읽기전용 미러
 const $=id=>document.getElementById(id), d2r=d=>d*Math.PI/180, r2d=r=>r*180/Math.PI;
 const partByName=n=>parts.find(p=>p.name===n);
 const LIST="{% url 'armvision:cad_list' %}", LOADU="{% url 'armvision:arm3d_load' %}", SAVEU="{% url 'armvision:arm3d_save' %}";
@@ -238,7 +242,7 @@ Promise.all([fetch(LIST).then(r=>r.json()),fetch(LOADU).then(r=>r.json())]).then
     geo.computeVertexNormals(); const m=new THREE.Mesh(geo,mat.clone()); m.userData.part=name;
     const c=cfg[name]; if(c){ m.position.fromArray(c.pos); m.rotation.set(d2r(c.rot[0]),d2r(c.rot[1]),d2r(c.rot[2])); m.visible=c.visible!==false; }
     worldRoot.add(m); parts.push({name,mesh:m}); addRow(name);
-    if(++done===list.files.length){ $('ploading').style.display='none'; $('pcount').textContent=parts.length; renderMates(); }
+    if(++done===list.files.length){ $('ploading').style.display='none'; $('pcount').textContent=parts.length; renderMates(); if(EMBED) enterEmbed(); }
   }); });
 });
 
@@ -459,6 +463,9 @@ function armAlign(){ if(connected) aligning=true; }   // 램프가 실물 명령
 const CMD_KEY='armCmd_v1';
 function saveCmd(){ try{ const o={}; revMates().forEach(m=>{ if(m._cmd!=null)o[m.parent+'>'+m.child]=+(+m._cmd).toFixed(1); }); localStorage.setItem(CMD_KEY,JSON.stringify(o)); }catch(e){} }
 function loadCmd(m){ try{ const o=JSON.parse(localStorage.getItem(CMD_KEY)||'{}'); const v=o[m.parent+'>'+m.child]; return typeof v==='number'?v:null; }catch(e){ return null; } }
+// 임베드 미러: 저장된 명령각(armCmd_v1)으로 3D 자세를 따라함(읽기전용). 주기적으로 갱신.
+function mirrorPose(){ revMates().forEach(m=>{ const v=loadCmd(m); m.angle=(v==null?90:v); }); applyAngles(); }
+function enterEmbed(){ document.body.classList.add('embed'); try{ rebuild(); }catch(e){} mirrorPose(); setInterval(mirrorPose, 1500); }
 // 실측 서보 펄스(0°/180° µs) — 채널별 (arduino/docs/servo_calibration.md). 조립 기본값 대신 이 값 사용.
 const SERVO_CAL={0:[600,2740],1:[530,2670],2:[520,2700],3:[690,2800],4:[620,2750],5:[560,2700]};
 function buildCtrlJoints(){ const c=$('ctrlJoints'); c.innerHTML=''; aligning=false; const rm=revMates(); $('jcount').textContent=rm.length;
@@ -596,6 +603,7 @@ $('csClear').onclick=()=>{ csPoses=[]; $('csN').textContent='0'; $('csStat').tex
 // ---- 클릭 ----
 const ray=new THREE.Raycaster(), mouse=new THREE.Vector2();
 renderer.domElement.addEventListener('pointerdown',e=>{
+  if(EMBED)return;   // 읽기전용 미러 — 선택/기즈모 비활성(궤도 회전만)
   if(tc.axis)return; const r=renderer.domElement.getBoundingClientRect(); mouse.x=((e.clientX-r.left)/r.width)*2-1; mouse.y=-((e.clientY-r.top)/r.height)*2+1; ray.setFromCamera(mouse,camera);
   const hits=ray.intersectObjects(parts.filter(p=>p.mesh.visible).map(p=>p.mesh),false); if(!hits.length)return; const h=hits[0];
   if(mode==='mate' && pickFor){
