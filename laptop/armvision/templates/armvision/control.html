@@ -17,7 +17,9 @@
   .opt { color:var(--muted); font-size:12px; margin:8px 0 0; display:flex; align-items:center; gap:6px; }
   .wrap3 { display:flex; gap:14px; align-items:flex-start; }
   .left { flex:1; min-width:0; }
-  .right { width:360px; flex:0 0 360px; display:flex; flex-direction:column; gap:10px; }
+  .right { width:380px; flex:0 0 380px; display:flex; flex-direction:column; gap:10px; }
+  .cams { display:flex; gap:8px; } .cams .pane { flex:1; min-width:0; }
+  #mic.rec { background:#c33; }
   .pane { background:#000; border:1px solid var(--line); border-radius:10px; overflow:hidden; }
   .pane .lbl { background:#1a1a1a; color:#9cf; font-size:12px; padding:5px 10px; }
   .pane img { width:100%; display:block; }
@@ -37,13 +39,18 @@
         <div class="composer">
           <input type="text" id="cmd" placeholder="명령 입력… (예: 빨간 캔을 집어줘)" autocomplete="off">
           <button class="primary" id="send">전송</button>
+          <button id="mic" title="음성 명령(클릭 시작/정지)">🎤</button>
         </div>
         <label class="opt"><input type="checkbox" id="vis" checked> 웹캠 화면 함께 분석(물체 명령 시 필요)</label>
       </div>
     </div>
     <div class="right">
-      <div class="pane"><div class="lbl">웹캠 (현재 화면)</div>
-        <img src="{% url 'armvision:video_feed' %}?cam={{ cam_left }}" alt="webcam"></div>
+      <div class="cams">
+        <div class="pane"><div class="lbl">좌 카메라</div>
+          <img src="{% url 'armvision:video_feed' %}?cam={{ cam_left }}" alt="left"></div>
+        <div class="pane"><div class="lbl">우 카메라</div>
+          <img src="{% url 'armvision:video_feed' %}?cam={{ cam_right }}" alt="right"></div>
+      </div>
       <div class="pane"><div class="lbl">로봇팔 현재 자세 (미러)</div>
         <iframe src="{% url 'armvision:arm3d' %}?embed=1" title="arm pose"></iframe></div>
     </div>
@@ -79,18 +86,36 @@ function renderBot(res){
   return h;
 }
 
-async function send(){
-  const t=$('cmd').value.trim(); if(!t) return;
-  $('cmd').value=''; add('user', esc(t));
+const AI_PLAN='{% url "armvision:ai_plan" %}';
+async function post(body){
   const wait=add('bot','<span class="tag command">…</span>처리 중 (모델 추론, 최대 1분)');
-  try{
-    const res=await (await fetch('{% url "armvision:ai_plan" %}',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({text:t, vision:$('vis').checked})})).json();
+  try{ const res=await (await fetch(AI_PLAN,{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({...body, vision:$('vis').checked})})).json();
     wait.innerHTML=renderBot(res);
   }catch(e){ wait.innerHTML=`<span class="tag other">오류</span>${esc(''+e)}`; }
   tr.scrollTop=tr.scrollHeight;
 }
+function send(){ const t=$('cmd').value.trim(); if(!t) return; $('cmd').value=''; add('user', esc(t)); post({text:t}); }
 $('send').onclick=send;
 $('cmd').addEventListener('keydown',e=>{ if(e.key==='Enter') send(); });
+
+// 음성 명령: MediaRecorder 녹음 → 서버 Whisper STT → 계획
+let rec=null, chunks=[];
+function b64(blob){ return new Promise(r=>{ const fr=new FileReader(); fr.onload=()=>r(fr.result); fr.readAsDataURL(blob); }); }
+async function toggleMic(){
+  if(rec && rec.state==='recording'){ rec.stop(); return; }
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+    rec=new MediaRecorder(stream); chunks=[];
+    rec.ondataavailable=e=>{ if(e.data.size) chunks.push(e.data); };
+    rec.onstop=async()=>{ stream.getTracks().forEach(t=>t.stop());
+      $('mic').textContent='🎤'; $('mic').classList.remove('rec');
+      add('user','🎤 (음성 명령)');
+      post({audio_b64: await b64(new Blob(chunks,{type:rec.mimeType||'audio/webm'}))});
+    };
+    rec.start(); $('mic').textContent='⏹'; $('mic').classList.add('rec');
+  }catch(e){ alert('마이크 사용 불가(권한/HTTPS 필요): '+e); }
+}
+$('mic').onclick=toggleMic;
 </script>
 {% endblock %}

@@ -75,6 +75,10 @@ def control(request):
                   {"cam_left": cam_left, "cam_right": cam_right})
 
 
+from django.views.decorators.clickjacking import xframe_options_sameorigin
+
+
+@xframe_options_sameorigin   # 3페이지가 ?embed=1로 iframe 임베드 가능하게(기본 DENY 해제)
 def arm3d(request):
     """4페이지 — 3D 로봇팔 제어 뷰어(3D-only, 실물 연동 예정)."""
     return render(request, "armvision/arm3d.html")
@@ -398,6 +402,14 @@ def ai_plan(request):
     text = (data.get("text") or "").strip()
     use_vision = data.get("vision", True)
 
+    audio = b""
+    if data.get("audio_b64"):
+        import base64
+        try:
+            audio = base64.b64decode(data["audio_b64"].split(",")[-1])
+        except Exception:
+            audio = b""
+
     imgL = imgR = b""
     det = ""
     if use_vision:
@@ -417,7 +429,7 @@ def ai_plan(request):
             pass   # 카메라 없으면 텍스트만으로 진행
 
     try:
-        res = ai_client.plan(text=text, img_left=imgL, img_right=imgR, detections_json=det)
+        res = ai_client.plan(text=text, audio=audio, img_left=imgL, img_right=imgR, detections_json=det)
         return JsonResponse({"ok": True, "vision": bool(imgL or imgR), **res})
     except Exception as e:
         return JsonResponse({"ok": False, "error": str(e)})
