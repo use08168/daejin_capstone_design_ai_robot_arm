@@ -377,3 +377,45 @@ def reset_calibration(request):
 
     return JsonResponse({"ok": True, "archived_pairs": moved // 2,
                          "calib_archived": calib_archived, "stamp": ts})
+
+
+# ============ AI 서버(EdgeXpert) 연동 — 3페이지 자연어 제어 ============
+
+def ai_health(request):
+    """AI 서버 warm 상태 확인."""
+    from . import ai_client
+    return JsonResponse(ai_client.health())
+
+
+@csrf_exempt
+def ai_plan(request):
+    """3페이지 명령 → (옵션)현재 웹캠+탐지 첨부 → AI 서버 → 의도/DSL 반환."""
+    import json
+    from . import ai_client
+    data = json.loads(request.body or "{}") if request.body else {}
+    text = (data.get("text") or "").strip()
+    use_vision = data.get("vision", True)
+
+    imgL = imgR = b""
+    det = ""
+    if use_vision:
+        try:
+            cam_left, cam_right = _cams()
+            fL = get_camera(cam_left).read()
+            fR = get_camera(cam_right).read()
+            if fL is not None:
+                imgL = cv2.imencode(".jpg", fL)[1].tobytes()
+            if fR is not None:
+                imgR = cv2.imencode(".jpg", fR)[1].tobytes()
+            if fL is not None:
+                objs = detect_objects(fL)
+                det = json.dumps([{"label": o.get("label"), "conf": round(o.get("conf", 0), 2)}
+                                  for o in objs], ensure_ascii=False)
+        except Exception:
+            pass   # 카메라 없으면 텍스트만으로 진행
+
+    try:
+        res = ai_client.plan(text=text, img_left=imgL, img_right=imgR, detections_json=det)
+        return JsonResponse({"ok": True, "vision": bool(imgL or imgR), **res})
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)})
