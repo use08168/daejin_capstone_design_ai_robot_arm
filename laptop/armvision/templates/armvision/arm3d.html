@@ -465,7 +465,11 @@ function saveCmd(){ try{ const o={}; revMates().forEach(m=>{ if(m._cmd!=null)o[m
 function loadCmd(m){ try{ const o=JSON.parse(localStorage.getItem(CMD_KEY)||'{}'); const v=o[m.parent+'>'+m.child]; return typeof v==='number'?v:null; }catch(e){ return null; } }
 // 임베드 미러: 저장된 명령각(armCmd_v1)으로 3D 자세를 따라함(읽기전용). 주기적으로 갱신.
 function mirrorPose(){ revMates().forEach(m=>{ const v=loadCmd(m); m.angle=(v==null?90:v); }); applyAngles(); }
-function enterEmbed(){ document.body.classList.add('embed'); try{ rebuild(); }catch(e){} mirrorPose(); setInterval(mirrorPose, 1500); }
+function enterEmbed(){ document.body.classList.add('embed'); try{ rebuild(); }catch(e){} mirrorPose(); setInterval(mirrorPose, 1500);
+  // iframe 레이아웃 확정 후 렌더러 크기 재설정(검은화면 방지) + 뷰포트 크기 변할 때마다
+  [60,250,700,1500].forEach(d=>setTimeout(()=>{ try{ resize(); }catch(e){} }, d));
+  try{ new ResizeObserver(()=>{ try{ resize(); }catch(e){} }).observe(vp); }catch(e){}
+}
 // 실측 서보 펄스(0°/180° µs) — 채널별 (arduino/docs/servo_calibration.md). 조립 기본값 대신 이 값 사용.
 const SERVO_CAL={0:[600,2740],1:[530,2670],2:[520,2700],3:[690,2800],4:[620,2750],5:[560,2700]};
 function buildCtrlJoints(){ const c=$('ctrlJoints'); c.innerHTML=''; aligning=false; const rm=revMates(); $('jcount').textContent=rm.length;
