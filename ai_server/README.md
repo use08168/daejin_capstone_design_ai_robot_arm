@@ -14,6 +14,6 @@
 - **Qwen3-Embedding-8B + FAISS** — RAG로 환각 차단, 캘리브레이션/지식 검색
 - 결과를 **gRPC + Protobuf**로 노트북에 전달 → [../docs/grpc_interface.md](../docs/grpc_interface.md)
 
-> 현재는 **설계·인터페이스 정의 단계**. 노트북 3페이지(자연어 제어)와 연결될 대상.
+> **현황(2026-06-14):** 음성 → Whisper STT → **Gemma 4 31B** → JSON DSL → 검증 **end-to-end 작동**(실제 마이크 음성 확인, 할루시네이션 방지 입증). gRPC·비전·RAG는 다음 단계.
 
-자세히 → [docs/README.md](docs/README.md)
+자세히 → 설계 [docs/README.md](docs/README.md) · **구현 명세 [docs/implementation.md](docs/implementation.md)**
