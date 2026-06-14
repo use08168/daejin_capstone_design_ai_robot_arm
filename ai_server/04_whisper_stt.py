@@ -5,10 +5,21 @@ Gemma 4 31B는 STT가 없으므로(image-text-to-text) 음성은 Whisper가 담�
 순수 PyTorch라 GB10(torch 2.9)에서 바로 작동. 출력 텍스트가 다음 단계(Gemma→DSL)의 입력.
 
 사용: python 04_whisper_stt.py <audio파일경로> [모델=large-v3]
-준비: openai-whisper 설치됨. 오디오 디코딩에 ffmpeg 필요(없으면 apt install ffmpeg).
+준비: openai-whisper + imageio-ffmpeg 설치됨. sudo 불가라 정적 ffmpeg를 PATH에 심(아래).
 """
+import os
 import sys
 import time
+
+# ── ffmpeg 심(sudo 없이): imageio-ffmpeg 정적 바이너리를 'ffmpeg'로 PATH 등록 ──
+import imageio_ffmpeg
+_exe = imageio_ffmpeg.get_ffmpeg_exe()
+_bindir = os.path.expanduser("~/.local/ffmpeg-shim")
+os.makedirs(_bindir, exist_ok=True)
+_link = os.path.join(_bindir, "ffmpeg")
+if not os.path.exists(_link):
+    os.symlink(_exe, _link)
+os.environ["PATH"] = _bindir + os.pathsep + os.environ.get("PATH", "")
 
 import torch
 import whisper
