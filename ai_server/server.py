@@ -12,6 +12,7 @@ import os
 import tempfile
 import time
 from concurrent import futures
+from datetime import datetime
 
 # ffmpeg 심(whisper m4a 디코딩, sudo 없이)
 import imageio_ffmpeg
@@ -37,6 +38,15 @@ from dsl import ALLOWED_OPS, extract_json, validate_dsl
 
 GEMMA = "google/gemma-4-31B-it"
 OPS_DOC = "\n".join(f"  - {op}({', '.join(ps) or '없음'})" for op, ps in ALLOWED_OPS.items())
+
+# ── 로깅/아티팩트: 명령·음성·사진·결과를 logs/ 에 남기고 터미널에 단계별 출력 ──
+LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+_REQ = [0]
+
+
+def log(msg):
+    print(f"{datetime.now():%H:%M:%S} {msg}", flush=True)
 
 print("[server] Whisper large-v3 로드 …", flush=True); t0 = time.time()
 STT = whisper.load_model("large-v3", device="cuda")
@@ -96,27 +106,67 @@ class Servicer(pbg.RobotArmAIServicer):
 
     def Plan(self, request, context):
         t0 = time.time()
+        _REQ[0] += 1; rid = _REQ[0]
+        adir = os.path.join(LOG_DIR, f"req{rid:04d}_{datetime.now():%H%M%S}")
+        os.makedirs(adir, exist_ok=True)
+        log(f"┏━ #{rid} 요청 수신 ━━━━━━━━━━━━━━")
+
+        # 1) 입력 (음성→STT 또는 텍스트)
         text, transcript = request.text, ""
         if request.audio:
+            open(os.path.join(adir, "voice.webm"), "wb").write(request.audio)  # 음성 저장
+            log(f"┃ #{rid} 🎤 음성 {len(request.audio)//1024}KB → Whisper STT 처리 중…")
+            ts = time.time()
             with tempfile.NamedTemporaryFile(suffix=".audio", delete=False) as f:
                 f.write(request.audio); path = f.name
             transcript = STT.transcribe(path, language="ko", fp16=True)["text"].strip()
             os.unlink(path); text = transcript
+            log(f"┃ #{rid} 🎤 STT({time.time()-ts:.1f}s): \"{transcript}\"")
+        else:
+            log(f"┃ #{rid} ⌨️  텍스트: \"{text}\"")
+
+        # 2) 이미지(웹캠) 저장
         images = []
-        for b in (request.image_left, request.image_right):
+        for b, nm in ((request.image_left, "cam_left.jpg"), (request.image_right, "cam_right.jpg")):
             if b:
+                open(os.path.join(adir, nm), "wb").write(b)
                 images.append(Image.open(io.BytesIO(b)).convert("RGB"))
-        intent = route(text)
+        if images:
+            log(f"┃ #{rid} 📷 웹캠 {len(images)}장 수신·저장")
+
+        # 3) 의도 분류
+        log(f"┃ #{rid} 🧠 Gemma 의도 분류 중…")
+        ts = time.time(); intent = route(text)
+        log(f"┃ #{rid} → 의도: [{intent}] ({time.time()-ts:.1f}s)")
+
+        # 4) 핸들러
         r = pb.PlanResponse(intent=intent, transcript=transcript)
+        ts = time.time()
         if intent == "qa":
+            log(f"┃ #{rid} 🧠 Gemma 장면 분석(VLM){' · 이미지'+str(len(images))+'장' if images else ''} 중…")
             r.answer = handle_qa(images, text)
+            log(f"┃ #{rid} 💬 답변({time.time()-ts:.1f}s): {r.answer[:70]}")
         elif intent == "command":
+            log(f"┃ #{rid} 🧠 Gemma DSL 생성{' · 이미지분석' if images else ''} 중…")
             obj, ok, errs = handle_command(images, text, request.detections_json)
             r.dsl_json = json.dumps(obj, ensure_ascii=False); r.valid = ok; r.errors = "; ".join(errs)
+            acts = ", ".join(a.get("op", "?") for a in obj.get("actions", []))
+            log(f"┃ #{rid} 🤖 DSL({time.time()-ts:.1f}s) valid={ok}: [{acts}]")
+            if errs:
+                log(f"┃ #{rid} ⚠ 검증오류: {r.errors}")
         else:
             r.answer = _gen([{"type": "text", "text": text}], 128)
+            log(f"┃ #{rid} 💬 잡담 응답({time.time()-ts:.1f}s)")
+
         r.elapsed_s = time.time() - t0
-        print(f"[plan] '{text[:40]}' → {intent} ({r.elapsed_s:.1f}s)", flush=True)
+        # 5) 명령 로그 append (재현·분석용)
+        rec = {"time": datetime.now().isoformat(timespec="seconds"), "req": rid,
+               "source": "voice" if request.audio else "text", "input": text,
+               "intent": intent, "answer": r.answer, "dsl": r.dsl_json, "valid": r.valid,
+               "errors": r.errors, "images": len(images), "elapsed_s": round(r.elapsed_s, 1)}
+        with open(os.path.join(LOG_DIR, "commands.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        log(f"┗━ #{rid} ✅ 완료 {r.elapsed_s:.1f}s  (logs/{os.path.basename(adir)})")
         return r
 
 
