@@ -69,10 +69,16 @@ def setup(request):
 
 
 def control(request):
-    """3페이지 — 자연어 제어(골격, 추후 구현)."""
-    return render(request, "armvision/control.html")
+    """3페이지 — 자연어 제어(AI 서버 연동) + 웹캠/로봇팔 자세 미러."""
+    cam_left, cam_right = _cams()
+    return render(request, "armvision/control.html",
+                  {"cam_left": cam_left, "cam_right": cam_right})
 
 
+from django.views.decorators.clickjacking import xframe_options_sameorigin
+
+
+@xframe_options_sameorigin   # 3페이지가 ?embed=1로 iframe 임베드 가능하게(기본 DENY 해제)
 def arm3d(request):
     """4페이지 — 3D 로봇팔 제어 뷰어(3D-only, 실물 연동 예정)."""
     return render(request, "armvision/arm3d.html")
@@ -377,3 +383,96 @@ def reset_calibration(request):
 
     return JsonResponse({"ok": True, "archived_pairs": moved // 2,
                          "calib_archived": calib_archived, "stamp": ts})
+
+
+# ============ AI 서버(EdgeXpert) 연동 — 3페이지 자연어 제어 ============
+
+def ai_health(request):
+    """AI 서버 warm 상태 확인."""
+    from . import ai_client
+    return JsonResponse(ai_client.health())
+
+
+@csrf_exempt
+def ai_plan(request):
+    """3페이지 명령 → (옵션)현재 웹캠+탐지 첨부 → AI 서버 → 의도/DSL 반환."""
+    import json
+    from . import ai_client
+    data = json.loads(request.body or "{}") if request.body else {}
+    text = (data.get("text") or "").strip()
+    use_vision = data.get("vision", True)
+
+    audio = b""
+    if data.get("audio_b64"):
+        import base64
+        try:
+            audio = base64.b64decode(data["audio_b64"].split(",")[-1])
+        except Exception:
+            audio = b""
+
+    imgL = imgR = b""
+    det = ""
+    if use_vision:
+        try:
+            cam_left, cam_right = _cams()
+            fL = get_camera(cam_left).read()
+            fR = get_camera(cam_right).read()
+            if fL is not None:
+                imgL = cv2.imencode(".jpg", fL)[1].tobytes()
+            if fR is not None:
+                imgR = cv2.imencode(".jpg", fR)[1].tobytes()
+            if fL is not None:
+                objs = detect_objects(fL)
+                det = json.dumps([{"label": o.get("label"), "conf": round(o.get("conf", 0), 2)}
+                                  for o in objs], ensure_ascii=False)
+        except Exception:
+            pass   # 카메라 없으면 텍스트만으로 진행
+
+    try:
+        res = ai_client.plan(text=text, audio=audio, img_left=imgL, img_right=imgR, detections_json=det)
+        return JsonResponse({"ok": True, "vision": bool(imgL or imgR), **res})
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)})
+
+
+# ============ DSL 실행 — set_joint(직접 관절) 안전 실행 (3페이지 ▶) ============
+
+_JOINT_CH = {"J1": 0, "J2": 1, "J3": 2, "J4": 3, "J5": 4, "J6": 5, "J7": 6}
+# 실측 서보 펄스(채널별 us0/us180) — arduino/docs/servo_calibration.md
+_SERVO_CAL = {0: [600, 2740], 1: [530, 2670], 2: [520, 2700], 3: [690, 2800], 4: [620, 2750], 5: [560, 2700]}
+
+
+def _ang_to_us(ch, ang):
+    a = max(0.0, min(180.0, 180.0 - ang))            # 시뮬↔실물 미러
+    us0, us180 = _SERVO_CAL.get(ch, [600, 2740])
+    return round(us0 + (a / 180.0) * (us180 - us0))
+
+
+@csrf_exempt
+def arm_exec_joint(request):
+    """{joint:'J1', angle:180, from:90} → 브라운아웃 방지 램프로 한 관절 이동.
+    한 번에 한 관절만(다중 모터 동시구동=전압강하 방지). 실물 연결 필수."""
+    import json
+    import time
+    from . import arduino_bridge
+    d = json.loads(request.body or "{}")
+    joint = d.get("joint")
+    ch = _JOINT_CH.get(joint)
+    if ch is None:
+        return JsonResponse({"ok": False, "error": f"알 수 없는 관절: {joint}"})
+    if not arduino_bridge.is_connected():
+        return JsonResponse({"ok": False, "error": "실물 미연결 — 4페이지에서 연결하세요."})
+    try:
+        target = max(0.0, min(180.0, float(d.get("angle"))))
+        a = max(0.0, min(180.0, float(d.get("from", 90))))
+    except (TypeError, ValueError):
+        return JsonResponse({"ok": False, "error": "각도 오류"})
+    step = 2.0 if target >= a else -2.0
+    while abs(a - target) > 2.0:                      # ~2°씩 점진 이동
+        a += step
+        r = arduino_bridge.send_pulse(ch, _ang_to_us(ch, a))
+        if not r.get("ok"):
+            return JsonResponse({"ok": False, "error": "전송 실패(연결 끊김?)", "disconnected": True})
+        time.sleep(0.04)
+    arduino_bridge.send_pulse(ch, _ang_to_us(ch, target))
+    return JsonResponse({"ok": True, "joint": joint, "channel": ch, "angle": target})

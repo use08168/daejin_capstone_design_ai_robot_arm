@@ -1,39 +1,166 @@
 {% extends "armvision/base.html" %}
 {% block title %}자연어 제어 — 로봇팔 비전{% endblock %}
 {% block style %}
-  .chat { max-width:760px; }
-  .transcript { background:var(--panel); border-radius:10px; min-height:300px; padding:14px; margin-bottom:12px; display:flex; flex-direction:column; gap:10px; }
-  .msg { padding:8px 12px; border-radius:10px; font-size:14px; max-width:80%; }
+  .wrap3 { display:flex; gap:14px; align-items:stretch; height:calc(100vh - 168px); min-height:520px; }
+  .left, .right { flex:1; min-width:0; display:flex; flex-direction:column; }
+  .transcript { flex:1; background:var(--panel); border-radius:10px; overflow-y:auto; padding:14px; margin-bottom:10px; display:flex; flex-direction:column; gap:10px; }
+  .msg { padding:9px 13px; border-radius:10px; font-size:14px; max-width:90%; line-height:1.55; }
   .msg.user { background:#1d3a5f; align-self:flex-end; }
-  .msg.bot { background:#222; align-self:flex-start; color:#ccc; }
+  .msg.bot { background:#222; align-self:flex-start; color:#e3e3e3; }
+  .msg.bot ul { margin:5px 0; padding-left:20px; } .msg.bot li { margin:2px 0; }
+  .msg.bot code { background:#000; padding:1px 5px; border-radius:4px; font-size:12.5px; }
+  .msg.bot .tag { font-size:11px; padding:1px 7px; border-radius:8px; margin-right:6px; }
+  .tag.qa{background:#234d23;color:#9be29b} .tag.command{background:#2a3a5a;color:#9bb8e2} .tag.other{background:#444;color:#bbb}
+  .dsl { background:#000; border-radius:6px; padding:8px 10px; margin-top:6px; font-size:12.5px; font-family:monospace; color:#cdd; white-space:pre-wrap; }
+  .dsl .ok{color:#7ee0a0} .dsl .bad{color:#ff8080}
+  .msg.bot .play { background:#2b6; color:#fff; border:0; padding:5px 13px; border-radius:7px; cursor:pointer; font-size:13px; margin-top:8px; }
+  .msg.bot .play:disabled { background:#444; cursor:default; }
+  .msg.bot .note { color:var(--muted); font-size:12px; margin-top:8px; }
   .composer { display:flex; gap:8px; }
   .composer input { flex:1; background:#0e0e0e; border:1px solid var(--line); color:var(--fg); padding:11px 12px; border-radius:8px; font-size:14px; }
-  .soon { background:#430; color:var(--warn); display:inline-block; padding:3px 10px; border-radius:10px; font-size:12px; margin-left:8px; }
-  .pipe { color:var(--muted); font-size:13px; line-height:1.8; margin-top:16px; }
-  .pipe code { background:#000; padding:1px 6px; border-radius:4px; }
+  #mic.rec { background:#c33; }
+  .srv { font-size:12px; padding:3px 10px; border-radius:10px; margin-left:8px; }
+  .srv.ok{background:#163;color:#9be29b} .srv.no{background:#511;color:#ffabab} .srv.wait{background:#430;color:var(--warn)}
+  .opt { color:var(--muted); font-size:12px; margin:8px 0 0; display:flex; align-items:center; gap:6px; }
+  .cams { display:flex; gap:10px; flex:0 0 auto; }
+  .cams .pane { flex:1; min-width:0; }
+  .pane { background:#000; border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  .pane .lbl { background:#1a1a1a; color:#9cf; font-size:12px; padding:5px 10px; }
+  .pane img { width:100%; display:block; }
+  .pane.mirror { flex:1; display:flex; flex-direction:column; margin-top:10px; }
+  .pane.mirror iframe { flex:1; width:100%; border:0; background:#0b0b0d; }
 {% endblock %}
 {% block content %}
-  <h1>3 · 자연어 제어 <span class="soon">골격 — 추후 구현</span></h1>
-  <div class="hint" style="margin:0 0 14px;">한국어 음성/문장으로 로봇팔에 명령하는 화면입니다. <b>형식만 갖춘 상태</b>이며,
-    실제 동작은 <b>AI 서버 완료 후 노트북·아두이노·AI 서버 통합 단계</b>에서 구현됩니다.</div>
+  <h1 style="margin-bottom:8px;">3 · 자연어 제어 <span id="srv" class="srv wait">서버 확인 중…</span></h1>
+  <div class="hint" style="margin:0 0 12px;">왼쪽: 한국어로 질문/명령(텍스트·🎤음성) → Gemma가 답변/동작(DSL) 생성. 오른쪽: 로봇 상태(웹캠·현재 자세).</div>
 
-  <div class="chat">
-    <div class="transcript">
-      <div class="msg bot">안녕하세요. (예시) "빨간 컵을 책 옆에 놔줘" 처럼 명령하면 로봇팔이 수행합니다.</div>
-      <div class="msg user">빨간 컵을 책 옆에 놔줘</div>
-      <div class="msg bot">※ 이 응답/동작은 AI 서버 연동 후 활성화됩니다.</div>
+  <div class="wrap3">
+    <!-- 좌: 채팅 -->
+    <div class="left">
+      <div class="transcript" id="tr">
+        <div class="msg bot">예) "J1 모터를 180도로 움직여줘" · "지금 작업공간에 뭐가 있어?" · "빨간 캔을 집어줘"</div>
+      </div>
+      <div class="composer">
+        <input type="text" id="cmd" placeholder="질문이나 명령 입력…" autocomplete="off">
+        <button class="primary" id="send">전송</button>
+        <button id="mic" title="음성 명령(클릭 시작/정지)">🎤</button>
+      </div>
+      <label class="opt"><input type="checkbox" id="vis" checked> 웹캠 화면 함께 분석(물체 명령 시 필요)</label>
     </div>
-    <div class="composer">
-      <input type="text" placeholder="명령 입력… (현재 비활성)" disabled>
-      <button class="primary" disabled>전송</button>
-      <button disabled title="추후: 음성 입력">🎤</button>
+
+    <!-- 우: 로봇 상태(헬스 체크) -->
+    <div class="right">
+      <div class="cams">
+        <div class="pane"><div class="lbl">좌 카메라</div>
+          <img src="{% url 'armvision:video_feed' %}?cam={{ cam_left }}" alt="left"></div>
+        <div class="pane"><div class="lbl">우 카메라</div>
+          <img src="{% url 'armvision:video_feed' %}?cam={{ cam_right }}" alt="right"></div>
+      </div>
+      <div class="pane mirror"><div class="lbl">로봇팔 현재 자세 — 드래그로 회전</div>
+        <iframe src="{% url 'armvision:arm3d' %}?embed=1" title="arm pose"></iframe></div>
     </div>
   </div>
+{% endblock %}
+{% block script %}
+<script>
+const $=id=>document.getElementById(id), tr=$('tr');
+function add(cls, html){ const d=document.createElement('div'); d.className='msg '+cls; d.innerHTML=html; tr.appendChild(d); tr.scrollTop=tr.scrollHeight; return d; }
+function esc(s){ return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 
-  <div class="pipe">
-    <b>예정 처리 흐름</b><br>
-    음성/문장 → <code>EdgeXpert(Whisper·Gemma)</code> → JSON DSL → <code>노트북</code> 검증·IK·삼각측량 →
-    <code>Arduino</code> PWM 실행 → 결과를 이 화면에 표시.<br>
-    이 페이지는 그 통합 단계에서 <code>gRPC</code> 클라이언트 + DSL 실행기와 연결됩니다.
-  </div>
+// 간단 마크다운 렌더(LLM 답변용): **굵게** *기울임* `코드` · 글머리/번호 목록 · 줄바꿈
+function inline(s){ return s.replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/\*(.+?)\*/g,'<i>$1</i>').replace(/`(.+?)`/g,'<code>$1</code>'); }
+function md(s){
+  const lines=esc(s||'').trim().split('\n'); const out=[]; let inList=false;
+  for(const ln of lines){
+    const m=ln.match(/^\s*(?:[-•*]|\d+[.)])\s+(.+)$/);
+    if(m){ if(!inList){ out.push('<ul>'); inList=true; } out.push('<li>'+inline(m[1])+'</li>'); }
+    else { if(inList){ out.push('</ul>'); inList=false; }
+      out.push(ln.trim()===''?'<br>':'<div>'+inline(ln.replace(/^#+\s*/,''))+'</div>'); }
+  }
+  if(inList) out.push('</ul>');
+  return out.join('');
+}
+
+async function health(){
+  try{ const h=await (await fetch('{% url "armvision:ai_health" %}')).json();
+    if(h.ready){ $('srv').className='srv ok'; $('srv').textContent='서버 warm ✓'; }
+    else { $('srv').className='srv no'; $('srv').textContent='서버 미준비'; }
+  }catch(e){ $('srv').className='srv no'; $('srv').textContent='서버 연결 안 됨'; }
+}
+health(); setInterval(health, 15000);
+
+function renderBot(res){
+  if(!res.ok){ return `<span class="tag other">오류</span>${esc(res.error||'실패')}`; }
+  let h=`<span class="tag ${res.intent}">${res.intent}</span>`;
+  if(res.transcript) h+=`<i>🎤 ${esc(res.transcript)}</i>`;
+  if(res.answer) h+=md(res.answer);
+  if(res.dsl_json){
+    try{ const d=JSON.parse(res.dsl_json); const A=d.actions||[];
+      if(d.reasoning) h+=md(d.reasoning);
+      h+=`<div class="dsl">${esc(A.map(a=>JSON.stringify(a)).join('\n'))}\n<span class="${res.valid?'ok':'bad'}">검증 ${res.valid?'✓ 통과':'✗ '+esc(res.errors)}</span></div>`;
+      if(res.valid && A.length){
+        const sj=A.filter(a=>a.op==='set_joint');
+        if(sj.length===A.length) h+=`<button class="play" data-acts="${encodeURIComponent(JSON.stringify(sj))}">▶ 로봇팔에 실행</button>`;
+        else h+=`<div class="note">▶ 실행은 직접 관절(set_joint)만 지원 — 집기 동작은 IK 구현 후</div>`;
+      }
+    }catch(e){ h+=esc(res.dsl_json); }
+  }
+  h+=`<div style="color:#777;font-size:11px;margin-top:4px">${res.elapsed_s||0}s${res.vision?' · 웹캠분석':''}</div>`;
+  return h;
+}
+
+const AI_PLAN='{% url "armvision:ai_plan" %}';
+async function post(body){
+  const wait=add('bot','<span class="tag command">…</span>처리 중 (모델 추론, 최대 1분)');
+  try{ const res=await (await fetch(AI_PLAN,{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({...body, vision:$('vis').checked})})).json();
+    wait.innerHTML=renderBot(res);
+  }catch(e){ wait.innerHTML=`<span class="tag other">오류</span>${esc(''+e)}`; }
+  tr.scrollTop=tr.scrollHeight;
+}
+function send(){ const t=$('cmd').value.trim(); if(!t) return; $('cmd').value=''; add('user', esc(t)); post({text:t}); }
+$('send').onclick=send;
+$('cmd').addEventListener('keydown',e=>{ if(e.key==='Enter') send(); });
+
+// 음성 명령: MediaRecorder 녹음 → 서버 Whisper STT → 계획
+let rec=null, chunks=[];
+function b64(blob){ return new Promise(r=>{ const fr=new FileReader(); fr.onload=()=>r(fr.result); fr.readAsDataURL(blob); }); }
+async function toggleMic(){
+  if(rec && rec.state==='recording'){ rec.stop(); return; }
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+    rec=new MediaRecorder(stream); chunks=[];
+    rec.ondataavailable=e=>{ if(e.data.size) chunks.push(e.data); };
+    rec.onstop=async()=>{ stream.getTracks().forEach(t=>t.stop());
+      $('mic').textContent='🎤'; $('mic').classList.remove('rec');
+      add('user','🎤 (음성 명령)');
+      post({audio_b64: await b64(new Blob(chunks,{type:rec.mimeType||'audio/webm'}))});
+    };
+    rec.start(); $('mic').textContent='⏹'; $('mic').classList.add('rec');
+  }catch(e){ alert('마이크 사용 불가(권한/HTTPS 필요): '+e); }
+}
+$('mic').onclick=toggleMic;
+
+// ▶ 실행: set_joint DSL을 실물 로봇팔에 (한 관절씩 안전 램프). 자동 아님 — 버튼+확인.
+const AEXEC='{% url "armvision:arm_exec_joint" %}', ASTAT='{% url "armvision:arm_status" %}';
+function jget(){ try{ return JSON.parse(localStorage.getItem('armJoint_v1')||'{}'); }catch(e){ return {}; } }
+tr.addEventListener('click', async e=>{
+  const b=e.target.closest('.play'); if(!b) return;
+  const acts=JSON.parse(decodeURIComponent(b.dataset.acts));
+  let st={}; try{ st=await (await fetch(ASTAT)).json(); }catch(err){}
+  if(!st.connected){ alert('실물 로봇팔이 연결되지 않았습니다. 4페이지에서 연결하세요.'); return; }
+  if(!confirm('실제 로봇팔이 움직입니다. 실행할까요?\n'+acts.map(a=>a.joint+'→'+a.angle+'°').join(', '))) return;
+  b.disabled=true; b.textContent='실행 중…';
+  const jo=jget();
+  for(const a of acts){
+    const from=(a.joint in jo)?jo[a.joint]:90;
+    jo[a.joint]=a.angle; localStorage.setItem('armJoint_v1',JSON.stringify(jo));   // 미러 즉시 램프 시작(실물과 동시)
+    try{ const r=await (await fetch(AEXEC,{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({joint:a.joint, angle:a.angle, from})})).json();
+      if(!r.ok){ jo[a.joint]=from; localStorage.setItem('armJoint_v1',JSON.stringify(jo)); b.textContent='✗ '+(r.error||'실패'); b.disabled=false; return; }
+    }catch(err){ jo[a.joint]=from; localStorage.setItem('armJoint_v1',JSON.stringify(jo)); b.textContent='✗ 오류'; b.disabled=false; return; }
+  }
+  b.textContent='✓ 실행됨 (3D 미러 반영)';
+});
+</script>
 {% endblock %}

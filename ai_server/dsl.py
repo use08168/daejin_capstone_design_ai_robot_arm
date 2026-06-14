@@ -12,6 +12,7 @@ import re
 
 # op → 필수 파라미터 (docs/dsl_spec.md)
 ALLOWED_OPS = {
+    "set_joint":         ["joint", "angle"],   # 직접 관절 제어 (예: J1을 180도)
     "move_above":        ["target", "height_mm"],
     "descend_and_grasp": ["target"],
     "lift":              ["height_mm"],
@@ -20,6 +21,7 @@ ALLOWED_OPS = {
     "return_home":       [],
     "ask_user":          ["question"],
 }
+JOINTS = {"J1", "J2", "J3", "J4", "J5", "J6", "J7"}
 
 
 def extract_json(text):
@@ -56,6 +58,13 @@ def validate_dsl(obj, known_targets=None):
             if p not in a:
                 errors.append(f"[{i}] {op}: 파라미터 '{p}' 누락")
         # 3b. 타입
+        if op == "set_joint":
+            if a.get("joint") not in JOINTS:
+                errors.append(f"[{i}] joint 은 {sorted(JOINTS)} 중 하나여야 함")
+            if not isinstance(a.get("angle"), (int, float)):
+                errors.append(f"[{i}] angle 은 숫자여야 함")
+            elif not (0 <= a["angle"] <= 180):
+                errors.append(f"[{i}] angle 은 0~180 범위여야 함")
         if "height_mm" in a and not isinstance(a["height_mm"], (int, float)):
             errors.append(f"[{i}] height_mm 은 숫자여야 함")
         if "offset" in a and not (isinstance(a["offset"], list) and len(a["offset"]) == 3):

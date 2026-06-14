@@ -1,0 +1,32 @@
+syntax = "proto3";
+package robotarm;
+
+// AI 서버(EdgeXpert, 서버) ↔ 노트북(클라이언트).
+// 노트북이 명령(+음성/이미지/탐지/상태)을 보내면 AI가 의도분류·계획(DSL)을 돌려준다.
+// 모델은 서버 시작 시 1회 로드(warm) → 요청마다 추론만.
+service RobotArmAI {
+  rpc Plan(PlanRequest) returns (PlanResponse);   // 명령/질문 → 의도+답변/DSL
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+message PlanRequest {
+  string text = 1;              // 텍스트 명령 (audio 있으면 무시하고 STT)
+  bytes  audio = 2;             // (옵션) 음성 WAV/m4a
+  bytes  image_left = 3;        // (옵션) 좌 카메라 PNG/JPEG
+  bytes  image_right = 4;       // (옵션) 우 카메라
+  string detections_json = 5;   // (옵션) 노트북 YOLO 탐지
+  string robot_state_json = 6;  // (옵션) 현재 관절각
+}
+
+message PlanResponse {
+  string intent = 1;       // qa | command | other
+  string transcript = 2;   // 음성 입력 시 STT 결과
+  string answer = 3;       // qa 응답
+  string dsl_json = 4;     // command DSL (검증 완료)
+  bool   valid = 5;        // DSL 검증 통과 여부
+  string errors = 6;       // 검증 오류
+  float  elapsed_s = 7;
+}
+
+message HealthRequest {}
+message HealthResponse { bool models_ready = 1; string info = 2; }
