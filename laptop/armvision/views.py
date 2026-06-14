@@ -433,3 +433,46 @@ def ai_plan(request):
         return JsonResponse({"ok": True, "vision": bool(imgL or imgR), **res})
     except Exception as e:
         return JsonResponse({"ok": False, "error": str(e)})
+
+
+# ============ DSL 실행 — set_joint(직접 관절) 안전 실행 (3페이지 ▶) ============
+
+_JOINT_CH = {"J1": 0, "J2": 1, "J3": 2, "J4": 3, "J5": 4, "J6": 5, "J7": 6}
+# 실측 서보 펄스(채널별 us0/us180) — arduino/docs/servo_calibration.md
+_SERVO_CAL = {0: [600, 2740], 1: [530, 2670], 2: [520, 2700], 3: [690, 2800], 4: [620, 2750], 5: [560, 2700]}
+
+
+def _ang_to_us(ch, ang):
+    a = max(0.0, min(180.0, 180.0 - ang))            # 시뮬↔실물 미러
+    us0, us180 = _SERVO_CAL.get(ch, [600, 2740])
+    return round(us0 + (a / 180.0) * (us180 - us0))
+
+
+@csrf_exempt
+def arm_exec_joint(request):
+    """{joint:'J1', angle:180, from:90} → 브라운아웃 방지 램프로 한 관절 이동.
+    한 번에 한 관절만(다중 모터 동시구동=전압강하 방지). 실물 연결 필수."""
+    import json
+    import time
+    from . import arduino_bridge
+    d = json.loads(request.body or "{}")
+    joint = d.get("joint")
+    ch = _JOINT_CH.get(joint)
+    if ch is None:
+        return JsonResponse({"ok": False, "error": f"알 수 없는 관절: {joint}"})
+    if not arduino_bridge.is_connected():
+        return JsonResponse({"ok": False, "error": "실물 미연결 — 4페이지에서 연결하세요."})
+    try:
+        target = max(0.0, min(180.0, float(d.get("angle"))))
+        a = max(0.0, min(180.0, float(d.get("from", 90))))
+    except (TypeError, ValueError):
+        return JsonResponse({"ok": False, "error": "각도 오류"})
+    step = 2.0 if target >= a else -2.0
+    while abs(a - target) > 2.0:                      # ~2°씩 점진 이동
+        a += step
+        r = arduino_bridge.send_pulse(ch, _ang_to_us(ch, a))
+        if not r.get("ok"):
+            return JsonResponse({"ok": False, "error": "전송 실패(연결 끊김?)", "disconnected": True})
+        time.sleep(0.04)
+    arduino_bridge.send_pulse(ch, _ang_to_us(ch, target))
+    return JsonResponse({"ok": True, "joint": joint, "channel": ch, "angle": target})

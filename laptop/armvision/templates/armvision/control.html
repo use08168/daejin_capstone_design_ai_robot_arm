@@ -13,6 +13,9 @@
   .tag.qa{background:#234d23;color:#9be29b} .tag.command{background:#2a3a5a;color:#9bb8e2} .tag.other{background:#444;color:#bbb}
   .dsl { background:#000; border-radius:6px; padding:8px 10px; margin-top:6px; font-size:12.5px; font-family:monospace; color:#cdd; white-space:pre-wrap; }
   .dsl .ok{color:#7ee0a0} .dsl .bad{color:#ff8080}
+  .msg.bot .play { background:#2b6; color:#fff; border:0; padding:5px 13px; border-radius:7px; cursor:pointer; font-size:13px; margin-top:8px; }
+  .msg.bot .play:disabled { background:#444; cursor:default; }
+  .msg.bot .note { color:var(--muted); font-size:12px; margin-top:8px; }
   .composer { display:flex; gap:8px; }
   .composer input { flex:1; background:#0e0e0e; border:1px solid var(--line); color:var(--fg); padding:11px 12px; border-radius:8px; font-size:14px; }
   #mic.rec { background:#c33; }
@@ -92,10 +95,14 @@ function renderBot(res){
   if(res.transcript) h+=`<i>🎤 ${esc(res.transcript)}</i>`;
   if(res.answer) h+=md(res.answer);
   if(res.dsl_json){
-    try{ const d=JSON.parse(res.dsl_json);
+    try{ const d=JSON.parse(res.dsl_json); const A=d.actions||[];
       if(d.reasoning) h+=md(d.reasoning);
-      const acts=(d.actions||[]).map(a=>JSON.stringify(a)).join('\n');
-      h+=`<div class="dsl">${esc(acts)}\n<span class="${res.valid?'ok':'bad'}">검증 ${res.valid?'✓ 통과':'✗ '+esc(res.errors)}</span></div>`;
+      h+=`<div class="dsl">${esc(A.map(a=>JSON.stringify(a)).join('\n'))}\n<span class="${res.valid?'ok':'bad'}">검증 ${res.valid?'✓ 통과':'✗ '+esc(res.errors)}</span></div>`;
+      if(res.valid && A.length){
+        const sj=A.filter(a=>a.op==='set_joint');
+        if(sj.length===A.length) h+=`<button class="play" data-acts="${encodeURIComponent(JSON.stringify(sj))}">▶ 로봇팔에 실행</button>`;
+        else h+=`<div class="note">▶ 실행은 직접 관절(set_joint)만 지원 — 집기 동작은 IK 구현 후</div>`;
+      }
     }catch(e){ h+=esc(res.dsl_json); }
   }
   h+=`<div style="color:#777;font-size:11px;margin-top:4px">${res.elapsed_s||0}s${res.vision?' · 웹캠분석':''}</div>`;
@@ -133,5 +140,27 @@ async function toggleMic(){
   }catch(e){ alert('마이크 사용 불가(권한/HTTPS 필요): '+e); }
 }
 $('mic').onclick=toggleMic;
+
+// ▶ 실행: set_joint DSL을 실물 로봇팔에 (한 관절씩 안전 램프). 자동 아님 — 버튼+확인.
+const AEXEC='{% url "armvision:arm_exec_joint" %}', ASTAT='{% url "armvision:arm_status" %}';
+function jget(){ try{ return JSON.parse(localStorage.getItem('armJoint_v1')||'{}'); }catch(e){ return {}; } }
+tr.addEventListener('click', async e=>{
+  const b=e.target.closest('.play'); if(!b) return;
+  const acts=JSON.parse(decodeURIComponent(b.dataset.acts));
+  let st={}; try{ st=await (await fetch(ASTAT)).json(); }catch(err){}
+  if(!st.connected){ alert('실물 로봇팔이 연결되지 않았습니다. 4페이지에서 연결하세요.'); return; }
+  if(!confirm('실제 로봇팔이 움직입니다. 실행할까요?\n'+acts.map(a=>a.joint+'→'+a.angle+'°').join(', '))) return;
+  b.disabled=true; b.textContent='실행 중…';
+  const jo=jget();
+  for(const a of acts){
+    const from=(a.joint in jo)?jo[a.joint]:90;
+    try{ const r=await (await fetch(AEXEC,{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({joint:a.joint, angle:a.angle, from})})).json();
+      if(r.ok){ jo[a.joint]=a.angle; localStorage.setItem('armJoint_v1',JSON.stringify(jo)); }
+      else { b.textContent='✗ '+(r.error||'실패'); b.disabled=false; return; }
+    }catch(err){ b.textContent='✗ 오류'; b.disabled=false; return; }
+  }
+  b.textContent='✓ 실행됨 (3D 미러 반영)';
+});
 </script>
 {% endblock %}

@@ -464,7 +464,8 @@ const CMD_KEY='armCmd_v1';
 function saveCmd(){ try{ const o={}; revMates().forEach(m=>{ if(m._cmd!=null)o[m.parent+'>'+m.child]=+(+m._cmd).toFixed(1); }); localStorage.setItem(CMD_KEY,JSON.stringify(o)); }catch(e){} }
 function loadCmd(m){ try{ const o=JSON.parse(localStorage.getItem(CMD_KEY)||'{}'); const v=o[m.parent+'>'+m.child]; return typeof v==='number'?v:null; }catch(e){ return null; } }
 // 임베드 미러: 저장된 명령각(armCmd_v1)으로 3D 자세를 따라함(읽기전용). 주기적으로 갱신.
-function mirrorPose(){ revMates().forEach(m=>{ const v=loadCmd(m); m.angle=(v==null?90:v); }); applyAngles(); }
+function mirrorPose(){ let jo={}; try{ jo=JSON.parse(localStorage.getItem('armJoint_v1')||'{}'); }catch(e){}
+  revMates().forEach((m,i)=>{ const jk='J'+(i+1); const v=(jk in jo)?jo[jk]:loadCmd(m); m.angle=(v==null?90:v); }); applyAngles(); }
 function enterEmbed(){ document.body.classList.add('embed'); try{ rebuild(); }catch(e){} mirrorPose(); setInterval(mirrorPose, 1500);
   // iframe 레이아웃 확정 후 렌더러 크기 재설정(검은화면 방지) + 뷰포트 크기 변할 때마다
   [60,250,700,1500].forEach(d=>setTimeout(()=>{ try{ resize(); }catch(e){} }, d));

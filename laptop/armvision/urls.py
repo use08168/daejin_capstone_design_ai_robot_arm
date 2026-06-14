@@ -41,4 +41,5 @@ urlpatterns = [
     # AI 서버(EdgeXpert) 연동 — 3페이지
     path("ai/health/", views.ai_health, name="ai_health"),
     path("ai/plan/", views.ai_plan, name="ai_plan"),
+    path("arm/exec_joint/", views.arm_exec_joint, name="arm_exec_joint"),
 ]
