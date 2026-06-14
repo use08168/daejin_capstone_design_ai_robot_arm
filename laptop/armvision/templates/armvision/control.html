@@ -39,7 +39,7 @@ function add(cls, html){ const d=document.createElement('div'); d.className='msg
 function esc(s){ return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 
 async function health(){
-  try{ const h=await (await fetch('ai/health/')).json();
+  try{ const h=await (await fetch('{% url "armvision:ai_health" %}')).json();
     if(h.ready){ $('srv').className='srv ok'; $('srv').textContent='서버 warm ✓'; }
     else { $('srv').className='srv no'; $('srv').textContent='서버 미준비'; }
   }catch(e){ $('srv').className='srv no'; $('srv').textContent='서버 연결 안 됨'; }
@@ -67,7 +67,7 @@ async function send(){
   $('cmd').value=''; add('user', esc(t));
   const wait=add('bot','<span class="tag command">…</span>처리 중 (모델 추론, 최대 1분)');
   try{
-    const res=await (await fetch('ai/plan/',{method:'POST',headers:{'Content-Type':'application/json'},
+    const res=await (await fetch('{% url "armvision:ai_plan" %}',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({text:t, vision:$('vis').checked})})).json();
     wait.innerHTML=renderBot(res);
   }catch(e){ wait.innerHTML=`<span class="tag other">오류</span>${esc(''+e)}`; }
