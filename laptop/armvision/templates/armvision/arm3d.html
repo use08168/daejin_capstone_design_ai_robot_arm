@@ -476,7 +476,7 @@ function enterEmbed(){ document.body.classList.add('embed'); try{ rebuild(); }ca
   try{ new ResizeObserver(()=>{ try{ resize(); }catch(e){} }).observe(vp); }catch(e){}
 }
 // 실측 서보 펄스(0°/180° µs) — 채널별 (arduino/docs/servo_calibration.md). 조립 기본값 대신 이 값 사용.
-const SERVO_CAL={0:[600,2740],1:[530,2670],2:[520,2700],3:[540,2680],4:[620,2750],5:[560,2700]};
+const SERVO_CAL={0:[600,2740],1:[530,2670],2:[520,2700],3:[540,2680],4:[620,2750],5:[560,2750]};
 function buildCtrlJoints(){ const c=$('ctrlJoints'); c.innerHTML=''; aligning=false; const rm=revMates(); $('jcount').textContent=rm.length;
   rm.forEach((m,i)=>{ const card=document.createElement('div'); card.className='card';
     const nm=`J${i+1} · ${m.parent.replace('.stl','')}→${m.child.replace('.stl','')}`;
