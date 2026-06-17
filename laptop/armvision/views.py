@@ -476,3 +476,34 @@ def arm_exec_joint(request):
         time.sleep(0.04)
     arduino_bridge.send_pulse(ch, _ang_to_us(ch, target))
     return JsonResponse({"ok": True, "joint": joint, "channel": ch, "angle": target})
+
+
+# ============ J7 그리퍼 제어 (열기 550 / 닫기 2500, 천천히 램프) ============
+
+GRIP_CH = 6
+GRIP_US = {"open": 550, "close": 2500}   # 실측: 완전 열림 550µs, 완전 닫힘 2500µs
+_grip_us = [GRIP_US["close"]]            # 현재 펄스(시작=닫힘 가정) — 점프 없이 램프
+
+
+@csrf_exempt
+def arm_gripper(request):
+    """{action:'open'|'close'} → J7(ch6)을 천천히 램프(브라운아웃 방지). 실물 연결 필요."""
+    import json
+    import time
+    from . import arduino_bridge
+    d = json.loads(request.body or "{}")
+    action = d.get("action")
+    if action not in GRIP_US:
+        return JsonResponse({"ok": False, "error": "action 은 open|close"})
+    if not arduino_bridge.is_connected():
+        return JsonResponse({"ok": False, "error": "실물 미연결 — 4페이지에서 연결하세요."})
+    target = GRIP_US[action]; a = _grip_us[0]
+    step = 30 if target >= a else -30
+    while abs(a - target) > 30:
+        a += step
+        r = arduino_bridge.send_pulse(GRIP_CH, a)
+        if not r.get("ok"):
+            return JsonResponse({"ok": False, "error": "전송 실패(연결 끊김?)", "disconnected": True})
+        time.sleep(0.045)
+    arduino_bridge.send_pulse(GRIP_CH, target); _grip_us[0] = target
+    return JsonResponse({"ok": True, "action": action, "us": target})
