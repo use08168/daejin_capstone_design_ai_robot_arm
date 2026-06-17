@@ -43,4 +43,6 @@ urlpatterns = [
     path("ai/plan/", views.ai_plan, name="ai_plan"),
     path("arm/exec_joint/", views.arm_exec_joint, name="arm_exec_joint"),
     path("arm/gripper/", views.arm_gripper, name="arm_gripper"),
+    path("arm/joints/", views.arm_joints, name="arm_joints"),
+    path("arm/home/", views.arm_home, name="arm_home"),
 ]

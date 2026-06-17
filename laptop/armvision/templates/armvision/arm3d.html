@@ -465,13 +465,14 @@ function saveCmd(){ try{ const o={}; revMates().forEach(m=>{ if(m._cmd!=null)o[m
 function loadCmd(m){ try{ const o=JSON.parse(localStorage.getItem(CMD_KEY)||'{}'); const v=o[m.parent+'>'+m.child]; return typeof v==='number'?v:null; }catch(e){ return null; } }
 // 임베드 미러: 저장된 명령각(armCmd_v1)으로 3D 자세를 따라함(읽기전용). 주기적으로 갱신.
 // 미러: 명령각을 '목표'로 잡고 매 프레임 실물과 같은 속도로 부드럽게 보간(스냅 X).
-function mirrorTargets(){ let jo={}; try{ jo=JSON.parse(localStorage.getItem('armJoint_v1')||'{}'); }catch(e){}
-  revMates().forEach((m,i)=>{ const jk='J'+(i+1); const v=(jk in jo)?jo[jk]:loadCmd(m); m._mt=(v==null?90:v); }); }
+function mirrorTargets(){ return fetch('/arm/joints/').then(r=>r.json()).then(d=>{ const jo=(d&&d.joints)||{};   // 서버 진실(실물 관절각) 폴링
+    revMates().forEach((m,i)=>{ const v=jo['J'+(i+1)]; m._mt=(typeof v==='number'?v:90); }); }).catch(()=>{}); }
 function mirrorRamp(){ let moved=false; revMates().forEach(m=>{ if(m._mt==null)return; let a=(m.angle==null?90:m.angle); const d=m._mt-a;
   if(Math.abs(d)>0.05){ a+=Math.sign(d)*Math.min(Math.abs(d),2); m.angle=a; moved=true; } }); if(moved) applyAngles(); }
 function enterEmbed(){ document.body.classList.add('embed'); try{ rebuild(); }catch(e){}
-  mirrorTargets(); revMates().forEach(m=>m.angle=m._mt); applyAngles();   // 로드 시 현재자세 즉시
-  setInterval(mirrorTargets, 600); setInterval(mirrorRamp, 40);            // 목표갱신 + 부드러운 이동(~50°/s, 실물과 동률)
+  revMates().forEach(m=>m.angle=90); applyAngles();                        // 기본 홈(90°)에서 시작
+  mirrorTargets().then(()=>{ revMates().forEach(m=>m.angle=(m._mt==null?90:m._mt)); applyAngles(); });   // 서버 현재자세로 즉시 스냅
+  setInterval(mirrorTargets, 250); setInterval(mirrorRamp, 40);            // 서버 폴링(목표) + 부드러운 이동(~50°/s, 실물과 동률)
   [60,250,700,1500].forEach(d=>setTimeout(()=>{ try{ resize(); }catch(e){} }, d));
   try{ new ResizeObserver(()=>{ try{ resize(); }catch(e){} }).observe(vp); }catch(e){}
 }

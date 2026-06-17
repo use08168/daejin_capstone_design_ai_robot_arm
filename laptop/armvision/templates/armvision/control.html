@@ -52,6 +52,9 @@
         <button id="gOpen" class="gbtn">열기</button>
         <button id="gClose" class="gbtn">닫기</button>
         <span id="gStat" style="color:var(--muted)"></span></div>
+      <div class="opt" style="gap:8px;margin-top:6px;">3D 미러:
+        <button id="gHome" class="gbtn" title="실물을 홈(전 관절 90°)에 둔 뒤 눌러 3D를 맞춤">홈 맞춤(90°)</button>
+        <span id="hStat" style="color:var(--muted)"></span></div>
     </div>
 
     <!-- 우: 로봇 상태(헬스 체크) -->
@@ -156,6 +159,15 @@ async function gripper(action){
   }catch(e){ $('gStat').textContent='✗ 오류'; }
 }
 $('gOpen').onclick=()=>gripper('open'); $('gClose').onclick=()=>gripper('close');
+
+// 3D 미러 홈 맞춤: 실물을 홈(전 관절 90°)에 둔 뒤 서버 상태를 90°로 재설정 → 미러 동기화
+const AHOME='{% url "armvision:arm_home" %}';
+$('gHome').onclick=async()=>{
+  $('hStat').textContent='맞추는 중…';
+  try{ const r=await (await fetch(AHOME,{method:'POST'})).json();
+    $('hStat').textContent = r.ok ? '✓ 3D를 90°로 맞춤' : '✗ 실패';
+  }catch(e){ $('hStat').textContent='✗ 오류'; }
+};
 
 // ▶ 실행: set_joint DSL을 실물 로봇팔에 (한 관절씩 안전 램프). 자동 아님 — 버튼+확인.
 const AEXEC='{% url "armvision:arm_exec_joint" %}', ASTAT='{% url "armvision:arm_status" %}';

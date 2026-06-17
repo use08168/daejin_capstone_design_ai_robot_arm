@@ -448,6 +448,11 @@ def _ang_to_us(ch, ang):
     return round(us0 + (a / 180.0) * (us180 - us0))
 
 
+# 현재 관절각(실물 기준, 기본=홈 90°). 3D 미러가 이걸 폴링해 실제 팔을 따라감.
+# exec_joint가 갱신 → 미러가 localStorage가 아닌 '서버 진실'을 따름(드리프트 방지).
+_JOINT_STATE = {f"J{i}": 90.0 for i in range(1, 7)}
+
+
 @csrf_exempt
 def arm_exec_joint(request):
     """{joint:'J1', angle:180, from:90} → 브라운아웃 방지 램프로 한 관절 이동.
@@ -464,18 +469,37 @@ def arm_exec_joint(request):
         return JsonResponse({"ok": False, "error": "실물 미연결 — 4페이지에서 연결하세요."})
     try:
         target = max(0.0, min(180.0, float(d.get("angle"))))
-        a = max(0.0, min(180.0, float(d.get("from", 90))))
     except (TypeError, ValueError):
         return JsonResponse({"ok": False, "error": "각도 오류"})
+    prev = _JOINT_STATE.get(joint, 90.0)
+    a = prev                                          # 서버 보유 현재각에서 램프 시작(진실 일원화)
+    _JOINT_STATE[joint] = target                      # 낙관적 갱신 → 미러가 즉시 병행 이동
     step = 2.0 if target >= a else -2.0
     while abs(a - target) > 2.0:                      # ~2°씩 점진 이동
         a += step
         r = arduino_bridge.send_pulse(ch, _ang_to_us(ch, a))
         if not r.get("ok"):
+            _JOINT_STATE[joint] = prev                # 실패 시 되돌림
             return JsonResponse({"ok": False, "error": "전송 실패(연결 끊김?)", "disconnected": True})
         time.sleep(0.04)
     arduino_bridge.send_pulse(ch, _ang_to_us(ch, target))
+    _JOINT_STATE[joint] = target
     return JsonResponse({"ok": True, "joint": joint, "channel": ch, "angle": target})
+
+
+@csrf_exempt
+def arm_joints(request):
+    """현재 관절각(서버 보유) → 3D 미러가 폴링해 실제 팔을 따라감."""
+    return JsonResponse({"ok": True, "joints": _JOINT_STATE})
+
+
+@csrf_exempt
+def arm_home(request):
+    """3D 미러를 홈(전 관절 90°)으로 맞춤. 실물을 수동으로 홈에 둔 뒤 호출 → 미러 동기화.
+    상태만 90°로 재설정(서보를 강제 이동하지 않음 — 다중모터 동시구동 전압강하 방지)."""
+    for j in _JOINT_STATE:
+        _JOINT_STATE[j] = 90.0
+    return JsonResponse({"ok": True, "joints": _JOINT_STATE})
 
 
 # ============ J7 그리퍼 제어 (열기 550 / 닫기 2500, 천천히 램프) ============
