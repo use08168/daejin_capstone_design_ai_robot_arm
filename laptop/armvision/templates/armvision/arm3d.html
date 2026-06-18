@@ -819,7 +819,8 @@ function _tcpPose(){   // 우선순위: 편집중 > 확정(수동) > 자동추�
   if(tcpEdit){ const w=tcpEdit.world; return {ok:true, pos:w.clone(), approach:_approachFrom(w), part:tcpEdit.part, editing:true}; }
   if(tcpManual){ const p=partByName(tcpManual.part);
     if(p){ const w=new THREE.Vector3(tcpManual.local[0],tcpManual.local[1],tcpManual.local[2]).applyMatrix4(p.mesh.matrixWorld);
-      return {ok:true, pos:w, approach:_approachFrom(w), part:tcpManual.part, manual:true}; } }
+      let q=null; if(tcpManual.lq) q=p.mesh.getWorldQuaternion(new THREE.Quaternion()).multiply(new THREE.Quaternion().fromArray(tcpManual.lq));  // 강체 프레임
+      return {ok:true, pos:w, approach:_approachFrom(w), part:tcpManual.part, quat:q, manual:true}; } }
   return _tcpAuto();
 }
 function _tcpAuto(){
@@ -842,7 +843,7 @@ function updateTCP(){
   if(mode!=='ctrl' || _sweeping){ tcpMark.visible=false; tcpAxes.visible=false; return; }
   const t=_tcpPose(); if(!t.ok){ tcpMark.visible=false; tcpAxes.visible=false; return; }
   tcpMark.visible=true; tcpMark.position.copy(t.pos);
-  tcpAxes.visible=true; tcpAxes.position.copy(t.pos); tcpAxes.quaternion.copy(_frameQuat(t));   // z(파랑)=접근축 + 회전오프셋
+  tcpAxes.visible=true; tcpAxes.position.copy(t.pos); tcpAxes.quaternion.copy(t.quat||_frameQuat(t));   // 강체 프레임(확정 시) 우선
   const el=$('tcpReadout'); if(el){ const tag=t.editing?'편집중':t.manual?'확정':'자동'; el.textContent=`TCP[${tag}] (${t.pos.x.toFixed(0)}, ${t.pos.y.toFixed(0)}, ${t.pos.z.toFixed(0)}) · 접근z (${t.approach.x.toFixed(2)}, ${t.approach.y.toFixed(2)}, ${t.approach.z.toFixed(2)})`; }
 }
 
@@ -868,7 +869,10 @@ if($('tcpStart')){
     const p=partByName(tcpEdit.part); if(!p) return;
     const inv=new THREE.Matrix4().copy(p.mesh.matrixWorld).invert();
     const loc=tcpEdit.world.clone().applyMatrix4(inv);
-    tcpManual={part:tcpEdit.part, local:[+loc.x.toFixed(2),+loc.y.toFixed(2),+loc.z.toFixed(2)], rot:tcpEdit.rot.map(v=>+(+v).toFixed(1))};
+    const wq=_frameQuat({approach:_approachFrom(tcpEdit.world), part:tcpEdit.part});       // 현재 표시 프레임(월드)
+    const lq=p.mesh.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(wq);      // 부품 로컬 기준(강체)
+    tcpManual={part:tcpEdit.part, local:[+loc.x.toFixed(2),+loc.y.toFixed(2),+loc.z.toFixed(2)], rot:tcpEdit.rot.map(v=>+(+v).toFixed(1)),
+      lq:[+lq.x.toFixed(5),+lq.y.toFixed(5),+lq.z.toFixed(5),+lq.w.toFixed(5)]};
     localStorage.setItem('armTCP_v1', JSON.stringify(tcpManual)); tcpEdit=null;
     tcpStat(`✓ 확정: ${tcpManual.part.replace('.stl','')} 위치(${tcpManual.local.join(', ')}) 회전(${tcpManual.rot.join(', ')}°)`); };
   $('tcpAuto').onclick=()=>{ tcpManual=null; tcpEdit=null; localStorage.removeItem('armTCP_v1'); tcpStat('자동 추정 사용 중.'); };
@@ -950,7 +954,7 @@ function _grRow(rm){
   const t=_tcpPose(), r=_collideOnce(), coll=(r.floor<0||r.self<0)?1:0;
   const ang=[0,1,2,3,4,5].map(i=>rm[i]?+(+rm[i].angle).toFixed(1):90);
   const p=t.ok?t.pos:{x:0,y:0,z:0};
-  const a=t.ok?new THREE.Vector3(0,0,1).applyQuaternion(_frameQuat(t)):new THREE.Vector3(0,-1,0);  // 프레임 z = 접근축(회전오프셋 반영)
+  const a=t.ok?new THREE.Vector3(0,0,1).applyQuaternion(t.quat||_frameQuat(t)):new THREE.Vector3(0,-1,0);  // 프레임 z = 접근축(강체 프레임)
   return [...ang, p.x.toFixed(1),p.y.toFixed(1),p.z.toFixed(1), a.x.toFixed(3),a.y.toFixed(3),a.z.toFixed(3),
     r.floor.toFixed(1), isFinite(r.self)?r.self.toFixed(1):'', coll];
 }
