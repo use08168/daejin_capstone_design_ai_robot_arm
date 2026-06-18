@@ -162,6 +162,10 @@
             <button class="ghost tcpnudge" data-ax="x" data-d="-1">X−</button><button class="ghost tcpnudge" data-ax="x" data-d="1">X＋</button>
             <button class="ghost tcpnudge" data-ax="y" data-d="-1">Y−</button><button class="ghost tcpnudge" data-ax="y" data-d="1">Y＋</button>
             <button class="ghost tcpnudge" data-ax="z" data-d="-1">Z−</button><button class="ghost tcpnudge" data-ax="z" data-d="1">Z＋</button></div>
+          <div class="row" style="margin-bottom:6px"><span class="muted" style="width:38px">회전</span><input id="tcpRStep" type="number" value="5" step="1" min="1" style="width:46px"><span class="muted">°</span><span style="flex:1"></span>
+            <button class="ghost tcprot" data-ax="0" data-d="-1">RX−</button><button class="ghost tcprot" data-ax="0" data-d="1">RX＋</button>
+            <button class="ghost tcprot" data-ax="1" data-d="-1">RY−</button><button class="ghost tcprot" data-ax="1" data-d="1">RY＋</button>
+            <button class="ghost tcprot" data-ax="2" data-d="-1">RZ−</button><button class="ghost tcprot" data-ax="2" data-d="1">RZ＋</button></div>
           <div class="row" style="margin-bottom:0"><button class="primary" id="tcpConfirm" style="flex:1">✓ 확정</button><button class="ghost" id="tcpAuto">자동으로</button></div>
           <div class="hintline" id="tcpStat" style="margin:6px 0 0;">자동 추정 사용 중. '편집'을 눌러 직접 지정하세요.</div>
         </div>
@@ -775,6 +779,9 @@ function _tcpQuat(approach, partName){   // 그리퍼 자세 프레임: z=접근
   _qx.normalize(); _qy.crossVectors(_qz,_qx).normalize();
   _m4f.makeBasis(_qx,_qy,_qz); return new THREE.Quaternion().setFromRotationMatrix(_m4f);
 }
+function _curRot(){ if(tcpEdit) return tcpEdit.rot||[0,0,0]; if(tcpManual&&tcpManual.rot) return tcpManual.rot; return [0,0,0]; }
+function _frameQuat(t){ const e=_curRot();   // 자동 프레임 × 사용자 회전오프셋(RXYZ, 로컬)
+  return _tcpQuat(t.approach,t.part).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(d2r(e[0]),d2r(e[1]),d2r(e[2]),'XYZ'))); }
 let tcpManual=null;   // {part, local:[x,y,z]} 확정된 TCP(부품 로컬좌표). null=자동추정
 try{ tcpManual=JSON.parse(localStorage.getItem('armTCP_v1')||'null'); }catch(e){}
 let tcpEdit=null;     // {part, world:THREE.Vector3} 편집 중
@@ -813,7 +820,7 @@ function updateTCP(){
   if(mode!=='ctrl' || _sweeping){ tcpMark.visible=false; tcpAxes.visible=false; return; }
   const t=_tcpPose(); if(!t.ok){ tcpMark.visible=false; tcpAxes.visible=false; return; }
   tcpMark.visible=true; tcpMark.position.copy(t.pos);
-  tcpAxes.visible=true; tcpAxes.position.copy(t.pos); tcpAxes.quaternion.copy(_tcpQuat(t.approach,t.part));   // z(파랑)=접근축
+  tcpAxes.visible=true; tcpAxes.position.copy(t.pos); tcpAxes.quaternion.copy(_frameQuat(t));   // z(파랑)=접근축 + 회전오프셋
   const el=$('tcpReadout'); if(el){ const tag=t.editing?'편집중':t.manual?'확정':'자동'; el.textContent=`TCP[${tag}] (${t.pos.x.toFixed(0)}, ${t.pos.y.toFixed(0)}, ${t.pos.z.toFixed(0)}) · 접근z (${t.approach.x.toFixed(2)}, ${t.approach.y.toFixed(2)}, ${t.approach.z.toFixed(2)})`; }
 }
 
@@ -828,17 +835,20 @@ if($('tcpStart')){
     if(!$('tcpPart').options.length) fillTcpParts();
     const part=$('tcpPart').value; if(!part){ alert('부품 목록이 비었습니다(모델 로딩 대기).'); return; }
     const w=(tcpManual&&tcpManual.part===part&&partByName(part)) ? new THREE.Vector3(...tcpManual.local).applyMatrix4(partByName(part).mesh.matrixWorld) : partCenterWorld(part);
-    tcpEdit={part, world:w}; tcpStat(`편집 중 — ${part.replace('.stl','')} 중심 기준. XYZ로 옮기고 ✓확정.`); };
+    const rot0=(tcpManual&&tcpManual.part===part&&tcpManual.rot)?tcpManual.rot.slice():[0,0,0];
+    tcpEdit={part, world:w, rot:rot0}; tcpStat(`편집 중 — ${part.replace('.stl','')} 기준. XYZ 이동·RXYZ 회전 후 ✓확정.`); };
   $('tcpPart').onchange=()=>{ if(tcpEdit){ tcpEdit.part=$('tcpPart').value; tcpEdit.world=partCenterWorld(tcpEdit.part); } };
   document.querySelectorAll('.tcpnudge').forEach(b=>b.onclick=()=>{ if(!tcpEdit){ alert("먼저 '✎ 편집'을 누르세요."); return; }
     const s=Math.max(0.1,+$('tcpStep').value||2); tcpEdit.world[b.dataset.ax]+=(+b.dataset.d)*s; });
+  document.querySelectorAll('.tcprot').forEach(b=>b.onclick=()=>{ if(!tcpEdit){ alert("먼저 '✎ 편집'을 누르세요."); return; }
+    const i=+b.dataset.ax, s=+$('tcpRStep').value||5; tcpEdit.rot[i]+=(+b.dataset.d)*s; });
   $('tcpConfirm').onclick=()=>{ if(!tcpEdit){ alert('먼저 편집을 시작하세요.'); return; }
     const p=partByName(tcpEdit.part); if(!p) return;
     const inv=new THREE.Matrix4().copy(p.mesh.matrixWorld).invert();
     const loc=tcpEdit.world.clone().applyMatrix4(inv);
-    tcpManual={part:tcpEdit.part, local:[+loc.x.toFixed(2),+loc.y.toFixed(2),+loc.z.toFixed(2)]};
+    tcpManual={part:tcpEdit.part, local:[+loc.x.toFixed(2),+loc.y.toFixed(2),+loc.z.toFixed(2)], rot:tcpEdit.rot.map(v=>+(+v).toFixed(1))};
     localStorage.setItem('armTCP_v1', JSON.stringify(tcpManual)); tcpEdit=null;
-    tcpStat(`✓ 확정: ${tcpManual.part.replace('.stl','')} 로컬(${tcpManual.local.join(', ')}) — 관절 따라 이동`); };
+    tcpStat(`✓ 확정: ${tcpManual.part.replace('.stl','')} 위치(${tcpManual.local.join(', ')}) 회전(${tcpManual.rot.join(', ')}°)`); };
   $('tcpAuto').onclick=()=>{ tcpManual=null; tcpEdit=null; localStorage.removeItem('armTCP_v1'); tcpStat('자동 추정 사용 중.'); };
   if(tcpManual) tcpStat(`확정됨: ${tcpManual.part.replace('.stl','')} 로컬(${tcpManual.local.join(', ')})`);
   setTimeout(()=>{ if($('tcpPart')&&!$('tcpPart').options.length) fillTcpParts(); }, 2500);
