@@ -155,6 +155,18 @@
         </div>
 
         <div class="card" style="margin-top:10px;">
+          <div class="ttl">그리퍼 중심(TCP) 설정 (파지 P0)</div>
+          <div class="hintline">기준 STL 부품을 고르고 XYZ로 미세조정 → 확정하면 그 점이 그리퍼 파지중심(TCP)이 됩니다. 부품 로컬좌표로 저장돼 관절 따라 이동합니다.</div>
+          <div class="row" style="margin-bottom:6px"><span class="muted" style="width:38px">기준</span><select id="tcpPart" style="flex:1"></select><button class="ghost" id="tcpStart">✎ 편집</button></div>
+          <div class="row" style="margin-bottom:6px"><span class="muted" style="width:38px">스텝</span><input id="tcpStep" type="number" value="2" step="0.5" min="0.5" style="width:52px"><span class="muted">mm</span><span style="flex:1"></span>
+            <button class="ghost tcpnudge" data-ax="x" data-d="-1">X−</button><button class="ghost tcpnudge" data-ax="x" data-d="1">X＋</button>
+            <button class="ghost tcpnudge" data-ax="y" data-d="-1">Y−</button><button class="ghost tcpnudge" data-ax="y" data-d="1">Y＋</button>
+            <button class="ghost tcpnudge" data-ax="z" data-d="-1">Z−</button><button class="ghost tcpnudge" data-ax="z" data-d="1">Z＋</button></div>
+          <div class="row" style="margin-bottom:0"><button class="primary" id="tcpConfirm" style="flex:1">✓ 확정</button><button class="ghost" id="tcpAuto">자동으로</button></div>
+          <div class="hintline" id="tcpStat" style="margin:6px 0 0;">자동 추정 사용 중. '편집'을 눌러 직접 지정하세요.</div>
+        </div>
+
+        <div class="card" style="margin-top:10px;">
           <div class="ttl">C-space 충돌 지도 (#3 — 가상 학습 데이터)</div>
           <div class="hintline">J2·J3·J4를 격자로 전부 회전시켜 각 조합의 바닥여유·자기충돌을 시뮬에서 자동 기록 → CSV. (실물 불필요)</div>
           <div class="row" style="margin-bottom:6px"><span class="muted" style="width:38px">간격</span><input id="csStep" type="number" value="5" step="1" min="2" max="15" style="width:56px"><span class="muted">°</span><span style="flex:1"></span><button class="primary" id="csSweep">🗺 격자(J2·J3·J4)</button></div>
@@ -727,7 +739,25 @@ const tcpMark=_mkMark(0x33ddff);   // 시안 = 파지점
 const _tcpGeo=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3()]);
 const tcpLine=new THREE.Line(_tcpGeo, new THREE.LineBasicMaterial({color:0x33ddff,depthTest:false})); tcpLine.renderOrder=1000; tcpLine.visible=false; scene.add(tcpLine);
 const _tcA=new THREE.Vector3(), _tcB=new THREE.Vector3();
-function _tcpPose(){
+let tcpManual=null;   // {part, local:[x,y,z]} 확정된 TCP(부품 로컬좌표). null=자동추정
+try{ tcpManual=JSON.parse(localStorage.getItem('armTCP_v1')||'null'); }catch(e){}
+let tcpEdit=null;     // {part, world:THREE.Vector3} 편집 중
+function _approachFrom(world){   // 접근벡터 = 그리퍼베이스 → world
+  const {handRoot}=_chainInfo(); const base=new THREE.Vector3(); const bp=partByName(handRoot); if(bp) base.setFromMatrixPosition(bp.mesh.matrixWorld);
+  const ax=world.clone().sub(base); if(ax.lengthSq()<1e-6) ax.set(0,-1,0); return ax.normalize();
+}
+function partCenterWorld(name){ const p=partByName(name); if(!p) return new THREE.Vector3();
+  const geo=p.mesh.geometry; if(!geo.boundingBox)geo.computeBoundingBox();
+  return geo.boundingBox.getCenter(new THREE.Vector3()).applyMatrix4(p.mesh.matrixWorld); }
+function _tcpPose(){   // 우선순위: 편집중 > 확정(수동) > 자동추정
+  rigRoot.updateMatrixWorld(true);
+  if(tcpEdit){ const w=tcpEdit.world; return {ok:true, pos:w.clone(), approach:_approachFrom(w), editing:true}; }
+  if(tcpManual){ const p=partByName(tcpManual.part);
+    if(p){ const w=new THREE.Vector3(tcpManual.local[0],tcpManual.local[1],tcpManual.local[2]).applyMatrix4(p.mesh.matrixWorld);
+      return {ok:true, pos:w, approach:_approachFrom(w), manual:true}; } }
+  return _tcpAuto();
+}
+function _tcpAuto(){
   rigRoot.updateMatrixWorld(true);
   const {grip, handRoot}=_chainInfo();
   const base=new THREE.Vector3(); const bp=partByName(handRoot); if(bp) base.setFromMatrixPosition(bp.mesh.matrixWorld);
@@ -749,7 +779,34 @@ function updateTCP(){
   tcpMark.visible=true; tcpMark.position.copy(t.pos);
   _tcB.copy(t.pos).add(_tcA.copy(t.approach).multiplyScalar(45));
   _tcpGeo.setFromPoints([t.pos,_tcB]); tcpLine.visible=true;
-  const el=$('tcpReadout'); if(el) el.textContent=`TCP (${t.pos.x.toFixed(0)}, ${t.pos.y.toFixed(0)}, ${t.pos.z.toFixed(0)}) · 접근 (${t.approach.x.toFixed(2)}, ${t.approach.y.toFixed(2)}, ${t.approach.z.toFixed(2)})`;
+  const el=$('tcpReadout'); if(el){ const tag=t.editing?'편집중':t.manual?'확정':'자동'; el.textContent=`TCP[${tag}] (${t.pos.x.toFixed(0)}, ${t.pos.y.toFixed(0)}, ${t.pos.z.toFixed(0)}) · 접근 (${t.approach.x.toFixed(2)}, ${t.approach.y.toFixed(2)}, ${t.approach.z.toFixed(2)})`; }
+}
+
+// TCP 수동 설정 UI — 기준 부품 선택 → XYZ 미세조정 → 확정(로컬좌표 저장)
+function fillTcpParts(){ const sel=$('tcpPart'); if(!sel) return; const {grip}=_chainInfo();
+  const list=(grip&&grip.length)?grip:parts.map(p=>p.name);
+  sel.innerHTML=list.map(n=>`<option value="${n}">${n.replace('.stl','')}</option>`).join('');
+  if(tcpManual&&list.includes(tcpManual.part)) sel.value=tcpManual.part; }
+function tcpStat(msg){ const e=$('tcpStat'); if(e) e.textContent=msg; }
+if($('tcpStart')){
+  $('tcpStart').onclick=()=>{ if(mode!=='ctrl'){ alert('제어 모드에서 설정하세요.'); return; }
+    if(!$('tcpPart').options.length) fillTcpParts();
+    const part=$('tcpPart').value; if(!part){ alert('부품 목록이 비었습니다(모델 로딩 대기).'); return; }
+    const w=(tcpManual&&tcpManual.part===part&&partByName(part)) ? new THREE.Vector3(...tcpManual.local).applyMatrix4(partByName(part).mesh.matrixWorld) : partCenterWorld(part);
+    tcpEdit={part, world:w}; tcpStat(`편집 중 — ${part.replace('.stl','')} 중심 기준. XYZ로 옮기고 ✓확정.`); };
+  $('tcpPart').onchange=()=>{ if(tcpEdit){ tcpEdit.part=$('tcpPart').value; tcpEdit.world=partCenterWorld(tcpEdit.part); } };
+  document.querySelectorAll('.tcpnudge').forEach(b=>b.onclick=()=>{ if(!tcpEdit){ alert("먼저 '✎ 편집'을 누르세요."); return; }
+    const s=Math.max(0.1,+$('tcpStep').value||2); tcpEdit.world[b.dataset.ax]+=(+b.dataset.d)*s; });
+  $('tcpConfirm').onclick=()=>{ if(!tcpEdit){ alert('먼저 편집을 시작하세요.'); return; }
+    const p=partByName(tcpEdit.part); if(!p) return;
+    const inv=new THREE.Matrix4().copy(p.mesh.matrixWorld).invert();
+    const loc=tcpEdit.world.clone().applyMatrix4(inv);
+    tcpManual={part:tcpEdit.part, local:[+loc.x.toFixed(2),+loc.y.toFixed(2),+loc.z.toFixed(2)]};
+    localStorage.setItem('armTCP_v1', JSON.stringify(tcpManual)); tcpEdit=null;
+    tcpStat(`✓ 확정: ${tcpManual.part.replace('.stl','')} 로컬(${tcpManual.local.join(', ')}) — 관절 따라 이동`); };
+  $('tcpAuto').onclick=()=>{ tcpManual=null; tcpEdit=null; localStorage.removeItem('armTCP_v1'); tcpStat('자동 추정 사용 중.'); };
+  if(tcpManual) tcpStat(`확정됨: ${tcpManual.part.replace('.stl','')} 로컬(${tcpManual.local.join(', ')})`);
+  setTimeout(()=>{ if($('tcpPart')&&!$('tcpPart').options.length) fillTcpParts(); }, 2500);
 }
 
 // ===== #3 C-space 충돌 지도 — 격자(J2·J3·J4) / 랜덤(J2~J6) 스윕 → CSV =====
