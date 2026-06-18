@@ -122,6 +122,11 @@
           <div class="field"><label>모터</label><input id="mch" type="number" step="1" title="채널"><input id="mu0" type="number" step="10" title="0°µs"><input id="mu1" type="number" step="10" title="180°µs"></div>
           <div class="field"><label>위치보정</label><input id="aox" type="number" step="1" value="0" title="X mm"><input id="aoy" type="number" step="1" value="0" title="Y mm"><input id="aoz" type="number" step="1" value="0" title="Z mm"></div>
           <div class="row"><span class="muted" style="width:58px">roll°</span><input id="aroll" type="number" step="5" value="0" style="width:70px"></div>
+          <div class="row"><span class="muted" style="width:58px">축기울기</span><input id="atStep" type="number" step="0.5" value="1" style="width:44px"><span class="muted">°</span><span style="flex:1"></span>
+            <button class="ghost axtilt" data-ax="0" data-d="-1">X−</button><button class="ghost axtilt" data-ax="0" data-d="1">X＋</button>
+            <button class="ghost axtilt" data-ax="1" data-d="-1">Y−</button><button class="ghost axtilt" data-ax="1" data-d="1">Y＋</button>
+            <button class="ghost axtilt" data-ax="2" data-d="-1">Z−</button><button class="ghost axtilt" data-ax="2" data-d="1">Z＋</button></div>
+          <div class="hintline" id="axInfo" style="margin:2px 0 6px;color:#9aa;">관절을 끝각(0/180°)으로 돌려 비틀림이 최소가 되게 축을 조정 → 💾 저장</div>
           <button id="lockMate" style="width:100%; margin:2px 0 10px;">🔒 이 결합 고정</button>
           <div class="hintline" style="margin-bottom:6px;">테스트 회전 <b id="tval">90</b>°</div>
           <input id="tslider" class="slider" type="range" min="0" max="180" value="90">
@@ -418,7 +423,7 @@ function selectMate(i){ selMate=i; renderMates(); const m=mates[i]; $('jedit').s
   jmin.value=m.min;jmax.value=m.max;mch.value=m.motor.channel;mu0.value=m.motor.us0;mu1.value=m.motor.us180; tslider.min=m.min;tslider.max=m.max;tslider.value=m.angle;$('tval').textContent=m.angle;
   const off=m.offset||[0,0,0]; $('aox').value=off[0]; $('aoy').value=off[1]; $('aoz').value=off[2]; $('aroll').value=m.roll||0;
   $('lockMate').textContent=m.locked?'🔓 고정 해제':'🔒 이 결합 고정'; $('lockMate').classList.toggle('on',!!m.locked);
-  const dis=(m.type!=='rev'); [mch,mu0,mu1,tslider].forEach(e=>e.disabled=dis); }
+  const dis=(m.type!=='rev'); [mch,mu0,mu1,tslider].forEach(e=>e.disabled=dis); axInfo(m); }
 ['jmin','jmax','mch','mu0','mu1'].forEach(id=>$(id).addEventListener('input',()=>{ if(selMate<0)return; const m=mates[selMate]; m.min=+jmin.value;m.max=+jmax.value;m.motor.channel=+mch.value;m.motor.us0=+mu0.value;m.motor.us180=+mu1.value; tslider.min=m.min;tslider.max=m.max; }));
 $('tslider').addEventListener('input',()=>{ if(selMate<0)return; mates[selMate].angle=+tslider.value; $('tval').textContent=tslider.value; applyAngles(); });
 $('delMate').onclick=()=>{ mates.splice(selMate,1); selMate=-1; $('jedit').style.display='none'; renderMates(); rebuild(); };
@@ -442,6 +447,13 @@ function editOffset(mate, dx,dy,dz, dRoll){
 function mOff(m){ return m.offset||(m.offset=[0,0,0]); }
 ['aox','aoy','aoz'].forEach((id,ax)=>$(id).addEventListener('input',()=>{ if(selMate<0)return; const m=mates[selMate]; const off=mOff(m); const nv=+$(id).value; const d=[0,0,0]; d[ax]=nv-off[ax]; editOffset(m,d[0],d[1],d[2],0); off[ax]=nv; }));
 $('aroll').addEventListener('input',()=>{ if(selMate<0)return; const m=mates[selMate]; editOffset(m,0,0,0,(+aroll.value)-(m.roll||0)); m.roll=+aroll.value; });
+// 축 기울기 보정: 회전축(m.axis)을 월드 X/Y/Z로 미세회전 → 관절 돌릴 때 비틀림 제거(휴식 90°는 불변)
+const _AXW=[new THREE.Vector3(1,0,0),new THREE.Vector3(0,1,0),new THREE.Vector3(0,0,1)];
+function axInfo(m){ const e=$('axInfo'); if(e&&m&&m.type==='rev') e.textContent=`회전축 (${m.axis.map(v=>(+v).toFixed(3)).join(', ')}) — 끝각에서 비틀림 최소가 되게 조정 후 💾`; }
+document.querySelectorAll('.axtilt').forEach(b=>b.onclick=()=>{ if(selMate<0)return; const m=mates[selMate]; if(m.type!=='rev')return;
+  const s=(+b.dataset.d)*(+$('atStep').value||1), q=new THREE.Quaternion().setFromAxisAngle(_AXW[+b.dataset.ax], d2r(s));
+  const a=new THREE.Vector3().fromArray(m.axis).applyQuaternion(q).normalize();
+  m.axis=[+a.x.toFixed(4),+a.y.toFixed(4),+a.z.toFixed(4)]; rebuild(); axInfo(m); });
 $('lockMate').onclick=()=>{ if(selMate<0)return; const m=mates[selMate]; m.locked=!m.locked; selectMate(selMate); renderMates(); };
 // 고정된 결합으로 연결된 부품들 = 하나의 강체 그룹 (조립 모드에서 통째 이동)
 function lockedGroup(name){ const set=new Set([name]); let add=true; while(add){ add=false; mates.forEach(m=>{ if(!m.locked)return; if(set.has(m.parent)&&!set.has(m.child)){set.add(m.child);add=true;} if(set.has(m.child)&&!set.has(m.parent)){set.add(m.parent);add=true;} }); } return [...set]; }
