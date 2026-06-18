@@ -764,9 +764,17 @@ function updateCollision(){
 // TCP = 손(그리퍼) 정점 중 접근축 끝단(손가락 끝) 군집의 중심. 접근벡터 = 그리퍼베이스 → 손중심(가리키는 방향).
 // y가 위(바닥 y=0)이므로 수직(top-down) 파지는 접근 ay≈-1, 수평 파지는 |ay|≈0.
 const tcpMark=_mkMark(0x33ddff);   // 시안 = 파지점
-const _tcpGeo=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3()]);
-const tcpLine=new THREE.Line(_tcpGeo, new THREE.LineBasicMaterial({color:0x33ddff,depthTest:false})); tcpLine.renderOrder=1000; tcpLine.visible=false; scene.add(tcpLine);
+const tcpAxes=new THREE.AxesHelper(55); tcpAxes.material.depthTest=false; tcpAxes.renderOrder=1001; tcpAxes.visible=false; scene.add(tcpAxes);  // 그리퍼 좌표축(z=파랑=접근방향)
 const _tcA=new THREE.Vector3(), _tcB=new THREE.Vector3();
+const _m4f=new THREE.Matrix4(), _qz=new THREE.Vector3(), _qx=new THREE.Vector3(), _qy=new THREE.Vector3(), _ref=new THREE.Vector3();
+function _tcpQuat(approach, partName){   // 그리퍼 자세 프레임: z=접근축, x=그리퍼부품 로컬X(직교화), y=z×x
+  _qz.copy(approach); if(_qz.lengthSq()<1e-6) _qz.set(0,-1,0); _qz.normalize();
+  const p=partByName(partName); if(p){ _ref.setFromMatrixColumn(p.mesh.matrixWorld,0); if(_ref.lengthSq()<1e-6)_ref.set(1,0,0); } else _ref.set(1,0,0);
+  _qx.copy(_ref).addScaledVector(_qz, -_ref.dot(_qz));                    // ref에서 z성분 제거(직교화)
+  if(_qx.lengthSq()<1e-6){ _qx.set(0,1,0).addScaledVector(_qz,-_qz.y); }  // 퇴화 시 대체
+  _qx.normalize(); _qy.crossVectors(_qz,_qx).normalize();
+  _m4f.makeBasis(_qx,_qy,_qz); return new THREE.Quaternion().setFromRotationMatrix(_m4f);
+}
 let tcpManual=null;   // {part, local:[x,y,z]} 확정된 TCP(부품 로컬좌표). null=자동추정
 try{ tcpManual=JSON.parse(localStorage.getItem('armTCP_v1')||'null'); }catch(e){}
 let tcpEdit=null;     // {part, world:THREE.Vector3} 편집 중
@@ -779,10 +787,10 @@ function partCenterWorld(name){ const p=partByName(name); if(!p) return new THRE
   return geo.boundingBox.getCenter(new THREE.Vector3()).applyMatrix4(p.mesh.matrixWorld); }
 function _tcpPose(){   // 우선순위: 편집중 > 확정(수동) > 자동추정
   rigRoot.updateMatrixWorld(true);
-  if(tcpEdit){ const w=tcpEdit.world; return {ok:true, pos:w.clone(), approach:_approachFrom(w), editing:true}; }
+  if(tcpEdit){ const w=tcpEdit.world; return {ok:true, pos:w.clone(), approach:_approachFrom(w), part:tcpEdit.part, editing:true}; }
   if(tcpManual){ const p=partByName(tcpManual.part);
     if(p){ const w=new THREE.Vector3(tcpManual.local[0],tcpManual.local[1],tcpManual.local[2]).applyMatrix4(p.mesh.matrixWorld);
-      return {ok:true, pos:w, approach:_approachFrom(w), manual:true}; } }
+      return {ok:true, pos:w, approach:_approachFrom(w), part:tcpManual.part, manual:true}; } }
   return _tcpAuto();
 }
 function _tcpAuto(){
@@ -799,15 +807,14 @@ function _tcpAuto(){
   const thr=mn+0.8*(mx-mn); const tip=new THREE.Vector3(); let tc=0;       // 접근축 상위 20%(손가락 끝)
   pts.forEach(w=>{ if(_tcA.copy(w).sub(base).dot(ax)>=thr){ tip.add(w); tc++; } });
   if(tc) tip.multiplyScalar(1/tc); else tip.copy(c);
-  return {ok:true, pos:tip, approach:ax};
+  return {ok:true, pos:tip, approach:ax, part:handRoot};
 }
 function updateTCP(){
-  if(mode!=='ctrl' || _sweeping){ tcpMark.visible=false; tcpLine.visible=false; return; }
-  const t=_tcpPose(); if(!t.ok){ tcpMark.visible=false; tcpLine.visible=false; return; }
+  if(mode!=='ctrl' || _sweeping){ tcpMark.visible=false; tcpAxes.visible=false; return; }
+  const t=_tcpPose(); if(!t.ok){ tcpMark.visible=false; tcpAxes.visible=false; return; }
   tcpMark.visible=true; tcpMark.position.copy(t.pos);
-  _tcB.copy(t.pos).add(_tcA.copy(t.approach).multiplyScalar(45));
-  _tcpGeo.setFromPoints([t.pos,_tcB]); tcpLine.visible=true;
-  const el=$('tcpReadout'); if(el){ const tag=t.editing?'편집중':t.manual?'확정':'자동'; el.textContent=`TCP[${tag}] (${t.pos.x.toFixed(0)}, ${t.pos.y.toFixed(0)}, ${t.pos.z.toFixed(0)}) · 접근 (${t.approach.x.toFixed(2)}, ${t.approach.y.toFixed(2)}, ${t.approach.z.toFixed(2)})`; }
+  tcpAxes.visible=true; tcpAxes.position.copy(t.pos); tcpAxes.quaternion.copy(_tcpQuat(t.approach,t.part));   // z(파랑)=접근축
+  const el=$('tcpReadout'); if(el){ const tag=t.editing?'편집중':t.manual?'확정':'자동'; el.textContent=`TCP[${tag}] (${t.pos.x.toFixed(0)}, ${t.pos.y.toFixed(0)}, ${t.pos.z.toFixed(0)}) · 접근z (${t.approach.x.toFixed(2)}, ${t.approach.y.toFixed(2)}, ${t.approach.z.toFixed(2)})`; }
 }
 
 // TCP 수동 설정 UI — 기준 부품 선택 → XYZ 미세조정 → 확정(로컬좌표 저장)
@@ -920,7 +927,7 @@ async function sweepGrasp(){
   if(!tcpManual && !confirm('TCP가 자동추정 상태입니다. 그리퍼 중심을 먼저 확정하는 게 좋습니다. 그래도 진행할까요?')) return;
   const N=Math.max(1000,Math.min(300000,+$('grN').value||30000)), allj=[0,1,2,3,4,5];
   if(!confirm(`파지 스윕: ${N}개 샘플(J1~J6 무작위). 각 자세의 TCP포즈+충돌을 기록합니다. 진행할까요?`)) return;
-  _sweeping=true; collMark.visible=selfMark.visible=tcpMark.visible=tcpLine.visible=false;
+  _sweeping=true; collMark.visible=selfMark.visible=tcpMark.visible=tcpAxes.visible=false;
   const saved=rm.map(m=>m.angle), stat=$('grStat'), rows=[GR_HDR];
   for(let i=0;i<N;i++){ allj.forEach(j=>{ const m=rm[j]; m.angle=m.min+Math.random()*(m.max-m.min); }); applyAngles(); rows.push(_grRow(rm));
     if(i%150===0){ stat.textContent=`파지 스윕 ${i}/${N} (${(100*i/N).toFixed(0)}%)`; await new Promise(res=>setTimeout(res)); } }
