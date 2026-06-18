@@ -84,6 +84,11 @@ def arm3d(request):
     return render(request, "armvision/arm3d.html")
 
 
+def teach(request):
+    """5페이지 — Teach-and-repeat: 잡는 자세 기록 → 시퀀스 재생(IK 없이 집기)."""
+    return render(request, "armvision/teach.html")
+
+
 CAD_DIR = r"C:\robotic_arm\laptop\cad"
 
 
@@ -531,3 +536,170 @@ def arm_gripper(request):
         time.sleep(0.045)
     arduino_bridge.send_pulse(GRIP_CH, target); _grip_us[0] = target
     return JsonResponse({"ok": True, "action": action, "us": target})
+
+
+# ============ Teach-and-repeat (관절각 기록·재생 집기) ============
+# 잡는 자세의 관절각 6개 + 그리퍼 동작을 자세(step)로 기록 → 시퀀스로 재생.
+# IK 없이 "접근→하강→그리퍼 닫기→들기→이동→놓기" 전체를 검증. 재생은 한 관절씩(전압강하 방지).
+TEACH_FILE = r"C:\robotic_arm\laptop\calibration\teach_seq.json"
+_JOINTS6 = ("J1", "J2", "J3", "J4", "J5", "J6")
+
+
+def _teach_load():
+    try:
+        import json
+        with open(TEACH_FILE, encoding="utf-8") as f:
+            return json.load(f).get("steps", [])
+    except (OSError, ValueError):
+        return []
+
+
+def _teach_save(steps):
+    import json
+    os.makedirs(os.path.dirname(TEACH_FILE), exist_ok=True)
+    with open(TEACH_FILE, "w", encoding="utf-8") as f:
+        json.dump({"steps": steps}, f, ensure_ascii=False, indent=2)
+
+
+def _move_joint_to(joint, target):
+    """한 관절을 현재각(_JOINT_STATE)에서 target까지 안전 램프(~2°/40ms). 상태 갱신."""
+    import time
+    from . import arduino_bridge
+    ch = _JOINT_CH.get(joint)
+    if ch is None or ch == GRIP_CH:
+        return {"ok": False, "error": f"관절 아님: {joint}"}
+    target = max(0.0, min(180.0, float(target)))
+    a = _JOINT_STATE.get(joint, 90.0)
+    step = 2.0 if target >= a else -2.0
+    while abs(a - target) > 2.0:
+        a += step
+        r = arduino_bridge.send_pulse(ch, _ang_to_us(ch, a))
+        if not r.get("ok"):
+            _JOINT_STATE[joint] = a
+            return {"ok": False, "error": "전송 실패(연결 끊김?)", "disconnected": True}
+        time.sleep(0.04)
+    arduino_bridge.send_pulse(ch, _ang_to_us(ch, target))
+    _JOINT_STATE[joint] = target
+    return {"ok": True}
+
+
+def _grip_to(action):
+    """그리퍼 열기/닫기 안전 램프(재생기·exec 공용)."""
+    import time
+    from . import arduino_bridge
+    if action not in GRIP_US:
+        return {"ok": False, "error": "grip 오류"}
+    target = GRIP_US[action]; a = _grip_us[0]
+    step = 30 if target >= a else -30
+    while abs(a - target) > 30:
+        a += step
+        r = arduino_bridge.send_pulse(GRIP_CH, a)
+        if not r.get("ok"):
+            return {"ok": False, "error": "전송 실패(연결 끊김?)", "disconnected": True}
+        time.sleep(0.045)
+    arduino_bridge.send_pulse(GRIP_CH, target); _grip_us[0] = target
+    return {"ok": True}
+
+
+def _move_pose(joints):
+    """여러 관절을 목표 자세로 — 한 관절씩(J1→J6, 전압강하 방지)."""
+    for j in _JOINTS6:
+        if joints.get(j) is not None:
+            r = _move_joint_to(j, joints[j])
+            if not r.get("ok"):
+                return r
+    return {"ok": True}
+
+
+@csrf_exempt
+def teach_list(request):
+    return JsonResponse({"ok": True, "steps": _teach_load()})
+
+
+@csrf_exempt
+def teach_record(request):
+    """현재 관절각(_JOINT_STATE) + 그리퍼 동작을 자세로 기록."""
+    import json
+    d = json.loads(request.body or "{}")
+    steps = _teach_load()
+    grip = d.get("grip") if d.get("grip") in GRIP_US else None
+    steps.append({
+        "name": (d.get("name") or f"자세{len(steps)+1}").strip(),
+        "joints": {j: round(float(_JOINT_STATE.get(j, 90.0)), 1) for j in _JOINTS6},
+        "grip": grip,
+    })
+    _teach_save(steps)
+    return JsonResponse({"ok": True, "steps": steps})
+
+
+@csrf_exempt
+def teach_delete(request):
+    import json
+    d = json.loads(request.body or "{}")
+    steps = _teach_load(); i = d.get("index")
+    if isinstance(i, int) and 0 <= i < len(steps):
+        steps.pop(i); _teach_save(steps)
+    return JsonResponse({"ok": True, "steps": steps})
+
+
+@csrf_exempt
+def teach_clear(request):
+    _teach_save([])
+    return JsonResponse({"ok": True, "steps": []})
+
+
+@csrf_exempt
+def teach_reorder(request):
+    """{index, dir:'up'|'down'} — 자세 순서 변경."""
+    import json
+    d = json.loads(request.body or "{}")
+    steps = _teach_load(); i = d.get("index")
+    if isinstance(i, int) and 0 <= i < len(steps):
+        j = i + (1 if d.get("dir") == "down" else -1)
+        if 0 <= j < len(steps):
+            steps[i], steps[j] = steps[j], steps[i]; _teach_save(steps)
+    return JsonResponse({"ok": True, "steps": steps})
+
+
+@csrf_exempt
+def teach_goto(request):
+    """{index} — 해당 자세 하나로 이동(+그리퍼). 티칭 중 미리보기용."""
+    import json
+    from . import arduino_bridge
+    if not arduino_bridge.is_connected():
+        return JsonResponse({"ok": False, "error": "실물 미연결 — 4페이지에서 연결하세요."})
+    d = json.loads(request.body or "{}")
+    steps = _teach_load(); i = d.get("index")
+    if not (isinstance(i, int) and 0 <= i < len(steps)):
+        return JsonResponse({"ok": False, "error": "잘못된 index"})
+    st = steps[i]
+    r = _move_pose(st.get("joints", {}))
+    if not r.get("ok"):
+        return JsonResponse(r)
+    if st.get("grip"):
+        r = _grip_to(st["grip"])
+        if not r.get("ok"):
+            return JsonResponse(r)
+    return JsonResponse({"ok": True, "step": st})
+
+
+@csrf_exempt
+def teach_play(request):
+    """기록된 시퀀스를 순서대로 재생(한 관절씩 안전 램프 + 그리퍼)."""
+    from . import arduino_bridge
+    if not arduino_bridge.is_connected():
+        return JsonResponse({"ok": False, "error": "실물 미연결 — 4페이지에서 연결하세요."})
+    steps = _teach_load()
+    if not steps:
+        return JsonResponse({"ok": False, "error": "기록된 자세가 없습니다."})
+    done = []
+    for idx, st in enumerate(steps):
+        r = _move_pose(st.get("joints", {}))
+        if not r.get("ok"):
+            return JsonResponse({"ok": False, "error": f"[{idx} {st.get('name')}] {r.get('error')}", "done": done})
+        if st.get("grip"):
+            r = _grip_to(st["grip"])
+            if not r.get("ok"):
+                return JsonResponse({"ok": False, "error": f"[{idx} 그리퍼] {r.get('error')}", "done": done})
+        done.append(st.get("name"))
+    return JsonResponse({"ok": True, "played": done})

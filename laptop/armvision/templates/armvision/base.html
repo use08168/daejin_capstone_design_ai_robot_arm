@@ -44,6 +44,7 @@
     <a href="{% url 'armvision:setup' %}" class="{% if u == 'setup' %}active{% endif %}">2 · 캘리브레이션</a>
     <a href="{% url 'armvision:control' %}" class="{% if u == 'control' %}active{% endif %}">3 · 자연어 제어</a>
     <a href="{% url 'armvision:arm3d' %}" class="{% if u == 'arm3d' %}active{% endif %}">4 · 3D 제어</a>
+    <a href="{% url 'armvision:teach' %}" class="{% if u == 'teach' %}active{% endif %}">5 · 집기 티칭</a>
     {% endwith %}
   </nav>
   <main>{% block content %}{% endblock %}</main>
