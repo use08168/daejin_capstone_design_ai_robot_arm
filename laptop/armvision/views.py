@@ -499,6 +499,29 @@ def arm_joints(request):
 
 
 @csrf_exempt
+def arm_set_angle(request):
+    """{joint, angle} → 단일 펄스 즉시 전송(램프 없음). 실시간 조그 스트리밍용.
+    클라이언트가 작은 각도씩 연속 호출 → 부드러운 실시간 추종. 상태 갱신."""
+    import json
+    from . import arduino_bridge
+    d = json.loads(request.body or "{}")
+    joint = d.get("joint"); ch = _JOINT_CH.get(joint)
+    if ch is None or ch == GRIP_CH:
+        return JsonResponse({"ok": False, "error": f"관절 아님: {joint}"})
+    if not arduino_bridge.is_connected():
+        return JsonResponse({"ok": False, "error": "실물 미연결"})
+    try:
+        ang = max(0.0, min(180.0, float(d.get("angle"))))
+    except (TypeError, ValueError):
+        return JsonResponse({"ok": False, "error": "각도 오류"})
+    r = arduino_bridge.send_pulse(ch, _ang_to_us(ch, ang))
+    if not r.get("ok"):
+        return JsonResponse({"ok": False, "error": "전송 실패(연결 끊김?)", "disconnected": True})
+    _JOINT_STATE[joint] = ang
+    return JsonResponse({"ok": True, "joint": joint, "angle": ang})
+
+
+@csrf_exempt
 def arm_home(request):
     """3D 미러를 홈(전 관절 90°)으로 맞춤. 실물을 수동으로 홈에 둔 뒤 호출 → 미러 동기화.
     상태만 90°로 재설정(서보를 강제 이동하지 않음 — 다중모터 동시구동 전압강하 방지)."""

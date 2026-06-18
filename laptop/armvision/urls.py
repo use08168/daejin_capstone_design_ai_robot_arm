@@ -44,6 +44,7 @@ urlpatterns = [
     path("arm/exec_joint/", views.arm_exec_joint, name="arm_exec_joint"),
     path("arm/gripper/", views.arm_gripper, name="arm_gripper"),
     path("arm/joints/", views.arm_joints, name="arm_joints"),
+    path("arm/set_angle/", views.arm_set_angle, name="arm_set_angle"),
     path("arm/home/", views.arm_home, name="arm_home"),
     # Teach-and-repeat (관절각 기록·재생 집기) — 5페이지
     path("teach/", views.teach, name="teach"),

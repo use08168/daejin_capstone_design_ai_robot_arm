@@ -85,12 +85,10 @@
 const $=id=>document.getElementById(id);
 const JOINTS=['J1','J2','J3','J4','J5','J6'];
 const U={ status:'{% url "armvision:arm_status" %}', joints:'{% url "armvision:arm_joints" %}',
-  exec:'{% url "armvision:arm_exec_joint" %}', grip:'{% url "armvision:arm_gripper" %}', home:'{% url "armvision:arm_home" %}',
+  exec:'{% url "armvision:arm_exec_joint" %}', setang:'{% url "armvision:arm_set_angle" %}', grip:'{% url "armvision:arm_gripper" %}', home:'{% url "armvision:arm_home" %}',
   list:'{% url "armvision:teach_list" %}', rec:'{% url "armvision:teach_record" %}', del:'{% url "armvision:teach_delete" %}',
   clr:'{% url "armvision:teach_clear" %}', reo:'{% url "armvision:teach_reorder" %}', go:'{% url "armvision:teach_goto" %}', play:'{% url "armvision:teach_play" %}' };
 async function post(url,body){ return (await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})})).json(); }
-let busy=false;
-function setBusy(b){ busy=b; document.querySelectorAll('button,input,select').forEach(e=>{ if(e.id!=='conn') e.disabled=b; }); }
 
 // 조그 UI 생성
 JOINTS.forEach(j=>{
@@ -100,31 +98,45 @@ JOINTS.forEach(j=>{
     <span class="jv"><input type="number" min="0" max="180" value="90" id="n_${j}"><span class="deg">°</span></span>`;
   $('jogs').appendChild(row);
   const s=$('s_'+j), n=$('n_'+j);
-  s.addEventListener('input',()=>{ n.value=s.value; });        // 드래그 중 숫자만 갱신
-  s.addEventListener('change',()=>jog(j,+s.value));            // 놓으면 실물 이동
-  n.addEventListener('change',()=>{ s.value=n.value; jog(j,+n.value); });
+  s.addEventListener('input',()=>{ n.value=s.value; target[j]=+s.value; });   // 드래그 중 목표각 실시간 갱신
+  n.addEventListener('change',()=>{ s.value=n.value; target[j]=+n.value; });
 });
 
-async function loadJoints(){
+// 실시간 조그: 슬라이더=목표각(target), 램프 루프가 cur를 target으로 부드럽게 추종.
+// 한 틱에 한 관절만 펄스 전송(시리얼·전압강하 안전). 4페이지와 동일한 스트리밍 방식.
+const target={}, cur={};
+let sending=false, paused=false;
+async function syncFromServer(){
   try{ const d=await (await fetch(U.joints)).json(); const jo=d.joints||{};
-    JOINTS.forEach(j=>{ if(typeof jo[j]==='number'){ $('s_'+j).value=Math.round(jo[j]); $('n_'+j).value=Math.round(jo[j]); } });
+    JOINTS.forEach(j=>{ const v=(typeof jo[j]==='number')?jo[j]:90; cur[j]=v; target[j]=v;
+      $('s_'+j).value=Math.round(v); $('n_'+j).value=Math.round(v); });
   }catch(e){}
 }
-async function jog(j,ang){
-  if(busy) return; ang=Math.max(0,Math.min(180,ang)); setBusy(true); $('gStat').textContent=j+' 이동 중…';
-  try{ const r=await post(U.exec,{joint:j,angle:ang});
-    $('gStat').textContent = r.ok ? (j+' → '+Math.round(r.angle)+'°') : ('✗ '+(r.error||'실패'));
-  }catch(e){ $('gStat').textContent='✗ 오류'; } finally{ setBusy(false); await loadJoints(); }
-}
+const STEP=3;   // °/tick (≈ 60°/s)
+setInterval(async ()=>{
+  if(paused||sending) return;
+  for(const j of JOINTS){
+    if(Math.abs(target[j]-cur[j])>=0.6){
+      const diff=target[j]-cur[j];
+      cur[j]+=Math.sign(diff)*Math.min(Math.abs(diff),STEP);
+      const ang=Math.round(cur[j]*10)/10;
+      sending=true;
+      try{ const r=await post(U.setang,{joint:j,angle:ang});
+        $('gStat').textContent = r.ok ? (j+' '+Math.round(ang)+'°') : ('✗ '+(r.error||'전송실패'));
+      }catch(e){ $('gStat').textContent='✗ 오류'; } finally{ sending=false; }
+      return;   // 한 관절만 처리하고 다음 틱
+    }
+  }
+}, 45);
 async function gripper(action){
-  if(busy) return; setBusy(true); $('gStat').textContent='그리퍼 '+(action==='open'?'열기':'닫기')+'…';
+  paused=true; $('gStat').textContent='그리퍼 '+(action==='open'?'열기':'닫기')+'…';
   try{ const r=await post(U.grip,{action}); $('gStat').textContent = r.ok ? ('✓ 그리퍼 '+(action==='open'?'열림':'닫힘')) : ('✗ '+(r.error||'실패')); }
-  catch(e){ $('gStat').textContent='✗ 오류'; } finally{ setBusy(false); }
+  catch(e){ $('gStat').textContent='✗ 오류'; } finally{ paused=false; }
 }
 $('gOpen').onclick=()=>gripper('open'); $('gClose').onclick=()=>gripper('close');
-$('home').onclick=async()=>{ setBusy(true); $('gStat').textContent='홈 맞추는 중…';
+$('home').onclick=async()=>{ paused=true; $('gStat').textContent='홈 맞추는 중…';
   try{ const r=await post(U.home,{}); $('gStat').textContent=r.ok?'✓ 3D 90°로 맞춤':'✗ 실패'; }catch(e){ $('gStat').textContent='✗ 오류'; }
-  finally{ setBusy(false); await loadJoints(); } };
+  finally{ await syncFromServer(); paused=false; } };
 
 // 자세 기록 / 시퀀스
 function gripBadge(g){ return g?`<span class="gripbadge ${g}">${g==='close'?'닫기':'열기'}</span>`:''; }
@@ -154,20 +166,20 @@ $('rec').onclick=async()=>{ const r=await post(U.rec,{name:$('pname').value, gri
 async function delStep(i){ const r=await post(U.del,{index:i}); if(r.ok) renderSteps(r.steps); }
 async function reorder(i,dir){ const r=await post(U.reo,{index:i,dir}); if(r.ok) renderSteps(r.steps); }
 $('clear').onclick=async()=>{ if(!confirm('시퀀스를 전부 삭제할까요?')) return; const r=await post(U.clr,{}); if(r.ok) renderSteps(r.steps); };
-async function gotoStep(i){ if(busy) return; setBusy(true); $('pStat').textContent='자세로 이동 중…';
+async function gotoStep(i){ if(paused) return; paused=true; $('pStat').textContent='자세로 이동 중…';
   try{ const r=await post(U.go,{index:i}); $('pStat').textContent=r.ok?'✓ 도착':('✗ '+(r.error||'실패')); }
-  catch(e){ $('pStat').textContent='✗ 오류'; } finally{ setBusy(false); await loadJoints(); } }
-$('play').onclick=async()=>{ if(busy) return;
+  catch(e){ $('pStat').textContent='✗ 오류'; } finally{ await syncFromServer(); paused=false; } }
+$('play').onclick=async()=>{ if(paused) return;
   if(!confirm('기록된 시퀀스를 실제 로봇팔로 재생합니다. 진행할까요?')) return;
-  setBusy(true); $('pStat').textContent='▶ 재생 중…';
+  paused=true; $('pStat').textContent='▶ 재생 중…';
   try{ const r=await post(U.play,{}); $('pStat').textContent = r.ok ? ('✓ 재생 완료: '+(r.played||[]).join(' → ')) : ('✗ '+(r.error||'실패')); }
-  catch(e){ $('pStat').textContent='✗ 오류'; } finally{ setBusy(false); await loadJoints(); } };
+  catch(e){ $('pStat').textContent='✗ 오류'; } finally{ await syncFromServer(); paused=false; } };
 
 // 연결 상태
 async function pollConn(){ try{ const s=await (await fetch(U.status)).json();
   const c=$('conn'); if(s.connected){ c.className='srv ok'; c.textContent='실물 연결됨'; } else { c.className='srv no'; c.textContent='실물 미연결 — 4페이지에서 연결'; }
   }catch(e){ $('conn').textContent='상태 오류'; } }
 
-loadJoints(); loadSteps(); pollConn(); setInterval(pollConn, 3000);
+syncFromServer(); loadSteps(); pollConn(); setInterval(pollConn, 3000);
 </script>
 {% endblock %}
