@@ -1022,6 +1022,21 @@ if($('ikSolve')){
     ikQuat.multiply(new THREE.Quaternion().setFromEuler(e)); auto(); });   // 목표 프레임 로컬 회전
 }
 
-(function loop(){ requestAnimationFrame(loop); orbit.update(); updateLockLines(); rampCtrl(); updateCollision(); updateTCP(); updateIkMark(); renderer.render(scene,camera); })();
+// ===== 선택한 관절의 회전축 시각화(크게) — 축 기울기 보정용 =====
+// z(파랑)=회전축. 노란 선이 축을 길게 연장. 관절을 끝각으로 돌려 부품이 이 축을 중심으로 깔끔히 도는지 확인.
+const jAxisTriad=new THREE.AxesHelper(150); jAxisTriad.material.depthTest=false; jAxisTriad.renderOrder=1004; jAxisTriad.visible=false; scene.add(jAxisTriad);
+const _jaGeo=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3()]);
+const jAxisLine=new THREE.Line(_jaGeo, new THREE.LineBasicMaterial({color:0xffee00,depthTest:false,transparent:true,opacity:0.9})); jAxisLine.renderOrder=1004; jAxisLine.visible=false; scene.add(jAxisLine);
+const _jaP=new THREE.Vector3(), _jaQ=new THREE.Quaternion(), _jaAx=new THREE.Vector3();
+function updateJointAxis(){
+  if(EMBED || selMate<0 || !mates[selMate] || mates[selMate].type!=='rev' || !mates[selMate]._pv){ jAxisTriad.visible=false; jAxisLine.visible=false; return; }
+  const m=mates[selMate], pv=m._pv;
+  pv.getWorldPosition(_jaP);
+  if(pv.parent) pv.parent.getWorldQuaternion(_jaQ); else _jaQ.identity();
+  _jaAx.fromArray(m.axis).applyQuaternion(_jaQ).normalize();    // 부모 프레임 → 월드 축
+  jAxisTriad.visible=true; jAxisTriad.position.copy(_jaP); jAxisTriad.quaternion.copy(_basisQuat(_jaAx));   // z(파랑)=회전축
+  const L=240; _jaGeo.setFromPoints([_jaP.clone().addScaledVector(_jaAx,-L), _jaP.clone().addScaledVector(_jaAx,L)]); jAxisLine.visible=true;
+}
+(function loop(){ requestAnimationFrame(loop); orbit.update(); updateLockLines(); rampCtrl(); updateCollision(); updateTCP(); updateIkMark(); updateJointAxis(); renderer.render(scene,camera); })();
 </script>
 {% endblock %}
