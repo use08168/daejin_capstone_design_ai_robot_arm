@@ -65,7 +65,8 @@
     <div id="viewport">
       <div id="matebar"></div>
       <div id="hint3d">조립=기즈모 배치 · 결합=면 클릭으로 부품 연결 · 드래그=뷰 · 휠=줌</div>
-      <div id="collHud"><label><input type="checkbox" id="collTog" checked> 충돌</label> <span id="collTxt">제어 모드에서 작동</span></div>
+      <div id="collHud"><label><input type="checkbox" id="collTog" checked> 충돌</label> <span id="collTxt">제어 모드에서 작동</span>
+        <div id="tcpReadout" style="margin-top:4px;color:#33ddff;">TCP —</div></div>
     </div>
     <div id="panel">
       <div class="seg">
@@ -669,7 +670,7 @@ function _chainInfo(){
   }
   const hand=new Set(); if(handRoot){ const st=[handRoot]; while(st.length){ const x=st.pop(); hand.add(x); (childrenOf[x]||[]).forEach(c=>st.push(c)); } }
   const excl=new Set(hand); if(handRoot&&parentOf[handRoot]) excl.add(parentOf[handRoot]);   // 장착 링크(인접)
-  return {grip:[...hand], excl, isChild, kinRoot};
+  return {grip:[...hand], excl, isChild, kinRoot, handRoot};
 }
 const _wp=new THREE.Vector3(), _best=new THREE.Vector3();
 const _inv=new THREE.Matrix4(), _lp=new THREE.Vector3(), _sbest=new THREE.Vector3();
@@ -717,6 +718,38 @@ function updateCollision(){
   const ftag=fHit?`⛔충돌(${who})`:fWarn?`⚠위험(${who})`:'✓';
   const stag=sHit?`⛔충돌(${sTarget})`:sWarn?`⚠근접(${sTarget})`:'✓';
   txt.innerHTML=`바닥 <b>${who!=null?minY.toFixed(0):'-'}mm</b> ${ftag} · 자기 ${stag}<span class="mg">마진 ${SAFE_MARGIN}/${SELF_MARGIN}</span>`;
+}
+
+// ===== 그리퍼 TCP(파지 중앙점) — 파지 학습 P0 =====
+// TCP = 손(그리퍼) 정점 중 접근축 끝단(손가락 끝) 군집의 중심. 접근벡터 = 그리퍼베이스 → 손중심(가리키는 방향).
+// y가 위(바닥 y=0)이므로 수직(top-down) 파지는 접근 ay≈-1, 수평 파지는 |ay|≈0.
+const tcpMark=_mkMark(0x33ddff);   // 시안 = 파지점
+const _tcpGeo=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3()]);
+const tcpLine=new THREE.Line(_tcpGeo, new THREE.LineBasicMaterial({color:0x33ddff,depthTest:false})); tcpLine.renderOrder=1000; tcpLine.visible=false; scene.add(tcpLine);
+const _tcA=new THREE.Vector3(), _tcB=new THREE.Vector3();
+function _tcpPose(){
+  rigRoot.updateMatrixWorld(true);
+  const {grip, handRoot}=_chainInfo();
+  const base=new THREE.Vector3(); const bp=partByName(handRoot); if(bp) base.setFromMatrixPosition(bp.mesh.matrixWorld);
+  const pts=[]; const c=new THREE.Vector3();
+  grip.forEach(nm=>{ const p=partByName(nm); if(!p||!p.mesh.visible)return; const mw=p.mesh.matrixWorld, a=_gripPts(p);
+    for(let i=0;i<a.length;i+=3){ const w=new THREE.Vector3(a[i],a[i+1],a[i+2]).applyMatrix4(mw); pts.push(w); c.add(w); } });
+  if(!pts.length) return {ok:false};
+  c.multiplyScalar(1/pts.length);
+  const ax=c.clone().sub(base); if(ax.lengthSq()<1e-6) ax.set(0,-1,0); ax.normalize();
+  let mn=Infinity,mx=-Infinity; pts.forEach(w=>{ const pr=_tcA.copy(w).sub(base).dot(ax); if(pr<mn)mn=pr; if(pr>mx)mx=pr; });
+  const thr=mn+0.8*(mx-mn); const tip=new THREE.Vector3(); let tc=0;       // 접근축 상위 20%(손가락 끝)
+  pts.forEach(w=>{ if(_tcA.copy(w).sub(base).dot(ax)>=thr){ tip.add(w); tc++; } });
+  if(tc) tip.multiplyScalar(1/tc); else tip.copy(c);
+  return {ok:true, pos:tip, approach:ax};
+}
+function updateTCP(){
+  if(mode!=='ctrl' || _sweeping){ tcpMark.visible=false; tcpLine.visible=false; return; }
+  const t=_tcpPose(); if(!t.ok){ tcpMark.visible=false; tcpLine.visible=false; return; }
+  tcpMark.visible=true; tcpMark.position.copy(t.pos);
+  _tcB.copy(t.pos).add(_tcA.copy(t.approach).multiplyScalar(45));
+  _tcpGeo.setFromPoints([t.pos,_tcB]); tcpLine.visible=true;
+  const el=$('tcpReadout'); if(el) el.textContent=`TCP (${t.pos.x.toFixed(0)}, ${t.pos.y.toFixed(0)}, ${t.pos.z.toFixed(0)}) · 접근 (${t.approach.x.toFixed(2)}, ${t.approach.y.toFixed(2)}, ${t.approach.z.toFixed(2)})`;
 }
 
 // ===== #3 C-space 충돌 지도 — 격자(J2·J3·J4) / 랜덤(J2~J6) 스윕 → CSV =====
@@ -786,6 +819,6 @@ async function labelQuery(file){
 $('csLabelBtn').onclick=()=>$('csLabel').click();
 $('csLabel').addEventListener('change',e=>{ const f=e.target.files[0]; if(f) labelQuery(f); e.target.value=''; });
 
-(function loop(){ requestAnimationFrame(loop); orbit.update(); updateLockLines(); rampCtrl(); updateCollision(); renderer.render(scene,camera); })();
+(function loop(){ requestAnimationFrame(loop); orbit.update(); updateLockLines(); rampCtrl(); updateCollision(); updateTCP(); renderer.render(scene,camera); })();
 </script>
 {% endblock %}
