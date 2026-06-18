@@ -17,6 +17,7 @@
 | [digital_twin_safety.md](digital_twin_safety.md) | **디지털 트윈 안전 + 자가학습** — C-space 충돌지도·충돌예측 신경망·능동학습·AI 검증층 |
 | [ai_integration.md](ai_integration.md) | **AI 서버 연동(3페이지)** — gRPC 클라이언트·자연어/음성 제어·3D 미러·set_joint 실물 실행 |
 | [arm3d_simulator.md](arm3d_simulator.md) | **STL 3D 시뮬레이터 + 실물 연동(4페이지)** — 조립·면결합·관절제어 |
+| [grasp_pipeline.md](grasp_pipeline.md) | **물체 파지 파이프라인** — TCP 정의·축보정·파지DB·6DOF IK·방향별 도달영역(capability map) |
 | [setup_procedure.md](setup_procedure.md) | 환경 구성 / 실행 절차 |
 | [aruco_markers.md](aruco_markers.md) | ArUco / ChArUco 마커 명세 |
 
