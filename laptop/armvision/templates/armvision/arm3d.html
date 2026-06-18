@@ -181,6 +181,27 @@
           <div class="row" style="margin-bottom:0"><span class="muted" style="width:38px">샘플</span><input id="grN" type="number" value="30000" step="5000" min="1000" style="width:72px"><span class="muted">개</span><span style="flex:1"></span><button class="primary" id="grSweep">🤏 파지 스윕(J1~J6)</button></div>
           <div class="hintline" id="grStat" style="margin:6px 0 0;">J1 포함(방위각). 결과는 Python에서 KD-tree IK로 사용. 수직/수평은 접근 ay로 분류.</div>
         </div>
+
+        <div class="card" style="margin-top:10px;">
+          <div class="ttl">파지 IK (P2 — 목표 위치 잡기)</div>
+          <div class="hintline">grasp_dataset.csv를 불러오고 목표(물체) XYZ를 정하면, 그 위치를 충돌없이 잡는 관절각을 데이터셋에서 찾아 팔이 이동합니다. 목표를 옮기면 관절이 따라 움직입니다.</div>
+          <div class="row" style="margin-bottom:6px"><span class="muted">데이터셋</span><input id="ikCsv" type="file" accept=".csv" style="display:none"><button class="ghost" id="ikCsvBtn">📂 grasp_dataset.csv</button><span style="flex:1"></span><span class="muted" id="ikDbN">미로드</span></div>
+          <div class="row" style="margin-bottom:6px"><span class="muted" style="width:38px">목표</span>
+            X<input id="ikX" type="number" value="-115" step="5" style="width:58px">
+            Y<input id="ikY" type="number" value="150" step="5" style="width:52px">
+            Z<input id="ikZ" type="number" value="150" step="5" style="width:52px"></div>
+          <div class="row" style="margin-bottom:6px"><span class="muted" style="width:38px">스텝</span><input id="ikStep" type="number" value="10" step="5" min="1" style="width:46px"><span class="muted">mm</span>
+            <button class="ghost iknudge" data-ax="x" data-d="-1">X−</button><button class="ghost iknudge" data-ax="x" data-d="1">X＋</button>
+            <button class="ghost iknudge" data-ax="y" data-d="-1">Y−</button><button class="ghost iknudge" data-ax="y" data-d="1">Y＋</button>
+            <button class="ghost iknudge" data-ax="z" data-d="-1">Z−</button><button class="ghost iknudge" data-ax="z" data-d="1">Z＋</button></div>
+          <div class="row" style="margin-bottom:6px"><span class="muted">접근</span>
+            <label><input type="radio" name="ikApp" value="vert" checked> 수직</label>
+            <label><input type="radio" name="ikApp" value="horz"> 수평</label>
+            <label><input type="radio" name="ikApp" value="any"> 임의</label>
+            <span style="flex:1"></span><label><input type="checkbox" id="ikAuto" checked> 자동</label></div>
+          <div class="row" style="margin-bottom:0"><button class="primary" id="ikSolve" style="flex:1">🤖 이 위치 잡기(IK)</button></div>
+          <div class="hintline" id="ikStat" style="margin:6px 0 0;">데이터셋을 불러오고 목표를 정한 뒤 잡기를 누르세요. 주황 마커 = 목표 물체.</div>
+        </div>
       </div>
 
       <div class="sect">부품 (<span id="pcount">0</span>) <span class="muted" id="ploading">로딩…</span></div>
@@ -909,6 +930,52 @@ async function sweepGrasp(){
 }
 if($('grSweep')) $('grSweep').onclick=sweepGrasp;
 
-(function loop(){ requestAnimationFrame(loop); orbit.update(); updateLockLines(); rampCtrl(); updateCollision(); updateTCP(); renderer.render(scene,camera); })();
+// ===== 파지 IK (P2) — 목표 XYZ → 데이터셋에서 충돌없는 최근접 관절각 → 팔 이동 =====
+let graspDB=null; const IK_TOL=45;          // mm 잔차 허용(이상이면 도달 어려움)
+const ikMark=_mkMark(0xffaa22);             // 주황 = 목표(물체)
+function ikStat(m){ const e=$('ikStat'); if(e) e.textContent=m; }
+async function loadGraspCsv(file){
+  const text=await file.text(); const lines=text.trim().split(/\r?\n/); const hdr=lines[0].split(',');
+  const ci={}; hdr.forEach((h,i)=>ci[h.trim()]=i);
+  const need=['J1','J2','J3','J4','J5','J6','tcp_x','tcp_y','tcp_z','app_y','collision'];
+  if(need.some(k=>!(k in ci))){ alert('grasp_dataset.csv 형식이 아닙니다.'); return; }
+  const db=[];
+  for(let i=1;i<lines.length;i++){ const r=lines[i].split(','); if(r.length<hdr.length) continue;
+    if(+r[ci.collision]!==0) continue;       // 충돌 자세 제외(잡기 후보 아님)
+    db.push({ j:[0,1,2,3,4,5].map(k=>+r[ci['J'+(k+1)]]), tx:+r[ci.tcp_x], ty:+r[ci.tcp_y], tz:+r[ci.tcp_z], ay:+r[ci.app_y] }); }
+  graspDB=db; const el=$('ikDbN'); if(el) el.textContent=`충돌없는 ${db.length}자세`;
+  ikStat(`데이터셋 로드 완료: ${db.length}자세(충돌 제외). 목표를 정하고 잡기.`);
+}
+function solveIK(){
+  if(!graspDB||!graspDB.length){ ikStat('먼저 grasp_dataset.csv를 불러오세요.'); return; }
+  const tx=+$('ikX').value, ty=+$('ikY').value, tz=+$('ikZ').value;
+  const m=(document.querySelector('input[name="ikApp"]:checked')||{}).value||'any';
+  let best=null, bd=Infinity;
+  for(const s of graspDB){
+    if(m==='vert' && s.ay>-0.6) continue;            // 수직: 아래로(app_y<-0.6)
+    if(m==='horz' && Math.abs(s.ay)>0.4) continue;   // 수평: |app_y|<0.4
+    const dx=s.tx-tx, dy=s.ty-ty, dz=s.tz-tz, d=dx*dx+dy*dy+dz*dz;
+    if(d<bd){ bd=d; best=s; } }
+  const dist=Math.sqrt(bd);
+  if(!best){ ikStat(`해당 접근(${m})으로 후보 없음 — 임의로 바꿔보세요.`); return; }
+  if(dist>IK_TOL){ ikStat(`⚠ 도달 어려움 — 최근접 ${dist.toFixed(0)}mm (${m}). 위치/접근 변경 필요(미도달 영역).`); return; }
+  const rm=revMates(); best.j.forEach((a,i)=>{ if(rm[i]) rm[i]._tgt=a; });   // 램프가 부드럽게 이동
+  ikStat(`✓ 잡기 자세 — 잔차 ${dist.toFixed(0)}mm · 관절 [${best.j.map(a=>Math.round(a)).join(', ')}] (${m})`);
+}
+function updateIkMark(){ if(mode!=='ctrl' || _sweeping){ ikMark.visible=false; return; }
+  const x=+$('ikX').value, y=+$('ikY').value, z=+$('ikZ').value;
+  if([x,y,z].some(v=>isNaN(v))){ ikMark.visible=false; return; }
+  ikMark.visible=true; ikMark.position.set(x,y,z); }
+if($('ikSolve')){
+  $('ikCsvBtn').onclick=()=>$('ikCsv').click();
+  $('ikCsv').addEventListener('change',e=>{ const f=e.target.files[0]; if(f) loadGraspCsv(f); e.target.value=''; });
+  $('ikSolve').onclick=solveIK;
+  document.querySelectorAll('.iknudge').forEach(b=>b.onclick=()=>{ const ax=b.dataset.ax, s=+$('ikStep').value||10;
+    const el=$('ik'+ax.toUpperCase()); el.value=Math.round(+el.value+(+b.dataset.d)*s); if($('ikAuto').checked) solveIK(); });
+  ['ikX','ikY','ikZ'].forEach(id=>$(id).addEventListener('change',()=>{ if($('ikAuto').checked) solveIK(); }));
+  document.querySelectorAll('input[name="ikApp"]').forEach(r=>r.onchange=()=>{ if($('ikAuto').checked) solveIK(); });
+}
+
+(function loop(){ requestAnimationFrame(loop); orbit.update(); updateLockLines(); rampCtrl(); updateCollision(); updateTCP(); updateIkMark(); renderer.render(scene,camera); })();
 </script>
 {% endblock %}
