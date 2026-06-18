@@ -84,6 +84,11 @@ def arm3d(request):
     return render(request, "armvision/arm3d.html")
 
 
+def teach(request):
+    """5페이지 — Teach-and-repeat: 잡는 자세 기록 → 시퀀스 재생(IK 없이 집기)."""
+    return render(request, "armvision/teach.html")
+
+
 CAD_DIR = r"C:\robotic_arm\laptop\cad"
 
 
@@ -439,13 +444,18 @@ def ai_plan(request):
 
 _JOINT_CH = {"J1": 0, "J2": 1, "J3": 2, "J4": 3, "J5": 4, "J6": 5, "J7": 6}
 # 실측 서보 펄스(채널별 us0/us180) — arduino/docs/servo_calibration.md
-_SERVO_CAL = {0: [600, 2740], 1: [530, 2670], 2: [520, 2700], 3: [690, 2800], 4: [620, 2750], 5: [560, 2700]}
+_SERVO_CAL = {0: [600, 2740], 1: [530, 2670], 2: [520, 2700], 3: [540, 2720], 4: [600, 2750], 5: [560, 2750]}  # J4↔J5 모터교체 J4(ch3):0°=2720,180°=540 J5(ch4):0°=2750,180°=600 / J6(ch5):0°=2750,180°=560 실측
 
 
 def _ang_to_us(ch, ang):
     a = max(0.0, min(180.0, 180.0 - ang))            # 시뮬↔실물 미러
     us0, us180 = _SERVO_CAL.get(ch, [600, 2740])
     return round(us0 + (a / 180.0) * (us180 - us0))
+
+
+# 현재 관절각(실물 기준, 기본=홈 90°). 3D 미러가 이걸 폴링해 실제 팔을 따라감.
+# exec_joint가 갱신 → 미러가 localStorage가 아닌 '서버 진실'을 따름(드리프트 방지).
+_JOINT_STATE = {f"J{i}": 90.0 for i in range(1, 7)}
 
 
 @csrf_exempt
@@ -464,15 +474,255 @@ def arm_exec_joint(request):
         return JsonResponse({"ok": False, "error": "실물 미연결 — 4페이지에서 연결하세요."})
     try:
         target = max(0.0, min(180.0, float(d.get("angle"))))
-        a = max(0.0, min(180.0, float(d.get("from", 90))))
     except (TypeError, ValueError):
         return JsonResponse({"ok": False, "error": "각도 오류"})
+    prev = _JOINT_STATE.get(joint, 90.0)
+    a = prev                                          # 서버 보유 현재각에서 램프 시작(진실 일원화)
+    _JOINT_STATE[joint] = target                      # 낙관적 갱신 → 미러가 즉시 병행 이동
     step = 2.0 if target >= a else -2.0
     while abs(a - target) > 2.0:                      # ~2°씩 점진 이동
         a += step
         r = arduino_bridge.send_pulse(ch, _ang_to_us(ch, a))
         if not r.get("ok"):
+            _JOINT_STATE[joint] = prev                # 실패 시 되돌림
             return JsonResponse({"ok": False, "error": "전송 실패(연결 끊김?)", "disconnected": True})
         time.sleep(0.04)
     arduino_bridge.send_pulse(ch, _ang_to_us(ch, target))
+    _JOINT_STATE[joint] = target
     return JsonResponse({"ok": True, "joint": joint, "channel": ch, "angle": target})
+
+
+@csrf_exempt
+def arm_joints(request):
+    """현재 관절각(서버 보유) → 3D 미러가 폴링해 실제 팔을 따라감."""
+    return JsonResponse({"ok": True, "joints": _JOINT_STATE})
+
+
+@csrf_exempt
+def arm_set_angle(request):
+    """{joint, angle} → 단일 펄스 즉시 전송(램프 없음). 실시간 조그 스트리밍용.
+    클라이언트가 작은 각도씩 연속 호출 → 부드러운 실시간 추종. 상태 갱신."""
+    import json
+    from . import arduino_bridge
+    d = json.loads(request.body or "{}")
+    joint = d.get("joint"); ch = _JOINT_CH.get(joint)
+    if ch is None or ch == GRIP_CH:
+        return JsonResponse({"ok": False, "error": f"관절 아님: {joint}"})
+    if not arduino_bridge.is_connected():
+        return JsonResponse({"ok": False, "error": "실물 미연결"})
+    try:
+        ang = max(0.0, min(180.0, float(d.get("angle"))))
+    except (TypeError, ValueError):
+        return JsonResponse({"ok": False, "error": "각도 오류"})
+    r = arduino_bridge.send_pulse(ch, _ang_to_us(ch, ang))
+    if not r.get("ok"):
+        return JsonResponse({"ok": False, "error": "전송 실패(연결 끊김?)", "disconnected": True})
+    _JOINT_STATE[joint] = ang
+    return JsonResponse({"ok": True, "joint": joint, "angle": ang})
+
+
+@csrf_exempt
+def arm_home(request):
+    """3D 미러를 홈(전 관절 90°)으로 맞춤. 실물을 수동으로 홈에 둔 뒤 호출 → 미러 동기화.
+    상태만 90°로 재설정(서보를 강제 이동하지 않음 — 다중모터 동시구동 전압강하 방지)."""
+    for j in _JOINT_STATE:
+        _JOINT_STATE[j] = 90.0
+    return JsonResponse({"ok": True, "joints": _JOINT_STATE})
+
+
+# ============ J7 그리퍼 제어 (열기 550 / 닫기 2500, 천천히 램프) ============
+
+GRIP_CH = 6
+GRIP_US = {"open": 550, "close": 2500}   # 실측: 완전 열림 550µs, 완전 닫힘 2500µs
+_grip_us = [GRIP_US["close"]]            # 현재 펄스(시작=닫힘 가정) — 점프 없이 램프
+
+
+@csrf_exempt
+def arm_gripper(request):
+    """{action:'open'|'close'} → J7(ch6)을 천천히 램프(브라운아웃 방지). 실물 연결 필요."""
+    import json
+    import time
+    from . import arduino_bridge
+    d = json.loads(request.body or "{}")
+    action = d.get("action")
+    if action not in GRIP_US:
+        return JsonResponse({"ok": False, "error": "action 은 open|close"})
+    if not arduino_bridge.is_connected():
+        return JsonResponse({"ok": False, "error": "실물 미연결 — 4페이지에서 연결하세요."})
+    target = GRIP_US[action]; a = _grip_us[0]
+    step = 30 if target >= a else -30
+    while abs(a - target) > 30:
+        a += step
+        r = arduino_bridge.send_pulse(GRIP_CH, a)
+        if not r.get("ok"):
+            return JsonResponse({"ok": False, "error": "전송 실패(연결 끊김?)", "disconnected": True})
+        time.sleep(0.045)
+    arduino_bridge.send_pulse(GRIP_CH, target); _grip_us[0] = target
+    return JsonResponse({"ok": True, "action": action, "us": target})
+
+
+# ============ Teach-and-repeat (관절각 기록·재생 집기) ============
+# 잡는 자세의 관절각 6개 + 그리퍼 동작을 자세(step)로 기록 → 시퀀스로 재생.
+# IK 없이 "접근→하강→그리퍼 닫기→들기→이동→놓기" 전체를 검증. 재생은 한 관절씩(전압강하 방지).
+TEACH_FILE = r"C:\robotic_arm\laptop\calibration\teach_seq.json"
+_JOINTS6 = ("J1", "J2", "J3", "J4", "J5", "J6")
+
+
+def _teach_load():
+    try:
+        import json
+        with open(TEACH_FILE, encoding="utf-8") as f:
+            return json.load(f).get("steps", [])
+    except (OSError, ValueError):
+        return []
+
+
+def _teach_save(steps):
+    import json
+    os.makedirs(os.path.dirname(TEACH_FILE), exist_ok=True)
+    with open(TEACH_FILE, "w", encoding="utf-8") as f:
+        json.dump({"steps": steps}, f, ensure_ascii=False, indent=2)
+
+
+def _move_joint_to(joint, target):
+    """한 관절을 현재각(_JOINT_STATE)에서 target까지 안전 램프(~2°/40ms). 상태 갱신."""
+    import time
+    from . import arduino_bridge
+    ch = _JOINT_CH.get(joint)
+    if ch is None or ch == GRIP_CH:
+        return {"ok": False, "error": f"관절 아님: {joint}"}
+    target = max(0.0, min(180.0, float(target)))
+    a = _JOINT_STATE.get(joint, 90.0)
+    step = 2.0 if target >= a else -2.0
+    while abs(a - target) > 2.0:
+        a += step
+        r = arduino_bridge.send_pulse(ch, _ang_to_us(ch, a))
+        if not r.get("ok"):
+            _JOINT_STATE[joint] = a
+            return {"ok": False, "error": "전송 실패(연결 끊김?)", "disconnected": True}
+        time.sleep(0.04)
+    arduino_bridge.send_pulse(ch, _ang_to_us(ch, target))
+    _JOINT_STATE[joint] = target
+    return {"ok": True}
+
+
+def _grip_to(action):
+    """그리퍼 열기/닫기 안전 램프(재생기·exec 공용)."""
+    import time
+    from . import arduino_bridge
+    if action not in GRIP_US:
+        return {"ok": False, "error": "grip 오류"}
+    target = GRIP_US[action]; a = _grip_us[0]
+    step = 30 if target >= a else -30
+    while abs(a - target) > 30:
+        a += step
+        r = arduino_bridge.send_pulse(GRIP_CH, a)
+        if not r.get("ok"):
+            return {"ok": False, "error": "전송 실패(연결 끊김?)", "disconnected": True}
+        time.sleep(0.045)
+    arduino_bridge.send_pulse(GRIP_CH, target); _grip_us[0] = target
+    return {"ok": True}
+
+
+def _move_pose(joints):
+    """여러 관절을 목표 자세로 — 한 관절씩(J1→J6, 전압강하 방지)."""
+    for j in _JOINTS6:
+        if joints.get(j) is not None:
+            r = _move_joint_to(j, joints[j])
+            if not r.get("ok"):
+                return r
+    return {"ok": True}
+
+
+@csrf_exempt
+def teach_list(request):
+    return JsonResponse({"ok": True, "steps": _teach_load()})
+
+
+@csrf_exempt
+def teach_record(request):
+    """현재 관절각(_JOINT_STATE) + 그리퍼 동작을 자세로 기록."""
+    import json
+    d = json.loads(request.body or "{}")
+    steps = _teach_load()
+    grip = d.get("grip") if d.get("grip") in GRIP_US else None
+    steps.append({
+        "name": (d.get("name") or f"자세{len(steps)+1}").strip(),
+        "joints": {j: round(float(_JOINT_STATE.get(j, 90.0)), 1) for j in _JOINTS6},
+        "grip": grip,
+    })
+    _teach_save(steps)
+    return JsonResponse({"ok": True, "steps": steps})
+
+
+@csrf_exempt
+def teach_delete(request):
+    import json
+    d = json.loads(request.body or "{}")
+    steps = _teach_load(); i = d.get("index")
+    if isinstance(i, int) and 0 <= i < len(steps):
+        steps.pop(i); _teach_save(steps)
+    return JsonResponse({"ok": True, "steps": steps})
+
+
+@csrf_exempt
+def teach_clear(request):
+    _teach_save([])
+    return JsonResponse({"ok": True, "steps": []})
+
+
+@csrf_exempt
+def teach_reorder(request):
+    """{index, dir:'up'|'down'} — 자세 순서 변경."""
+    import json
+    d = json.loads(request.body or "{}")
+    steps = _teach_load(); i = d.get("index")
+    if isinstance(i, int) and 0 <= i < len(steps):
+        j = i + (1 if d.get("dir") == "down" else -1)
+        if 0 <= j < len(steps):
+            steps[i], steps[j] = steps[j], steps[i]; _teach_save(steps)
+    return JsonResponse({"ok": True, "steps": steps})
+
+
+@csrf_exempt
+def teach_goto(request):
+    """{index} — 해당 자세 하나로 이동(+그리퍼). 티칭 중 미리보기용."""
+    import json
+    from . import arduino_bridge
+    if not arduino_bridge.is_connected():
+        return JsonResponse({"ok": False, "error": "실물 미연결 — 4페이지에서 연결하세요."})
+    d = json.loads(request.body or "{}")
+    steps = _teach_load(); i = d.get("index")
+    if not (isinstance(i, int) and 0 <= i < len(steps)):
+        return JsonResponse({"ok": False, "error": "잘못된 index"})
+    st = steps[i]
+    r = _move_pose(st.get("joints", {}))
+    if not r.get("ok"):
+        return JsonResponse(r)
+    if st.get("grip"):
+        r = _grip_to(st["grip"])
+        if not r.get("ok"):
+            return JsonResponse(r)
+    return JsonResponse({"ok": True, "step": st})
+
+
+@csrf_exempt
+def teach_play(request):
+    """기록된 시퀀스를 순서대로 재생(한 관절씩 안전 램프 + 그리퍼)."""
+    from . import arduino_bridge
+    if not arduino_bridge.is_connected():
+        return JsonResponse({"ok": False, "error": "실물 미연결 — 4페이지에서 연결하세요."})
+    steps = _teach_load()
+    if not steps:
+        return JsonResponse({"ok": False, "error": "기록된 자세가 없습니다."})
+    done = []
+    for idx, st in enumerate(steps):
+        r = _move_pose(st.get("joints", {}))
+        if not r.get("ok"):
+            return JsonResponse({"ok": False, "error": f"[{idx} {st.get('name')}] {r.get('error')}", "done": done})
+        if st.get("grip"):
+            r = _grip_to(st["grip"])
+            if not r.get("ok"):
+                return JsonResponse({"ok": False, "error": f"[{idx} 그리퍼] {r.get('error')}", "done": done})
+        done.append(st.get("name"))
+    return JsonResponse({"ok": True, "played": done})

@@ -16,6 +16,8 @@
   .msg.bot .play { background:#2b6; color:#fff; border:0; padding:5px 13px; border-radius:7px; cursor:pointer; font-size:13px; margin-top:8px; }
   .msg.bot .play:disabled { background:#444; cursor:default; }
   .msg.bot .note { color:var(--muted); font-size:12px; margin-top:8px; }
+  .gbtn { background:#334; color:#dce; border:1px solid var(--line); padding:4px 12px; border-radius:7px; cursor:pointer; font-size:13px; }
+  .gbtn:hover { background:#2b6; color:#fff; }
   .composer { display:flex; gap:8px; }
   .composer input { flex:1; background:#0e0e0e; border:1px solid var(--line); color:var(--fg); padding:11px 12px; border-radius:8px; font-size:14px; }
   #mic.rec { background:#c33; }
@@ -46,6 +48,13 @@
         <button id="mic" title="음성 명령(클릭 시작/정지)">🎤</button>
       </div>
       <label class="opt"><input type="checkbox" id="vis" checked> 웹캠 화면 함께 분석(물체 명령 시 필요)</label>
+      <div class="opt" style="gap:8px;margin-top:6px;">그리퍼:
+        <button id="gOpen" class="gbtn">열기</button>
+        <button id="gClose" class="gbtn">닫기</button>
+        <span id="gStat" style="color:var(--muted)"></span></div>
+      <div class="opt" style="gap:8px;margin-top:6px;">3D 미러:
+        <button id="gHome" class="gbtn" title="실물을 홈(전 관절 90°)에 둔 뒤 눌러 3D를 맞춤">홈 맞춤(90°)</button>
+        <span id="hStat" style="color:var(--muted)"></span></div>
     </div>
 
     <!-- 우: 로봇 상태(헬스 체크) -->
@@ -99,9 +108,9 @@ function renderBot(res){
       if(d.reasoning) h+=md(d.reasoning);
       h+=`<div class="dsl">${esc(A.map(a=>JSON.stringify(a)).join('\n'))}\n<span class="${res.valid?'ok':'bad'}">검증 ${res.valid?'✓ 통과':'✗ '+esc(res.errors)}</span></div>`;
       if(res.valid && A.length){
-        const sj=A.filter(a=>a.op==='set_joint');
-        if(sj.length===A.length) h+=`<button class="play" data-acts="${encodeURIComponent(JSON.stringify(sj))}">▶ 로봇팔에 실행</button>`;
-        else h+=`<div class="note">▶ 실행은 직접 관절(set_joint)만 지원 — 집기 동작은 IK 구현 후</div>`;
+        const ex=A.filter(a=>a.op==='set_joint'||a.op==='release');
+        if(ex.length===A.length) h+=`<button class="play" data-acts="${encodeURIComponent(JSON.stringify(ex))}">▶ 로봇팔에 실행</button>`;
+        else h+=`<div class="note">▶ 실행은 직접 관절(set_joint)·그리퍼 열기(release)만 지원 — 집기는 IK 구현 후</div>`;
       }
     }catch(e){ h+=esc(res.dsl_json); }
   }
@@ -141,6 +150,25 @@ async function toggleMic(){
 }
 $('mic').onclick=toggleMic;
 
+// 그리퍼 열기/닫기 (열림 550 · 닫힘 2500, 천천히 램프)
+const AGRIP='{% url "armvision:arm_gripper" %}';
+async function gripper(action){
+  $('gStat').textContent='이동 중…';
+  try{ const r=await (await fetch(AGRIP,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})})).json();
+    $('gStat').textContent = r.ok ? ('✓ '+(action==='open'?'열림':'닫힘')) : ('✗ '+(r.error||'실패'));
+  }catch(e){ $('gStat').textContent='✗ 오류'; }
+}
+$('gOpen').onclick=()=>gripper('open'); $('gClose').onclick=()=>gripper('close');
+
+// 3D 미러 홈 맞춤: 실물을 홈(전 관절 90°)에 둔 뒤 서버 상태를 90°로 재설정 → 미러 동기화
+const AHOME='{% url "armvision:arm_home" %}';
+$('gHome').onclick=async()=>{
+  $('hStat').textContent='맞추는 중…';
+  try{ const r=await (await fetch(AHOME,{method:'POST'})).json();
+    $('hStat').textContent = r.ok ? '✓ 3D를 90°로 맞춤' : '✗ 실패';
+  }catch(e){ $('hStat').textContent='✗ 오류'; }
+};
+
 // ▶ 실행: set_joint DSL을 실물 로봇팔에 (한 관절씩 안전 램프). 자동 아님 — 버튼+확인.
 const AEXEC='{% url "armvision:arm_exec_joint" %}', ASTAT='{% url "armvision:arm_status" %}';
 function jget(){ try{ return JSON.parse(localStorage.getItem('armJoint_v1')||'{}'); }catch(e){ return {}; } }
@@ -153,7 +181,13 @@ tr.addEventListener('click', async e=>{
   b.disabled=true; b.textContent='실행 중…';
   const jo=jget();
   for(const a of acts){
-    const from=(a.joint in jo)?jo[a.joint]:90;
+    if(a.op==='release'){   // 그리퍼 열기
+      try{ const r=await (await fetch(AGRIP,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'open'})})).json();
+        if(!r.ok){ b.textContent='✗ '+(r.error||'실패'); b.disabled=false; return; }
+      }catch(err){ b.textContent='✗ 오류'; b.disabled=false; return; }
+      continue;
+    }
+    const from=(a.joint in jo)?jo[a.joint]:90;   // set_joint
     jo[a.joint]=a.angle; localStorage.setItem('armJoint_v1',JSON.stringify(jo));   // 미러 즉시 램프 시작(실물과 동시)
     try{ const r=await (await fetch(AEXEC,{method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({joint:a.joint, angle:a.angle, from})})).json();
