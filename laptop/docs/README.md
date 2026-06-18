@@ -18,6 +18,7 @@
 | [ai_integration.md](ai_integration.md) | **AI 서버 연동(3페이지)** — gRPC 클라이언트·자연어/음성 제어·3D 미러·set_joint 실물 실행 |
 | [arm3d_simulator.md](arm3d_simulator.md) | **STL 3D 시뮬레이터 + 실물 연동(4페이지)** — 조립·면결합·관절제어 |
 | [grasp_pipeline.md](grasp_pipeline.md) | **물체 파지 파이프라인** — TCP 정의·축보정·파지DB·6DOF IK·방향별 도달영역(capability map) |
+| [grasp_ik_method.md](grasp_ik_method.md) | **데이터 기반 파지 IK — 방법론 도출 과정과 최종 정식화**(학술) — 비용함수 진화(v1→v4)·경로·capability 정식화 |
 | [setup_procedure.md](setup_procedure.md) | 환경 구성 / 실행 절차 |
 | [aruco_markers.md](aruco_markers.md) | ArUco / ChArUco 마커 명세 |
 
