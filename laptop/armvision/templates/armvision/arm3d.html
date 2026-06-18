@@ -949,13 +949,15 @@ $('csLabel').addEventListener('change',e=>{ const f=e.target.files[0]; if(f) lab
 
 // ===== 파지 데이터셋 (P1) — J1~J6 무작위 스윕 → [관절각, TCP포즈, 충돌] CSV =====
 // C-space와 달리 J1 포함(방위각). 확정된 TCP(_tcpPose)로 파지점·접근벡터 기록.
-const GR_HDR=['J1','J2','J3','J4','J5','J6','tcp_x','tcp_y','tcp_z','app_x','app_y','app_z','floor_clear_mm','self_clear_mm','collision'];
+const GR_HDR=['J1','J2','J3','J4','J5','J6','tcp_x','tcp_y','tcp_z','app_x','app_y','app_z','qx','qy','qz','qw','floor_clear_mm','self_clear_mm','collision'];
 function _grRow(rm){
   const t=_tcpPose(), r=_collideOnce(), coll=(r.floor<0||r.self<0)?1:0;
   const ang=[0,1,2,3,4,5].map(i=>rm[i]?+(+rm[i].angle).toFixed(1):90);
   const p=t.ok?t.pos:{x:0,y:0,z:0};
-  const a=t.ok?new THREE.Vector3(0,0,1).applyQuaternion(t.quat||_frameQuat(t)):new THREE.Vector3(0,-1,0);  // 프레임 z = 접근축(강체 프레임)
+  const q=t.ok?(t.quat||_frameQuat(t)):new THREE.Quaternion();   // 그리퍼 프레임 자세(전체)
+  const a=new THREE.Vector3(0,0,1).applyQuaternion(q);           // 프레임 z = 접근축
   return [...ang, p.x.toFixed(1),p.y.toFixed(1),p.z.toFixed(1), a.x.toFixed(3),a.y.toFixed(3),a.z.toFixed(3),
+    q.x.toFixed(4),q.y.toFixed(4),q.z.toFixed(4),q.w.toFixed(4),
     r.floor.toFixed(1), isFinite(r.self)?r.self.toFixed(1):'', coll];
 }
 async function sweepGrasp(){
@@ -975,7 +977,8 @@ async function sweepGrasp(){
 if($('grSweep')) $('grSweep').onclick=sweepGrasp;
 
 // ===== 파지 IK (P2) — 목표 위치+접근방향(프레임) → 충돌없는 최근접 관절각 → 팔 이동 =====
-let graspDB=null; const IK_TOL=45, ORIENT_W=70, IK_ANG_TOL=Math.cos(35*Math.PI/180);   // 위치 45mm·방향 35° 허용
+let graspDB=null, graspHasQuat=false; const IK_TOL=45, ORIENT_W=70, IK_ANG_TOL=Math.cos(35*Math.PI/180);   // 위치 45mm·접근축 35°
+const IK_ORIENT_TOL=45, IK_ORIENT_W=1.0;   // 전체자세(쿼터니언) 매칭: 45° 이내, mm당 가중
 const ikMark=_mkMark(0xffaa22);             // 주황 = 목표(물체)
 const ikTargAxes=new THREE.AxesHelper(70); ikTargAxes.material.depthTest=false; ikTargAxes.renderOrder=1002; ikTargAxes.visible=false; scene.add(ikTargAxes);
 function _basisQuat(z){ const zz=z.clone(); if(zz.lengthSq()<1e-6) zz.set(0,-1,0); zz.normalize();   // z축 지정 → 안정적 프레임
@@ -989,30 +992,38 @@ async function loadGraspCsv(file){
   const ci={}; hdr.forEach((h,i)=>ci[h.trim()]=i);
   const need=['J1','J2','J3','J4','J5','J6','tcp_x','tcp_y','tcp_z','app_x','app_y','app_z','collision'];
   if(need.some(k=>!(k in ci))){ alert('grasp_dataset.csv 형식이 아닙니다.'); return; }
+  graspHasQuat=['qx','qy','qz','qw'].every(k=>k in ci);   // 전체자세(6DOF) 데이터 여부
   const db=[];
   for(let i=1;i<lines.length;i++){ const r=lines[i].split(','); if(r.length<hdr.length) continue;
     if(+r[ci.collision]!==0) continue;       // 충돌 자세 제외(잡기 후보 아님)
-    db.push({ j:[0,1,2,3,4,5].map(k=>+r[ci['J'+(k+1)]]), tx:+r[ci.tcp_x], ty:+r[ci.tcp_y], tz:+r[ci.tcp_z],
-      ax:+r[ci.app_x], ay:+r[ci.app_y], az:+r[ci.app_z] }); }
-  graspDB=db; const el=$('ikDbN'); if(el) el.textContent=`충돌없는 ${db.length}자세`;
-  ikStat(`데이터셋 로드 완료: ${db.length}자세. 목표 위치·접근을 정하고 잡기.`);
+    const o={ j:[0,1,2,3,4,5].map(k=>+r[ci['J'+(k+1)]]), tx:+r[ci.tcp_x], ty:+r[ci.tcp_y], tz:+r[ci.tcp_z],
+      ax:+r[ci.app_x], ay:+r[ci.app_y], az:+r[ci.app_z] };
+    if(graspHasQuat){ o.qx=+r[ci.qx]; o.qy=+r[ci.qy]; o.qz=+r[ci.qz]; o.qw=+r[ci.qw]; }
+    db.push(o); }
+  graspDB=db; const el=$('ikDbN'); if(el) el.textContent=`충돌없는 ${db.length}자세${graspHasQuat?' · 6DOF':' · 위치+접근축'}`;
+  ikStat(`데이터셋 로드: ${db.length}자세 (${graspHasQuat?'전체자세 매칭':'접근축 매칭 — 6DOF 하려면 재스윕'}). 목표를 정하고 잡기.`);
 }
 function solveIK(){
   if(!graspDB||!graspDB.length){ ikStat('먼저 grasp_dataset.csv를 불러오세요.'); return; }
   const tx=+$('ikX').value, ty=+$('ikY').value, tz=+$('ikZ').value;
-  const za=new THREE.Vector3(0,0,1).applyQuaternion(ikQuat);   // 목표 접근축(프레임 z)
+  const za=new THREE.Vector3(0,0,1).applyQuaternion(ikQuat), tq=ikQuat;   // 목표 접근축 + 전체자세
   let best=null, bestCost=Infinity, bP=0, bA=0;
   for(const s of graspDB){
-    const dot=za.x*s.ax+za.y*s.ay+za.z*s.az;     // 접근축 정렬(코사인)
-    if(dot<IK_ANG_TOL) continue;                 // 방향 35° 밖 제외
     const dx=s.tx-tx, dy=s.ty-ty, dz=s.tz-tz, pd=Math.sqrt(dx*dx+dy*dy+dz*dz);
-    const ang=Math.acos(Math.min(1,Math.max(-1,dot)));
-    const cost=pd+ORIENT_W*ang;
-    if(cost<bestCost){ bestCost=cost; best=s; bP=pd; bA=ang*180/Math.PI; } }
-  if(!best){ ikStat('이 방향으로 후보 없음 — 접근을 바꾸거나 회전해 보세요.'); return; }
-  if(bP>IK_TOL){ ikStat(`⚠ 도달 어려움 — 최근접 ${bP.toFixed(0)}mm·방향 ${bA.toFixed(0)}° (미도달/방향 제약).`); return; }
+    let angDeg;
+    if(graspHasQuat){                            // 전체자세 매칭(roll까지) → 깔끔한 접근자세
+      let d=Math.abs(tq.x*s.qx+tq.y*s.qy+tq.z*s.qz+tq.w*s.qw); d=Math.min(1,d);
+      angDeg=2*Math.acos(d)*180/Math.PI; if(angDeg>IK_ORIENT_TOL) continue;
+    } else {                                     // 구버전 데이터: 접근축만
+      const dot=za.x*s.ax+za.y*s.ay+za.z*s.az; if(dot<IK_ANG_TOL) continue;
+      angDeg=Math.acos(Math.min(1,Math.max(-1,dot)))*180/Math.PI;
+    }
+    const cost=pd+IK_ORIENT_W*angDeg;
+    if(cost<bestCost){ bestCost=cost; best=s; bP=pd; bA=angDeg; } }
+  if(!best){ ikStat('이 자세로 후보 없음 — 접근/회전을 바꿔보세요.'); return; }
+  if(bP>IK_TOL){ ikStat(`⚠ 도달 어려움 — 최근접 ${bP.toFixed(0)}mm·자세 ${bA.toFixed(0)}° (미도달/자세 제약).`); return; }
   const rm=revMates(); best.j.forEach((a,i)=>{ if(rm[i]) rm[i]._tgt=a; });   // 램프가 부드럽게 이동
-  ikStat(`✓ 잡기 — 위치 ${bP.toFixed(0)}mm · 방향 ${bA.toFixed(0)}° · 관절 [${best.j.map(a=>Math.round(a)).join(', ')}]`);
+  ikStat(`✓ 잡기 — 위치 ${bP.toFixed(0)}mm · 자세 ${bA.toFixed(0)}° · 관절 [${best.j.map(a=>Math.round(a)).join(', ')}]`);
 }
 function updateIkMark(){ if(mode!=='ctrl' || _sweeping){ ikMark.visible=false; ikTargAxes.visible=false; return; }
   const x=+$('ikX').value, y=+$('ikY').value, z=+$('ikZ').value;
