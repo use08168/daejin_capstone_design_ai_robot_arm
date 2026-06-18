@@ -1025,6 +1025,20 @@ function solveIK(){
   const rm=revMates(); best.j.forEach((a,i)=>{ if(rm[i]) rm[i]._tgt=a; });   // 램프가 부드럽게 이동
   ikStat(`✓ 잡기 — 위치 ${bP.toFixed(0)}mm · 자세 ${bA.toFixed(0)}° · 관절 [${best.j.map(a=>Math.round(a)).join(', ')}]`);
 }
+function snapApproach(kind){   // 그 위치 근처 '도달 가능한' 수직/수평 파지 자세로 목표 프레임을 스냅(고정 프리셋 X)
+  if(!graspDB||!graspDB.length){ ikStat('먼저 grasp_dataset.csv를 불러오세요.'); return; }
+  const tx=+$('ikX').value, ty=+$('ikY').value, tz=+$('ikZ').value;
+  let best=null, bd=Infinity;
+  for(const s of graspDB){
+    const ok = kind==='vert' ? (s.ay<-0.6) : (Math.abs(s.ay)<0.4);
+    if(!ok) continue;
+    const dx=s.tx-tx, dy=s.ty-ty, dz=s.tz-tz, d=dx*dx+dy*dy+dz*dz;
+    if(d<bd){ bd=d; best=s; } }
+  if(!best){ ikStat(`이 위치엔 ${kind==='vert'?'수직':'수평'} 파지 후보가 없습니다.`); return; }
+  if(graspHasQuat && best.qx!==undefined) ikQuat.set(best.qx,best.qy,best.qz,best.qw);   // 도달가능 샘플의 실제 자세
+  else ikQuat.copy(_basisQuat(new THREE.Vector3(best.ax,best.ay,best.az)));
+  solveIK();   // 스냅한 자세로 바로 풀기 → 그 샘플(=도달 가능) 근처를 찾음
+}
 function updateIkMark(){ if(mode!=='ctrl' || _sweeping){ ikMark.visible=false; ikTargAxes.visible=false; return; }
   const x=+$('ikX').value, y=+$('ikY').value, z=+$('ikZ').value;
   if([x,y,z].some(v=>isNaN(v))){ ikMark.visible=false; ikTargAxes.visible=false; return; }
@@ -1038,8 +1052,8 @@ if($('ikSolve')){
   document.querySelectorAll('.iknudge').forEach(b=>b.onclick=()=>{ const ax=b.dataset.ax, s=+$('ikStep').value||10;
     const el=$('ik'+ax.toUpperCase()); el.value=Math.round(+el.value+(+b.dataset.d)*s); auto(); });
   ['ikX','ikY','ikZ'].forEach(id=>$(id).addEventListener('change',auto));
-  $('ikVert').onclick=()=>{ ikQuat.copy(_basisQuat(new THREE.Vector3(0,-1,0))); auto(); };       // 수직: z 아래로
-  $('ikHorz').onclick=()=>{ let d=new THREE.Vector3(-(+$('ikX').value),0,-(+$('ikZ').value)); ikQuat.copy(_basisQuat(d)); auto(); };  // 수평: 베이스 쪽 수평
+  $('ikVert').onclick=()=>snapApproach('vert');   // 도달 가능한 가장 가까운 수직 파지로 스냅
+  $('ikHorz').onclick=()=>snapApproach('horz');   // 도달 가능한 가장 가까운 수평 파지로 스냅
   document.querySelectorAll('.ikrot').forEach(b=>b.onclick=()=>{ const i=+b.dataset.ax, s=(+b.dataset.d)*(+$('ikRStep').value||10);
     const e=new THREE.Euler(i===0?d2r(s):0, i===1?d2r(s):0, i===2?d2r(s):0,'XYZ');
     ikQuat.multiply(new THREE.Quaternion().setFromEuler(e)); auto(); });   // 목표 프레임 로컬 회전
