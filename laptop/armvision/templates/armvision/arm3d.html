@@ -1003,6 +1003,26 @@ async function loadGraspCsv(file){
   graspDB=db; const el=$('ikDbN'); if(el) el.textContent=`충돌없는 ${db.length}자세${graspHasQuat?' · 6DOF':' · 위치+접근축'}`;
   ikStat(`데이터셋 로드: ${db.length}자세 (${graspHasQuat?'전체자세 매칭':'접근축 매칭 — 6DOF 하려면 재스윕'}). 목표를 정하고 잡기.`);
 }
+// ── 경로계획(P4): 두 자세 사이 직선이 바닥/자기충돌하면 업라이트 경유로 우회 ──
+const IK_HOME=[90,90,90,90,90,90];
+let _ikQueue=null, _ikqi=0;
+function _cfgCollides(){ const r=_collideOnce(); return (r.floor<0) || (isFinite(r.self) && r.self<0); }
+function pathClear(a,b){   // a→b 직선보간을 ~3°마다 충돌검사
+  const rm=revMates(); const maxd=Math.max(0,...a.map((v,i)=>Math.abs(b[i]-v))); const steps=Math.max(8,Math.ceil(maxd/3));
+  for(let s=1;s<=steps;s++){ const t=s/steps; rm.forEach((m,i)=>{ if(i<6) m.angle=a[i]+(b[i]-a[i])*t; }); applyAngles(); if(_cfgCollides()) return false; }
+  return true;
+}
+function planPath(from,to){   // 충돌없는 경유점 리스트 반환(없으면 null)
+  if(pathClear(from,to)) return [to];
+  const cands=[IK_HOME, [to[0],90,90,to[3],to[4],to[5]], [from[0],90,90,from[3],from[4],from[5]]];  // 업라이트/어깨·팔꿈치 들기
+  for(const w of cands){ if(pathClear(from,w) && pathClear(w,to)) return [w,to]; }
+  return null;
+}
+function ikDriveQueue(){   // 경유점 큐를 순서대로 따라감(현 경유점 도달 시 다음으로)
+  if(!_ikQueue) return; const rm=revMates();
+  const reached=rm.slice(0,6).every((m,i)=>Math.abs((m.angle==null?90:m.angle)-(m._tgt==null?90:m._tgt))<0.9);
+  if(reached){ _ikqi++; if(_ikqi>=_ikQueue.length){ _ikQueue=null; return; } rm.forEach((m,i)=>{ if(i<6) m._tgt=_ikQueue[_ikqi][i]; }); }
+}
 function solveIK(){
   if(!graspDB||!graspDB.length){ ikStat('먼저 grasp_dataset.csv를 불러오세요.'); return; }
   const tx=+$('ikX').value, ty=+$('ikY').value, tz=+$('ikZ').value;
@@ -1022,8 +1042,12 @@ function solveIK(){
     if(cost<bestCost){ bestCost=cost; best=s; bP=pd; bA=angDeg; } }
   if(!best){ ikStat('이 자세로 후보 없음 — 접근/회전을 바꿔보세요.'); return; }
   if(bP>IK_TOL){ ikStat(`⚠ 도달 어려움 — 최근접 ${bP.toFixed(0)}mm·자세 ${bA.toFixed(0)}° (미도달/자세 제약).`); return; }
-  const rm=revMates(); best.j.forEach((a,i)=>{ if(rm[i]) rm[i]._tgt=a; });   // 램프가 부드럽게 이동
-  ikStat(`✓ 잡기 — 위치 ${bP.toFixed(0)}mm · 자세 ${bA.toFixed(0)}° · 관절 [${best.j.map(a=>Math.round(a)).join(', ')}]`);
+  const rm=revMates(); const from=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle)), to=best.j.slice(0,6);
+  const path=planPath(from,to);
+  rm.forEach((m,i)=>{ if(i<6) m.angle=from[i]; }); applyAngles();   // 계획 중 흐트러진 자세 복원
+  if(!path){ ikStat(`✓ 자세는 있으나(위치 ${bP.toFixed(0)}mm) 충돌없는 경로를 못 찾음 — 다른 접근/위치 필요`); _ikQueue=null; return; }
+  _ikQueue=path; _ikqi=0; rm.forEach((m,i)=>{ if(i<6) m._tgt=path[0][i]; });   // 경유점 순서대로 이동
+  ikStat(`✓ 잡기 — 위치 ${bP.toFixed(0)}mm·자세 ${bA.toFixed(0)}° · 경로 ${path.length}구간${path.length>1?'(업라이트 경유, 바닥회피)':''}`);
 }
 function snapApproach(kind){   // 그 위치 근처 '도달 가능한' 수직/수평 파지 자세로 목표 프레임을 스냅(고정 프리셋 X)
   if(!graspDB||!graspDB.length){ ikStat('먼저 grasp_dataset.csv를 불러오세요.'); return; }
@@ -1074,6 +1098,6 @@ function updateJointAxis(){
   jAxisTriad.visible=true; jAxisTriad.position.copy(_jaP); jAxisTriad.quaternion.copy(_basisQuat(_jaAx));   // z(파랑)=회전축
   const L=240; _jaGeo.setFromPoints([_jaP.clone().addScaledVector(_jaAx,-L), _jaP.clone().addScaledVector(_jaAx,L)]); jAxisLine.visible=true;
 }
-(function loop(){ requestAnimationFrame(loop); orbit.update(); updateLockLines(); rampCtrl(); updateCollision(); updateTCP(); updateIkMark(); updateJointAxis(); renderer.render(scene,camera); })();
+(function loop(){ requestAnimationFrame(loop); orbit.update(); updateLockLines(); rampCtrl(); ikDriveQueue(); updateCollision(); updateTCP(); updateIkMark(); updateJointAxis(); renderer.render(scene,camera); })();
 </script>
 {% endblock %}
