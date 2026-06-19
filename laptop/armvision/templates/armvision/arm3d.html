@@ -547,7 +547,7 @@ function setMode(mo){ mode=mo; $('mAsm').classList.toggle('on',mo==='asm'); $('m
   $('asmPane').style.display=mo==='asm'?'block':'none'; $('matePane').style.display=mo==='mate'?'block':'none'; $('ctrlPane').style.display=mo==='ctrl'?'block':'none';
   $('phase').textContent=mo==='asm'?'1·조립':(mo==='mate'?'2·결합':'3·연동 제어');
   deselectPart(); tc.detach(); pickFor=null; clrMarks(); $('matebar').style.display='none';
-  if(mo==='mate' || mo==='ctrl'){ rebuild(); if(mo==='ctrl'){ buildCtrlJoints(); refreshConn(); } }
+  if(mo==='mate' || mo==='ctrl'){ mates.forEach(m=>{ if(m.type==='grip') m.angle=0; else if(mo==='mate'&&m.type==='rev') m.angle=90; }); rebuild(); if(mo==='ctrl'){ buildCtrlJoints(); refreshConn(); } }   // 진입 시 그리퍼 슬라이드0(휴식) — 손가락 튐 방지
   else { parts.forEach(p=>{ worldRoot.attach(p.mesh); p.mesh.scale.set(1,1,1); p.mesh.quaternion.normalize(); }); Object.values(groups).forEach(g=>g.parent&&g.parent.remove(g)); groups={}; } }
 $('mAsm').onclick=()=>setMode('asm'); $('mMate').onclick=()=>setMode('mate'); $('mCtrl').onclick=()=>setMode('ctrl');
 
