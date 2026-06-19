@@ -229,7 +229,8 @@
             높이<input id="voH" type="number" value="80" step="5" min="5" style="width:48px"><span class="muted">mm</span></div>
           <div class="row" style="margin-bottom:6px"><button class="primary" id="voShow" style="flex:1">표시 / 갱신(IK 목표에)</button><button class="ghost" id="voHide">숨김</button></div>
           <div class="row" style="margin-bottom:6px"><span class="muted" style="width:38px">벌림</span><input id="voGrip" type="number" value="80" step="5" min="10" style="width:48px"><span class="muted">mm</span><span style="flex:1"></span><button class="ghost" id="voCands">🎯 파지 후보 생성</button></div>
-          <div class="row" style="margin-bottom:0"><button class="primary" id="voAuto" style="flex:1">🤖 자동 잡기 (도달가능 최적 후보)</button></div>
+          <div class="row" style="margin-bottom:6px"><button class="primary" id="voAuto" style="flex:1">🤖 자동 잡기 (도달가능 최적 후보)</button></div>
+          <div class="row" style="margin-bottom:0"><button id="voBest" style="flex:1;background:#7a3db5" title="물체 근처 도달 가능한 모든 자세를 훑어 실제 닫힘 품질(정렬·양쪽접촉·대칭)이 최고인 자세로 잡기">🔬 최적 파지 탐색 (수천 자세 평가)</button></div>
           <div class="hintline" id="voStat" style="margin:6px 0 0;">물체 표면 antipodal 후보 자동 생성(수직=파랑·수평=초록 접근화살표). 그리퍼 벌림보다 좁은 부위만.</div>
           <div style="margin:8px 0 0; border-top:1px solid var(--c-line); padding-top:8px;">
             <div class="row" style="margin-bottom:4px;justify-content:space-between"><b style="font-size:12px">파지 접촉 검증 (C)</b><button class="ghost" id="voCheck" style="padding:2px 8px;font-size:12px">🤝 검사</button></div>
@@ -1032,6 +1033,47 @@ function optimizeRoll(){
   ikStat(`✓ 롤 정렬: ${nReach}개 도달 중 닫힘 중심오차 ${bestPerp.toFixed(0)}mm 최소 자세로 잡기…`);
   executeGrasp(best.g.j, `롤정렬 Δ롤${best.deg}°·중심오차 ${bestPerp.toFixed(0)}mm`);
 }
+// 최적 파지 탐색 — 물체 근처 도달 가능 자세를 모두 평가, 실제 닫힘 품질이 최고인 자세 선택
+function _graspQuality(j, type,R,H, invObj, O){   // 열림 상태에서 양손가락-물체 정렬·대칭·도달 → cost(낮을수록 좋음)
+  const rm=revMates(), gm=gripMates(); if(gm.length<2) return null;
+  const saveJ=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle)), saveG=gm.map(m=>m.angle);
+  rm.forEach((m,i)=>{ if(i<6) m.angle=j[i]; }); gm.forEach(m=>{ if(m.gOpen!=null) m.angle=m.gOpen; }); applyAngles();   // 열림
+  let out=null;
+  const res=gm.map(m=>{ const pb=partByName(m.child), mesh=pb&&pb.mesh; if(!mesh)return null; const nr=_fingerNearest(mesh,invObj,type,R,H); return nr?{d:nr.d, c:_fingerCenter(mesh)}:null; }).filter(Boolean);
+  if(res.length>=2){ res.sort((a,b)=>a.d-b.d); const a=res[0], b=res[1];
+    const cc=a.c.clone().add(b.c).multiplyScalar(0.5), d=b.c.clone().sub(a.c); const span=d.length(); if(span>1e-3)d.normalize();
+    const oc=O.clone().sub(cc), along=oc.dot(d), perp=oc.clone().addScaledVector(d,-along).length();
+    const travel=Math.abs((gm[0].gClose==null?40:gm[0].gClose)-(gm[0].gOpen==null?0:gm[0].gOpen));   // 닫힘 행정(mm)
+    const reach=(a.d<=travel+R)&&(b.d<=travel+R);                       // 양손가락이 닫으면 물체에 닿을 수 있나
+    const cost = perp + 0.5*Math.abs(a.d-b.d) + 0.2*Math.abs(along) + (reach?0:300);   // 정렬+대칭+센터링+도달
+    out={cost, perp, gA:a.d, gB:b.d, j:j.slice()}; }
+  rm.forEach((m,i)=>{ if(i<6) m.angle=saveJ[i]; }); gm.forEach((m,i)=>{ m.angle=saveG[i]; }); applyAngles();   // 복원(팔 안 움직임)
+  return out;
+}
+let _bestSearching=false;
+function findBestGrasp(){
+  if(_bestSearching) return;
+  if(!graspDB||!graspDB.length){ ikStat('먼저 grasp_dataset.csv를 불러오세요.'); return; }
+  if(!vObj){ ikStat('먼저 가상 물체를 표시하세요(파지 대상).'); return; }
+  if(gripMates().length<2){ ikStat('그리퍼 손가락 2개(grip 결합) 필요.'); return; }
+  const type=$('voType').value, R=Math.max(3,+$('voR').value||25), H=Math.max(5,+$('voH').value||80);
+  const O=vObj.position.clone(); vObj.updateMatrixWorld(true); const invObj=new THREE.Matrix4().copy(vObj.matrixWorld).invert();
+  const NEAR=Math.max(60, R+50), N2=NEAR*NEAR;
+  const cands=graspDB.filter(s=>{ const dx=s.tx-O.x,dy=s.ty-O.y,dz=s.tz-O.z; return dx*dx+dy*dy+dz*dz<=N2; });
+  if(!cands.length){ ikStat(`물체 근처(${NEAR}mm)에 도달 자세 없음 — 위치 변경/데이터 보강.`); return; }
+  _bestSearching=true; let i=0, best=null, n=0; const N=cands.length;
+  function chunk(){
+    const end=Math.min(i+300, N);
+    for(; i<end; i++){ const q=_graspQuality(cands[i].j, type,R,H, invObj, O); n++; if(q && (!best || q.cost<best.cost)) best=q; }
+    ikStat(`🔬 최적 파지 탐색 ${i}/${N}…`);
+    if(i<N){ setTimeout(chunk,0); return; }
+    _bestSearching=false;
+    if(!best){ ikStat('평가 가능한 파지 없음 — 데이터/물체 확인.'); return; }
+    ikStat(`✓ ${n}개 평가 → 최적(정렬 ${best.perp.toFixed(0)}mm·간격 ${best.gA.toFixed(0)}/${best.gB.toFixed(0)}mm)로 잡기…`);
+    executeGrasp(best.j, `최적 파지 정렬 ${best.perp.toFixed(0)}mm`);
+  }
+  chunk();
+}
 function snapApproach(kind){   // 그 위치 근처 '도달 가능한' 수직/수평 파지 자세로 목표 프레임을 스냅(고정 프리셋 X)
   if(!graspDB||!graspDB.length){ ikStat('먼저 grasp_dataset.csv를 불러오세요.'); return; }
   const tx=+$('ikX').value, ty=+$('ikY').value, tz=+$('ikZ').value;
@@ -1197,6 +1239,7 @@ if($('voShow')){
   $('voHide').onclick=()=>{ if(vObj){ scene.remove(vObj); vObj.geometry.dispose(); vObj.material.dispose(); vObj=null; } clearCands(); clearContactMarks(); $('voStat').textContent='숨김'; if($('voContact')){ $('voContact').textContent=''; } };
   $('voCands').onclick=genGraspCandidates;
   if($('voAuto')) $('voAuto').onclick=autoGrasp;
+  if($('voBest')) $('voBest').onclick=findBestGrasp;
   if($('voCheck')) $('voCheck').onclick=evalGraspContact;
 }
 
