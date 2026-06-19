@@ -202,7 +202,7 @@
             <button class="ghost ikrot" data-ax="1" data-d="-1">RY−</button><button class="ghost ikrot" data-ax="1" data-d="1">RY＋</button>
             <button class="ghost ikrot" data-ax="2" data-d="-1">RZ−</button><button class="ghost ikrot" data-ax="2" data-d="1">RZ＋</button></div>
           <div class="row" style="margin-bottom:0"><button class="primary" id="ikSolve" style="flex:1">🤖 이 위치 잡기(IK)</button></div>
-          <div class="hintline" id="ikStat" style="margin:6px 0 0;">데이터셋을 불러오고 목표를 정한 뒤 잡기를 누르세요. 주황 마커 = 목표 물체.</div>
+          <div class="hintline" id="ikStat" style="margin:6px 0 0;">물체 프레임(좌표축)=고정. 수직/수평은 <b>그리퍼 접근방향(노란 화살표)</b>만 바꿈 → 로봇팔이 그 방향으로 접근. 물체는 집어 옮길 때만 이동.</div>
         </div>
 
         <div class="card sim-card" style="margin-top:10px;">
@@ -857,7 +857,9 @@ if($('grSweep')) $('grSweep').onclick=sweepGrasp;
 let graspDB=null, graspHasQuat=false; const IK_TOL=45, ORIENT_W=70, IK_ANG_TOL=Math.cos(35*Math.PI/180);   // 위치 45mm·접근축 35°
 const IK_ORIENT_TOL=45, IK_ORIENT_W=1.0;   // 전체자세(쿼터니언) 매칭: 45° 이내, mm당 가중
 const ikMark=_mkMark(0xffaa22);             // 주황 = 목표(물체)
-const ikTargAxes=new THREE.AxesHelper(70); ikTargAxes.material.depthTest=false; ikTargAxes.renderOrder=1002; ikTargAxes.visible=false; scene.add(ikTargAxes);
+const ikTargAxes=new THREE.AxesHelper(60); ikTargAxes.material.depthTest=false; ikTargAxes.renderOrder=1002; ikTargAxes.visible=false; scene.add(ikTargAxes);   // 물체 프레임 = 고정(월드정렬)
+const ikAppArrow=new THREE.ArrowHelper(new THREE.Vector3(0,-1,0), new THREE.Vector3(), 90, 0xffd400, 18, 11);   // 노랑 = 그리퍼 접근방향
+ikAppArrow.line.material.depthTest=false; ikAppArrow.cone.material.depthTest=false; ikAppArrow.line.renderOrder=ikAppArrow.cone.renderOrder=1003; ikAppArrow.visible=false; scene.add(ikAppArrow);
 function _basisQuat(z){ const zz=z.clone(); if(zz.lengthSq()<1e-6) zz.set(0,-1,0); zz.normalize();   // z축 지정 → 안정적 프레임
   let up=new THREE.Vector3(0,1,0); if(Math.abs(zz.dot(up))>0.95) up.set(1,0,0);
   const x=new THREE.Vector3().crossVectors(up,zz).normalize(), y=new THREE.Vector3().crossVectors(zz,x).normalize();
@@ -946,11 +948,15 @@ function snapApproach(kind){   // 그 위치 근처 '도달 가능한' 수직/�
   else ikQuat.copy(_basisQuat(new THREE.Vector3(best.ax,best.ay,best.az)));
   solveIK();   // 스냅한 자세로 바로 풀기 → 그 샘플(=도달 가능) 근처를 찾음
 }
-function updateIkMark(){ if(mode!=='ctrl' || _sweeping){ ikMark.visible=false; ikTargAxes.visible=false; return; }
+const _ikZv=new THREE.Vector3();
+function updateIkMark(){ if(mode!=='ctrl' || _sweeping){ ikMark.visible=ikTargAxes.visible=ikAppArrow.visible=false; return; }
   const x=+$('ikX').value, y=+$('ikY').value, z=+$('ikZ').value;
-  if([x,y,z].some(v=>isNaN(v))){ ikMark.visible=false; ikTargAxes.visible=false; return; }
+  if([x,y,z].some(v=>isNaN(v))){ ikMark.visible=ikTargAxes.visible=ikAppArrow.visible=false; return; }
   ikMark.visible=true; ikMark.position.set(x,y,z);
-  ikTargAxes.visible=true; ikTargAxes.position.set(x,y,z); ikTargAxes.quaternion.copy(ikQuat); }   // 목표 프레임(z=접근)
+  ikTargAxes.visible=true; ikTargAxes.position.set(x,y,z); ikTargAxes.quaternion.identity();          // 물체 프레임 = 고정(안 회전)
+  _ikZv.set(0,0,1).applyQuaternion(ikQuat); const L=90;                                               // 그리퍼 접근 방향(ikQuat z)
+  ikAppArrow.visible=true; ikAppArrow.position.set(x-_ikZv.x*L, y-_ikZv.y*L, z-_ikZv.z*L);            // 물체 바깥(standoff)→물체
+  ikAppArrow.setDirection(_ikZv); ikAppArrow.setLength(L,18,11); }
 if($('ikSolve')){
   $('ikCsvBtn').onclick=()=>$('ikCsv').click();
   $('ikCsv').addEventListener('change',e=>{ const f=e.target.files[0]; if(f) loadGraspCsv(f); e.target.value=''; });
