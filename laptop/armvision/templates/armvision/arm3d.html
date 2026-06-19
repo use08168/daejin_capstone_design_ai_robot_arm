@@ -239,6 +239,15 @@
         </div>
 
         <div class="card sim-card" style="margin-top:10px;">
+          <div class="ttl">파지 학습 데이터 생성 (L1 · 1단계)</div>
+          <div class="hintline">가상 물체를 워크스페이스 곳곳에 두고 접근×롤을 훑어 <b>접촉검출(C)로 파지 성공/품질을 자동 라벨</b> → CSV. C-space 스윕과 동일 방식. 6DOF 데이터셋 로드 필요.</div>
+          <div class="row" style="margin-bottom:6px"><span class="muted" style="width:48px">물체수</span><input id="glN" type="number" value="800" step="100" min="50" style="width:64px">
+            <span class="muted" style="width:40px;text-align:right">반경</span><input id="glRmin" type="number" value="15" step="2" min="3" style="width:44px"><span class="muted">~</span><input id="glRmax" type="number" value="30" step="2" min="3" style="width:44px"><span class="muted">mm</span></div>
+          <div class="row" style="margin-bottom:6px"><button class="primary" id="glRun" style="flex:1">▶ 데이터 생성 시작</button><button class="ghost" id="glStop">■ 중지</button><button class="ghost" id="glSave">💾 CSV</button></div>
+          <div class="hintline" id="glStat" style="margin:0;">대기 — 물체 종류는 현재 선택(위 가상물체)을 사용. 시작하면 물체를 옮겨가며 라벨링합니다.</div>
+        </div>
+
+        <div class="card sim-card" style="margin-top:10px;">
           <div class="ttl">감지 물체 (비전) <span id="visStat" class="muted" style="font-weight:400"></span></div>
           <div class="hintline">스테레오 카메라가 본 물체의 3D 좌표(로봇 기준 mm). 카메라는 1페이지에서 활성화.</div>
           <div class="row" style="margin-bottom:6px"><button class="ghost" id="visScan">🔄 새로고침</button><label class="muted" style="display:flex;align-items:center;gap:5px;"><input type="checkbox" id="visAuto"> 자동(1초)</label></div>
@@ -1046,7 +1055,7 @@ function _graspQuality(j, type,R,H, invObj, O){   // 열림 상태에서 양손�
     const travel=Math.abs((gm[0].gClose==null?40:gm[0].gClose)-(gm[0].gOpen==null?0:gm[0].gOpen));   // 닫힘 행정(mm)
     const reach=(a.d<=travel+R)&&(b.d<=travel+R);                       // 양손가락이 닫으면 물체에 닿을 수 있나
     const cost = perp + 0.5*Math.abs(a.d-b.d) + 0.2*Math.abs(along) + (reach?0:300);   // 정렬+대칭+센터링+도달
-    out={cost, perp, gA:a.d, gB:b.d, j:j.slice()}; }
+    out={cost, perp, gA:a.d, gB:b.d, reach, j:j.slice()}; }
   rm.forEach((m,i)=>{ if(i<6) m.angle=saveJ[i]; }); gm.forEach((m,i)=>{ m.angle=saveG[i]; }); applyAngles();   // 복원(팔 안 움직임)
   return out;
 }
@@ -1074,6 +1083,59 @@ function findBestGrasp(){
   }
   chunk();
 }
+// ===== L1 파지 학습 · 1단계: 데이터 생성 (접촉검출 C로 자동 라벨) =====
+function glStat(m){ const e=$('glStat'); if(e) e.textContent=m; }
+function _typeId(t){ return t==='cyl'?0:t==='sph'?1:t==='box'?2:3; }
+function _searchObjGrasp(O, type,R,H, invObj){   // 물체 근처 도달자세를 품질평가 → 최적(동기). null=후보없음
+  const NEAR=Math.max(60,R+50), N2=NEAR*NEAR; let cand=[];
+  for(const s of graspDB){ const dx=s.tx-O.x,dy=s.ty-O.y,dz=s.tz-O.z, d2=dx*dx+dy*dy+dz*dz; if(d2<=N2) cand.push({s,d2}); }
+  if(!cand.length) return null;
+  cand.sort((a,b)=>a.d2-b.d2); if(cand.length>120) cand.length=120;   // 가까운 120자세만(시간 제한)
+  let best=null;
+  for(const c of cand){ const Q=_graspQuality(c.s.j, type,R,H, invObj, O); if(Q && (!best||Q.cost<best.cost)) best={...Q, app:[c.s.ax,c.s.ay,c.s.az]}; }
+  return best;
+}
+let _glRun=false, _glRows=[];
+function genGraspLearnData(){
+  if(_glRun) return;
+  if(!graspDB||!graspDB.length){ glStat('먼저 6DOF grasp_dataset.csv를 불러오세요(파지 IK 카드).'); return; }
+  if(!graspHasQuat){ glStat('⚠ 6DOF 데이터셋(qx..qw) 필요 — 파지 재스윕 후 사용.'); return; }
+  if(gripMates().length<2){ glStat('그리퍼 손가락 2개(grip 결합) 필요.'); return; }
+  const N=Math.max(50,+$('glN').value||800), Rmin=Math.max(3,+$('glRmin').value||15), Rmax=Math.max(Rmin,+$('glRmax').value||30), type=$('voType').value;
+  _glRows=[]; _glRun=true; let i=0;
+  const rm=revMates(), saveJ=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle));
+  const _M=new THREE.Matrix4();
+  function chunk(){
+    if(!_glRun){ glStat(`중지 — ${_glRows.length}개 수집(💾 CSV로 저장 가능)`); return; }
+    const end=Math.min(i+20, N);
+    for(; i<end; i++){
+      const s=graspDB[(Math.random()*graspDB.length)|0];
+      const O=new THREE.Vector3(s.tx+(Math.random()*2-1)*15, s.ty+(Math.random()*2-1)*15, s.tz+(Math.random()*2-1)*15);
+      const R=Rmin+Math.random()*(Rmax-Rmin), H=Math.max(40, R*3), invObj=_M.makeTranslation(-O.x,-O.y,-O.z).clone();
+      if(vObj){ vObj.position.copy(O); vObj.updateMatrixWorld(true); }
+      const best=_searchObjGrasp(O, type,R,H, invObj);
+      const succ=(best && best.reach && best.perp<Math.max(8,R*0.6))?1:0;
+      _glRows.push([O.x,O.y,O.z, _typeId(type), R, H, succ,
+        best?best.perp:'', best?best.gA:'', best?best.gB:'',
+        best?best.app[0]:'', best?best.app[1]:'', best?best.app[2]:'',
+        ...(best?best.j.slice(0,6):['','','','','',''])]);
+    }
+    rm.forEach((m,k)=>{ if(k<6) m.angle=saveJ[k]; }); applyAngles();   // 자세 복원(팔 안 움직임)
+    const np=_glRows.reduce((a,r)=>a+(r[6]===1?1:0),0);
+    glStat(`생성 ${i}/${N} — 성공 ${np} (${(100*np/Math.max(1,i)).toFixed(0)}%)`);
+    if(i<N){ setTimeout(chunk,0); } else { _glRun=false; glStat(`✓ 완료 ${_glRows.length}개 (성공 ${np}) — 💾 CSV 저장`); }
+  }
+  chunk();
+}
+function saveGraspLearnCsv(){
+  if(!_glRows.length){ glStat('데이터 없음 — 먼저 생성하세요.'); return; }
+  const hdr=['obj_x','obj_y','obj_z','type','R','H','success','perp','gapA','gapB','app_x','app_y','app_z','J1','J2','J3','J4','J5','J6'];
+  const body=_glRows.map(r=>r.map(v=>typeof v==='number'?+v.toFixed(2):v).join(',')).join('\n');
+  const blob=new Blob([hdr.join(',')+'\n'+body],{type:'text/csv'}); const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download='grasp_learn.csv'; a.click(); URL.revokeObjectURL(a.href);
+  glStat(`💾 grasp_learn.csv 저장 (${_glRows.length}행)`);
+}
+if($('glRun')){ $('glRun').onclick=genGraspLearnData; $('glStop').onclick=()=>{ _glRun=false; }; $('glSave').onclick=saveGraspLearnCsv; }
 function snapApproach(kind){   // 그 위치 근처 '도달 가능한' 수직/수평 파지 자세로 목표 프레임을 스냅(고정 프리셋 X)
   if(!graspDB||!graspDB.length){ ikStat('먼저 grasp_dataset.csv를 불러오세요.'); return; }
   const tx=+$('ikX').value, ty=+$('ikY').value, tz=+$('ikZ').value;
