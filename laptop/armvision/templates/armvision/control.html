@@ -33,7 +33,7 @@
   .pane.mirror iframe { flex:1; width:100%; border:0; background:#0b0b0d; }
 {% endblock %}
 {% block content %}
-  <h1 style="margin-bottom:8px;">3 · 자연어 제어 <span id="srv" class="srv wait">서버 확인 중…</span></h1>
+  <h1 style="margin-bottom:8px;">5 · 자연어 제어 <span id="srv" class="srv wait">서버 확인 중…</span></h1>
   <div class="hint" style="margin:0 0 12px;">왼쪽: 한국어로 질문/명령(텍스트·🎤음성) → Gemma가 답변/동작(DSL) 생성. 오른쪽: 로봇 상태(웹캠·현재 자세).</div>
 
   <div class="wrap3">
@@ -176,7 +176,7 @@ tr.addEventListener('click', async e=>{
   const b=e.target.closest('.play'); if(!b) return;
   const acts=JSON.parse(decodeURIComponent(b.dataset.acts));
   let st={}; try{ st=await (await fetch(ASTAT)).json(); }catch(err){}
-  if(!st.connected){ alert('실물 로봇팔이 연결되지 않았습니다. 4페이지에서 연결하세요.'); return; }
+  if(!st.connected){ alert('실물 로봇팔이 연결되지 않았습니다. 3페이지(3D 제어)에서 연결하세요.'); return; }
   if(!confirm('실제 로봇팔이 움직입니다. 실행할까요?\n'+acts.map(a=>a.joint+'→'+a.angle+'°').join(', '))) return;
   b.disabled=true; b.textContent='실행 중…';
   const jo=jget();

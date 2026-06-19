@@ -2,7 +2,7 @@
 
 > **역할: "무엇을 할지" 결정.** 음성·영상을 받아 의미를 추론하고, 노트북이 실행할 JSON DSL을 생성한다.
 > 결정적·실시간 작업(탐지·삼각측량·IK·안전)은 노트북 책임이며 여기서 하지 않는다.
-> 인터페이스: [gRPC 명세](../../docs/grpc_interface.md) · 출력 형식: [DSL 명세](../../docs/dsl_spec.md)
+> 인터페이스: [gRPC 명세](../../docs/3_grpc_interface.md) · 출력 형식: [DSL 명세](../../docs/5_dsl_spec.md)
 
 ---
 
@@ -60,7 +60,7 @@
 콜드스타트 캘리브레이션 결과가 FAISS에 저장되어 있으며, DSL 생성 시 다음을 동적 주입:
 `max_payload_g`, `workspace`, `joint_limits`, `detected_objects`, `object_weights`.
 
-지식 베이스 스키마는 [system_spec.md §7](../../docs/system_spec.md) 참조.
+지식 베이스 스키마는 [2_system_spec.md §7](../../docs/2_system_spec.md) 참조.
 
 ---
 

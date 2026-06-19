@@ -2,7 +2,7 @@
 
 > 두 카메라의 **2D 픽셀 탐지**를 **로봇 베이스 기준 3D 좌표(mm)** 로 변환하는 전체 단계를 정의한다.
 > 이 3D 좌표가 IK(역기구학)의 입력이 되어, 물체를 집기 위한 관절각을 계산한다.
-> 수식 세부는 [system_spec §6](../../docs/system_spec.md), [laptop README §3](README.md) 참조.
+> 수식 세부는 [system_spec §6](../../docs/2_system_spec.md), [laptop README §3](README.md) 참조.
 
 ---
 
@@ -21,7 +21,7 @@
 
 ![ChArUco 코너 검출 — 양 카메라가 보드의 내부 코너를 인식(초록), corners NN/35](../../docs/image/calib-result.png)
 
-> 카메라 배치가 바뀌면(상호 위치 변경, USB 재연결로 좌/우 교체 등) **1~3을 다시** 해야 한다. 절차 상세 → [setup_procedure.md](setup_procedure.md).
+> 카메라 배치가 바뀌면(상호 위치 변경, USB 재연결로 좌/우 교체 등) **1~3을 다시** 해야 한다. 절차 상세 → [12_setup_procedure.md](12_setup_procedure.md).
 
 ---
 
@@ -114,7 +114,7 @@
 ## 3. 준비물 (하드웨어)
 
 - **ChArUco 보드** (`DICT_5X5_100`, 6×8, 사각 30mm/마커 23mm) — 단계 ①②③. 평판에 평평히 부착.
-- **ArUco 마커** (`DICT_6X6_250`, 로봇 베이스 id0 70mm 등, 크기 mm 측정) — 단계 ⑤⑥, [aruco_markers.md](aruco_markers.md).
+- **ArUco 마커** (`DICT_6X6_250`, 로봇 베이스 id0 70mm 등, 크기 mm 측정) — 단계 ⑤⑥, [13_aruco_markers.md](13_aruco_markers.md).
 - 카메라 2대는 **고정**(촬영 중 위치 불변) — 캘리브레이션 유효성 유지.
 
 ---

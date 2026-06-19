@@ -1,14 +1,14 @@
 # 초기 셋업 절차 — 캘리브레이션 + 로봇 위치 파악 (6단계)
 
 > 작업 환경 **최초 세팅 시 1회** 수행. 핵심 원칙: **카메라를 먼저 고정·보정한 뒤 로봇을 설치**한다.
-> (①②③은 로봇 없이 → 로봇 설치 → ④⑤⑥). 각 단계 상세 수식은 [coordinate_3d_pipeline.md](coordinate_3d_pipeline.md) 참조.
+> (①②③은 로봇 없이 → 로봇 설치 → ④⑤⑥). 각 단계 상세 수식은 [3_coordinate_3d_pipeline.md](3_coordinate_3d_pipeline.md) 참조.
 
 ---
 
 ## 사전 준비물
 
 - **ChArUco 보드** 인쇄(`calibration/calibration_targets.pdf` 1쪽), 평판에 평평히 부착
-- **로봇 마커** 인쇄(`calibration/arm_markers.pdf`): 베이스 id0(70mm), 추적 id1~12(40mm) — [aruco_markers.md](aruco_markers.md)
+- **로봇 마커** 인쇄(`calibration/arm_markers.pdf`): 베이스 id0(70mm), 추적 id1~12(40mm) — [13_aruco_markers.md](13_aruco_markers.md)
 - **카메라 2대**: 서로 리지드하게 고정(같은 프레임 권장), 작업면에서 **0.5~0.9m**, 대각선 위에서 내려다보게
 
 ---

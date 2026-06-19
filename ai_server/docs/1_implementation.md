@@ -3,7 +3,7 @@
 > **설계 명세([README.md](README.md))의 실제 구현 기록.**
 > 상태(2026-06-14): **음성/텍스트(+이미지) → STT → 의도분류 → Gemma 4 31B(VLM/DSL) → 검증 → 노트북 실행**
 > end-to-end 작동. warm 상주 gRPC 서버 + 노트북 3페이지 연동 + 직접관절 실물 실행까지 검증.
-> 인터페이스: [DSL 명세](../../docs/dsl_spec.md) · [gRPC 명세](../../docs/grpc_interface.md)
+> 인터페이스: [DSL 명세](../../docs/5_dsl_spec.md) · [gRPC 명세](../../docs/3_grpc_interface.md)
 
 ---
 
@@ -81,9 +81,9 @@ YOLO는 캔·스프레이를 다 'bottle'로 뭉뚱그리고 시점별 불일치
 **DSL 검증(`dsl.py`, LLM 무관)** = 화이트리스트 op·필수파라미터·타입·target·시퀀스논리. op에 **`set_joint`(직접 관절)** 추가.
 
 **실행은 노트북 책임** (3계층): DSL → 노트북 검증/안전 → 펄스. 현재:
-- **`set_joint`** → 실물 실행됨 ([laptop/docs/ai_integration.md](../../laptop/docs/ai_integration.md)): 관절→채널·각도→펄스, **한 관절씩 2°램프(브라운아웃 방지)**, 3페이지 **▶ 수동 버튼+확인**(자동 아님).
+- **`set_joint`** → 실물 실행됨 ([laptop/docs/7_ai_integration.md](../../laptop/docs/7_ai_integration.md)): 관절→채널·각도→펄스, **한 관절씩 2°램프(브라운아웃 방지)**, 3페이지 **▶ 수동 버튼+확인**(자동 아님).
 - **물체집기**(move_above·grasp 등) → DSL은 생성되나 **IK 미구현으로 실행 보류**(그리퍼 입고 후).
-- 심층 안전(C-space 충돌모델) 연결은 다음 단계 ([digital_twin_safety.md](../../laptop/docs/digital_twin_safety.md)).
+- 심층 안전(C-space 충돌모델) 연결은 다음 단계 ([6_digital_twin_safety.md](../../laptop/docs/6_digital_twin_safety.md)).
 
 ---
 

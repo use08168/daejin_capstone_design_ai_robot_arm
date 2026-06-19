@@ -2,7 +2,7 @@
 DSL 스키마 + 검증 — LLM 무관(노트북에서도 테스트 가능).
 
 AI 서버(LLM)는 이 DSL만 생성하고, 노트북은 이 DSL만 실행한다.
-docs/dsl_spec.md 의 화이트리스트 op + 스키마를 코드로 구현.
+docs/5_dsl_spec.md 의 화이트리스트 op + 스키마를 코드로 구현.
 
 여기서의 검증 = 1차(스키마·op·필수파라미터·타입·기본 시퀀스 논리).
 심층 안전(워크스페이스·관절한계·충돌)은 노트북의 충돌예측 검증층 책임.
@@ -10,7 +10,7 @@ docs/dsl_spec.md 의 화이트리스트 op + 스키마를 코드로 구현.
 import json
 import re
 
-# op → 필수 파라미터 (docs/dsl_spec.md)
+# op → 필수 파라미터 (docs/5_dsl_spec.md)
 ALLOWED_OPS = {
     "set_joint":         ["joint", "angle"],   # 직접 관절 제어 (예: J1을 180도)
     "move_above":        ["target", "height_mm"],

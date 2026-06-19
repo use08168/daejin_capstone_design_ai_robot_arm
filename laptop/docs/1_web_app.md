@@ -29,7 +29,7 @@
 4. **로봇 배치 & 베이스 마커** — 골격(마커 부착 후 구현)
 5. **카메라→로봇 변환 T** — 골격
 6. **관절 위치 & 작업공간** — 골격
-- 절차 상세: [setup_procedure.md](setup_procedure.md), 파이프라인: [coordinate_3d_pipeline.md](coordinate_3d_pipeline.md)
+- 절차 상세: [12_setup_procedure.md](12_setup_procedure.md), 파이프라인: [3_coordinate_3d_pipeline.md](3_coordinate_3d_pipeline.md)
 
 ### 3 · 자연어 제어  `/control/`
 - 한국어 명령으로 로봇팔 구동하는 화면. **현재 골격(채팅 UI)만.**
@@ -41,7 +41,7 @@
   - **결합** — CATIA식 **면대면(원통 동심 + 평면 일치)** 으로 회전/고정 관절 정의. 가상 원통 자동 인식. 관절별 모터 매핑·위치보정·고정.
   - **제어** — 관절 슬라이더로 3D 구동 + **연동 ON 시 실물 서보 동시 구동**(정렬 후 라이브, ~30ms 실시간 전송). 각도→펄스는 노트북이 변환, 아두이노엔 `u ch us` 전송(펌웨어 수정 불필요).
 - 조립 결과는 `cad/assembly.json`에 저장/복원. **6관절 리깅 완료, AI 연동 직전 단계.**
-- 상세: **[arm3d_simulator.md](arm3d_simulator.md)**
+- 상세: **[8_arm3d_simulator.md](8_arm3d_simulator.md)**
 
 ---
 
@@ -80,11 +80,11 @@
 ## 구현 완료 / 예정
 
 **완료**
-- ✅ **STL 기반 3D 시뮬레이터**(4페이지): 조립·면대면 결합·6관절 리깅·저장. → [arm3d_simulator.md](arm3d_simulator.md)
-- ✅ **실물 연동**(`arduino_bridge.py`): 시리얼 연결 + **각도→펄스 변환**(관절별 실측, [../../arduino/docs/servo_calibration.md](../../arduino/docs/servo_calibration.md)) + 전송 → 4페이지 슬라이더가 **3D+실물 동시** 구동.
+- ✅ **STL 기반 3D 시뮬레이터**(4페이지): 조립·면대면 결합·6관절 리깅·저장. → [8_arm3d_simulator.md](8_arm3d_simulator.md)
+- ✅ **실물 연동**(`arduino_bridge.py`): 시리얼 연결 + **각도→펄스 변환**(관절별 실측, [../../arduino/docs/1_servo_calibration.md](../../arduino/docs/1_servo_calibration.md)) + 전송 → 4페이지 슬라이더가 **3D+실물 동시** 구동.
 - ✅ **카메라 선택**(1페이지): 좌/우 카메라를 노트북 장치에서 선택·저장.
 
 **예정**
-- **단계 ⑤⑥**: 베이스/추적 ArUco 마커로 카메라→로봇 변환 T, 관절 추적([aruco_markers.md](aruco_markers.md)).
+- **단계 ⑤⑥**: 베이스/추적 ArUco 마커로 카메라→로봇 변환 T, 관절 추적([13_aruco_markers.md](13_aruco_markers.md)).
 - **3페이지 통합**: AI 서버(Whisper·Gemma) → gRPC + DSL 실행기 → 4페이지 연동 경로로 구동.
-- **이진 프로토콜**: 현재 ASCII `u ch us` → CommandPacket+CRC([../../docs/serial_protocol.md](../../docs/serial_protocol.md)).
+- **이진 프로토콜**: 현재 ASCII `u ch us` → CommandPacket+CRC([../../docs/4_serial_protocol.md](../../docs/4_serial_protocol.md)).

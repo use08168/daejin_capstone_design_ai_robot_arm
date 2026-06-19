@@ -58,9 +58,12 @@
   /* 임베드(읽기전용 미러, 3페이지 iframe) — UI 숨기고 3D만 */
   body.embed nav, body.embed h1, body.embed #panel, body.embed #hint3d, body.embed #matebar, body.embed #collHud { display:none !important; }
   body.embed main{ padding:0 !important; } body.embed .wrap{ height:100vh !important; min-height:0 !important; gap:0 !important; }
+  body.view-sim .control-card { display:none !important; }      /* 4페이지 시뮬레이터: 조립·결합 숨김 */
+  body.view-control .sim-card { display:none !important; }      /* 3페이지 제어: 파지·연구 카드 숨김 */
 {% endblock %}
 {% block content %}
-  <h1>4 · 3D 시뮬레이션 <span class="badge3d" id="phase">조립/결합</span></h1>
+  <script>document.body.classList.add('view-{{ view }}');</script>   {# 3페이지=view-control / 4페이지=view-sim #}
+  <h1>{% if view == 'sim' %}4 · 3D 시뮬레이터 (파지 학습){% else %}3 · 3D 제어{% endif %} <span class="badge3d" id="phase">조립/결합</span></h1>
   <div class="wrap">
     <div id="viewport">
       <div id="matebar"></div>
@@ -70,8 +73,8 @@
     </div>
     <div id="panel">
       <div class="seg">
-        <button class="on" id="mAsm">조립</button>
-        <button id="mMate">결합</button>
+        <button class="on control-card" id="mAsm">조립</button>
+        <button class="control-card" id="mMate">결합</button>
         <button id="mCtrl">제어</button>
       </div>
       <div class="toolbar">
@@ -109,6 +112,7 @@
           <div class="radio" style="margin:10px 0;">
             <label><input type="radio" name="mtype" value="rev" checked> 회전</label>
             <label><input type="radio" name="mtype" value="fix"> 고정</label>
+            <label><input type="radio" name="mtype" value="grip"> 그리퍼</label>
           </div>
           <div class="row" style="margin-bottom:0"><button class="primary" id="doMate">결합 실행</button><button class="ghost" id="clrMate">초기화</button></div>
         </div>
@@ -131,9 +135,16 @@
             <button class="ghost axmove" data-ax="1" data-d="-1">Y−</button><button class="ghost axmove" data-ax="1" data-d="1">Y＋</button>
             <button class="ghost axmove" data-ax="2" data-d="-1">Z−</button><button class="ghost axmove" data-ax="2" data-d="1">Z＋</button></div>
           <div class="hintline" id="axInfo" style="margin:2px 0 6px;color:#9aa;">축기울기=회전방향, 축위치=회전중심 이동. 끝각에서 비틀림·궤도가 맞게 조정 → 💾 저장</div>
-          <button id="lockMate" style="width:100%; margin:2px 0 10px;">🔒 이 결합 고정</button>
-          <div class="hintline" style="margin-bottom:6px;">테스트 회전 <b id="tval">90</b>°</div>
+          <button id="lockMate" style="width:100%; margin:2px 0 6px;">🔒 이 결합 고정</button>
+          <button id="toGrip" style="width:100%; margin:0 0 10px;">🤏 그리퍼 관절로 전환</button>
+          <div class="hintline" style="margin-bottom:6px;"><span id="tlabel">테스트 회전</span> <b id="tval">90</b><span id="tunit">°</span></div>
           <input id="tslider" class="slider" type="range" min="0" max="180" value="90">
+          <div id="gripEdit" style="display:none; margin-top:10px; border-top:1px solid var(--c-line); padding-top:8px;">
+            <div class="hintline" style="margin-bottom:6px;">위 <b>슬라이드</b> 슬라이더로 이 손가락을 <b>완전 열림</b>/<b>완전 닫힘</b>에 두고 각각 저장. 두 손가락 모두 저장하면 아래로 동시 개폐.</div>
+            <div class="row"><button class="ghost" id="gripSaveOpen">현재=열림 저장</button><button class="ghost" id="gripSaveClose">현재=닫힘 저장</button></div>
+            <div class="row" style="margin-bottom:0"><span class="muted" style="width:38px">개폐</span><input id="gripSlider" type="range" min="0" max="100" value="0" style="flex:1" disabled><span class="muted" id="gripVal" style="width:42px;text-align:right">열림</span></div>
+            <div class="hintline" id="gripInfo" style="margin:4px 0 0;color:#9aa;"></div>
+          </div>
           <button class="danger" id="delMate" style="width:100%; margin-top:10px;">결합 삭제</button>
         </div>
       </div>
@@ -150,20 +161,18 @@
           <button class="ghost" id="btnHome" style="width:100%; margin-bottom:8px;">🏠 실물이 홈(90°)에 있음 — 기준 설정</button>
           <button id="btnSync" style="width:100%; margin-bottom:8px;">🔌 연동 OFF</button>
           <div class="row"><button class="ghost" id="btnAlign" style="flex:1">실물을 3D에 맞추기 (정렬)</button><button class="danger" id="btnEstop">■ 정지</button></div>
-          <div class="row" style="margin-bottom:0"><span class="muted" style="width:38px">속도</span><input id="ctrlSpeed" type="number" value="10" step="1" min="1" style="width:56px"><span class="muted">°/s (60°≈6초)</span></div>
+          <div class="row" style="margin-bottom:0"><span class="muted" style="width:38px">속도</span><input id="ctrlSpeed" type="number" value="30" step="1" min="1" style="width:56px"><span class="muted">°/s · 전 페이지·실물 공통(여기서 제어)</span></div>
         </div>
         <div class="sect">관절 (<span id="jcount">0</span>) — 슬라이더로 회전</div>
         <div id="ctrlJoints"></div>
-
-        <div class="card" style="margin-top:10px;">
-          <div class="ttl">콜드스타트 / 작업공간 수집 (단계 ⑥)</div>
-          <div class="hintline">각 자세에서 마커를 측정해 모읍니다. 평평한 자세(J2=0)처럼 마커가 다 보일 때 추가하세요. (연동 ON 필요)</div>
-          <div class="row"><button class="primary" id="csAdd" style="flex:1">📌 이 자세 추가</button><button class="ghost" id="csAuto">🎬 검증 시퀀스</button></div>
-          <div class="row"><span class="muted">수집 <b id="csN">0</b>자세</span><span style="flex:1"></span><button class="ghost" id="csCsv">⬇ CSV</button><button class="ghost" id="csSave">💾 저장</button><button class="ghost" id="csClear">초기화</button></div>
-          <div class="hintline" id="csStat" style="margin:0;">검증용: 한 자세에서 안 움직이고 여러 번 '추가'=반복성, 한 관절만 바꿔 '추가'=관절별. → CSV로 내보내 분석.</div>
+        <div class="card" id="j7Card" style="display:none; margin-top:8px;">
+          <div class="row" style="justify-content:space-between;margin-bottom:6px"><span style="color:#fbbf24;font-weight:600">J7 · 그리퍼</span><span class="muted">ch6 · <b id="j7us">—</b>µs</span></div>
+          <div class="row" style="margin-bottom:0"><b id="j7pct" style="width:32px;text-align:right">0</b><span class="muted">%</span><input id="j7slider" class="slider" type="range" min="0" max="100" value="0" style="flex:1"></div>
+          <div class="hintline" style="margin-top:4px">0% 열림 ↔ 100% 닫힘 · 슬라이더로 그리퍼 개폐(3D+실물 ch6)</div>
         </div>
+        <div class="card" id="j7Need" style="display:none; margin-top:8px;"><div class="hintline">⚠ 그리퍼 개폐 보정 필요 — 결합 모드에서 그리퍼 손가락의 열림/닫힘을 저장하세요.</div></div>
 
-        <div class="card" style="margin-top:10px;">
+        <div class="card sim-card" style="margin-top:10px;">
           <div class="ttl">그리퍼 중심(TCP) 설정 (파지 P0)</div>
           <div class="hintline">기준 STL 부품을 고르고 XYZ로 미세조정 → 확정하면 그 점이 그리퍼 파지중심(TCP)이 됩니다. 부품 로컬좌표로 저장돼 관절 따라 이동합니다.</div>
           <div class="row" style="margin-bottom:6px"><span class="muted" style="width:38px">기준</span><select id="tcpPart" style="flex:1"></select><button class="ghost" id="tcpStart">✎ 편집</button></div>
@@ -179,30 +188,22 @@
           <div class="hintline" id="tcpStat" style="margin:6px 0 0;">자동 추정 사용 중. '편집'을 눌러 직접 지정하세요.</div>
         </div>
 
-        <div class="card" style="margin-top:10px;">
-          <div class="ttl">C-space 충돌 지도 (#3 — 가상 학습 데이터)</div>
-          <div class="hintline">J2·J3·J4를 격자로 전부 회전시켜 각 조합의 바닥여유·자기충돌을 시뮬에서 자동 기록 → CSV. (실물 불필요)</div>
-          <div class="row" style="margin-bottom:6px"><span class="muted" style="width:38px">간격</span><input id="csStep" type="number" value="5" step="1" min="2" max="15" style="width:56px"><span class="muted">°</span><span style="flex:1"></span><button class="primary" id="csSweep">🗺 격자(J2·J3·J4)</button></div>
-          <div class="row" style="margin-bottom:6px"><span class="muted" style="width:38px">샘플</span><input id="csN5" type="number" value="40000" step="5000" min="1000" style="width:72px"><span class="muted">개</span><span style="flex:1"></span><button class="ghost" id="csRand">🎲 랜덤(J2~J6)</button></div>
-          <div class="row" style="margin-bottom:0"><span class="muted">능동학습</span><span style="flex:1"></span><input id="csLabel" type="file" accept=".csv" style="display:none"><button class="ghost" id="csLabelBtn">🏷 질의 라벨링(CSV)</button></div>
-          <div class="hintline" id="csSweepStat" style="margin:6px 0 0;">격자=J2·J3·J4(히트맵). 랜덤=J2~J6 무작위(학습). 질의라벨링=Python이 준 cspace_query.csv를 시뮬로 라벨→cspace_labeled.csv.</div>
-        </div>
-
-        <div class="card" style="margin-top:10px;">
+        <div class="card sim-card" style="margin-top:10px;">
           <div class="ttl">파지 데이터셋 (P1 — TCP↔관절 매핑)</div>
           <div class="hintline">J1~J6를 무작위로 쓸어 각 자세의 [관절각, TCP 위치·접근벡터, 바닥/자기충돌]을 기록 → grasp_dataset.csv. 역질의(IK)·파지 학습의 데이터. (TCP 확정 후 실행 권장)</div>
           <div class="row" style="margin-bottom:0"><span class="muted" style="width:38px">샘플</span><input id="grN" type="number" value="30000" step="5000" min="1000" style="width:72px"><span class="muted">개</span><span style="flex:1"></span><button class="primary" id="grSweep">🤏 파지 스윕(J1~J6)</button></div>
           <div class="hintline" id="grStat" style="margin:6px 0 0;">J1 포함(방위각). 결과는 Python에서 KD-tree IK로 사용. 수직/수평은 접근 ay로 분류.</div>
         </div>
 
-        <div class="card" style="margin-top:10px;">
+        <div class="card sim-card" style="margin-top:10px;">
           <div class="ttl">파지 IK (P2 — 목표 위치 잡기)</div>
           <div class="hintline">grasp_dataset.csv를 불러오고 목표(물체) XYZ를 정하면, 그 위치를 충돌없이 잡는 관절각을 데이터셋에서 찾아 팔이 이동합니다. 목표를 옮기면 관절이 따라 움직입니다.</div>
           <div class="row" style="margin-bottom:6px"><span class="muted">데이터셋</span><input id="ikCsv" type="file" accept=".csv" style="display:none"><button class="ghost" id="ikCsvBtn">📂 grasp_dataset.csv</button><span style="flex:1"></span><span class="muted" id="ikDbN">미로드</span></div>
           <div class="row" style="margin-bottom:6px"><span class="muted" style="width:38px">목표</span>
             X<input id="ikX" type="number" value="-115" step="5" style="width:58px">
             Y<input id="ikY" type="number" value="150" step="5" style="width:52px">
-            Z<input id="ikZ" type="number" value="150" step="5" style="width:52px"></div>
+            Z<input id="ikZ" type="number" value="150" step="5" style="width:52px">
+            <button class="ghost" id="ikVision" title="5페이지에서 보낸 비전 감지 좌표 불러오기">📷 비전</button></div>
           <div class="row" style="margin-bottom:6px"><span class="muted" style="width:38px">스텝</span><input id="ikStep" type="number" value="10" step="5" min="1" style="width:46px"><span class="muted">mm</span>
             <button class="ghost iknudge" data-ax="x" data-d="-1">X−</button><button class="ghost iknudge" data-ax="x" data-d="1">X＋</button>
             <button class="ghost iknudge" data-ax="y" data-d="-1">Y−</button><button class="ghost iknudge" data-ax="y" data-d="1">Y＋</button>
@@ -215,7 +216,28 @@
             <button class="ghost ikrot" data-ax="1" data-d="-1">RY−</button><button class="ghost ikrot" data-ax="1" data-d="1">RY＋</button>
             <button class="ghost ikrot" data-ax="2" data-d="-1">RZ−</button><button class="ghost ikrot" data-ax="2" data-d="1">RZ＋</button></div>
           <div class="row" style="margin-bottom:0"><button class="primary" id="ikSolve" style="flex:1">🤖 이 위치 잡기(IK)</button></div>
-          <div class="hintline" id="ikStat" style="margin:6px 0 0;">데이터셋을 불러오고 목표를 정한 뒤 잡기를 누르세요. 주황 마커 = 목표 물체.</div>
+          <div class="hintline" id="ikStat" style="margin:6px 0 0;">물체 프레임(좌표축)=고정. 수직/수평은 <b>그리퍼 접근방향(노란 화살표)</b>만 바꿈 → 로봇팔이 그 방향으로 접근. 물체는 집어 옮길 때만 이동.</div>
+        </div>
+
+        <div class="card sim-card" style="margin-top:10px;">
+          <div class="ttl">가상 물체 (파지 대상)</div>
+          <div class="hintline">프리미티브 물체를 IK 목표 위치에 놓고 파지 대상으로 삼습니다. 다음 단계에서 표면 접촉점 파지 후보를 자동 생성합니다.</div>
+          <div class="row" style="margin-bottom:6px"><span class="muted" style="width:38px">종류</span>
+            <select id="voType" style="flex:1"><option value="cyl">원기둥</option><option value="sph">구</option><option value="box">박스</option><option value="cup">컵(열린 원기둥)</option></select></div>
+          <div class="row" style="margin-bottom:6px"><span class="muted" style="width:38px">크기</span>
+            반경<input id="voR" type="number" value="25" step="2" min="3" style="width:48px">
+            높이<input id="voH" type="number" value="80" step="5" min="5" style="width:48px"><span class="muted">mm</span></div>
+          <div class="row" style="margin-bottom:6px"><button class="primary" id="voShow" style="flex:1">표시 / 갱신(IK 목표에)</button><button class="ghost" id="voHide">숨김</button></div>
+          <div class="row" style="margin-bottom:6px"><span class="muted" style="width:38px">벌림</span><input id="voGrip" type="number" value="80" step="5" min="10" style="width:48px"><span class="muted">mm</span><span style="flex:1"></span><button class="ghost" id="voCands">🎯 파지 후보 생성</button></div>
+          <div class="row" style="margin-bottom:0"><button class="primary" id="voAuto" style="flex:1">🤖 자동 잡기 (도달가능 최적 후보)</button></div>
+          <div class="hintline" id="voStat" style="margin:6px 0 0;">물체 표면 antipodal 후보 자동 생성(수직=파랑·수평=초록 접근화살표). 그리퍼 벌림보다 좁은 부위만.</div>
+        </div>
+
+        <div class="card sim-card" style="margin-top:10px;">
+          <div class="ttl">감지 물체 (비전) <span id="visStat" class="muted" style="font-weight:400"></span></div>
+          <div class="hintline">스테레오 카메라가 본 물체의 3D 좌표(로봇 기준 mm). 카메라는 1페이지에서 활성화.</div>
+          <div class="row" style="margin-bottom:6px"><button class="ghost" id="visScan">🔄 새로고침</button><label class="muted" style="display:flex;align-items:center;gap:5px;"><input type="checkbox" id="visAuto"> 자동(1초)</label></div>
+          <table style="width:100%"><tbody id="visBody"></tbody></table>
         </div>
       </div>
 
@@ -298,7 +320,7 @@ Promise.all([fetch(LIST).then(r=>r.json()),fetch(LOADU).then(r=>r.json())]).then
     geo.computeVertexNormals(); const m=new THREE.Mesh(geo,mat.clone()); m.userData.part=name;
     const c=cfg[name]; if(c){ m.position.fromArray(c.pos); m.rotation.set(d2r(c.rot[0]),d2r(c.rot[1]),d2r(c.rot[2])); m.visible=c.visible!==false; }
     worldRoot.add(m); parts.push({name,mesh:m}); addRow(name);
-    if(++done===list.files.length){ $('ploading').style.display='none'; $('pcount').textContent=parts.length; renderMates(); if(EMBED) enterEmbed(); }
+    if(++done===list.files.length){ $('ploading').style.display='none'; $('pcount').textContent=parts.length; renderMates(); if(EMBED) enterEmbed(); else if('{{ view }}'==='sim'){ setMode('ctrl'); }   /* 4페이지: 로드 후 제어모드 자동 진입(리깅 활성 → IK·파지 작동) */ }
   }); });
 });
 
@@ -417,23 +439,29 @@ $('doMate').onclick=()=>{
   B.position.sub(perp); pBx.sub(perp); pBp.sub(perp);
   // 3) 면일치: 평면이 만나도록 축 따라 이동
   const along=pAp.clone().sub(pBp).dot(aA); B.position.add(aA.clone().multiplyScalar(along));
-  mates.push({parent:mp.axA.mesh.userData.part, child:B.userData.part, type, pivot:pAx.toArray().map(v=>+v.toFixed(2)), axis:aA.toArray().map(v=>+v.toFixed(4)), angle:90, min:0, max:180, offset:[0,0,0], roll:0, locked:false, motor:{channel:mates.filter(m=>m.type==='rev').length, us0:600, us180:2740}});
+  mates.push({parent:mp.axA.mesh.userData.part, child:B.userData.part, type, pivot:pAx.toArray().map(v=>+v.toFixed(2)), axis:aA.toArray().map(v=>+v.toFixed(4)), angle:90, min:0, max:180, offset:[0,0,0], roll:0, locked:false, motor:{channel: type==='grip'?6:mates.filter(m=>m.type==='rev').length, us0:600, us180:2740}, gOpen:null, gClose:null});
   mp={}; clrMarks(); ['axA','plA','axB','plB'].forEach(k=>$('s_'+k).textContent='미선택'); document.querySelectorAll('.slot').forEach(b=>b.classList.remove('on')); $('matebar').style.display='none';
   renderMates(); rebuild();
 };
 function renderMates(){ const jl=$('jlist'); jl.innerHTML=''; $('mcount').textContent=mates.length;
-  mates.forEach((m,i)=>{ const row=document.createElement('div'); row.className='j'+(selMate===i?' sel':''); row.innerHTML=`<span class="nm">${m.locked?'🔒 ':''}${m.parent} → ${m.child}</span><span class="muted">${m.type==='rev'?'회전':'고정'}</span>`; row.onclick=()=>selectMate(i); jl.appendChild(row); }); }
-function selectMate(i){ selMate=i; renderMates(); const m=mates[i]; $('jedit').style.display='block'; $('jname').textContent=`${m.parent} → ${m.child} (${m.type==='rev'?'회전':'고정'})`;
+  mates.forEach((m,i)=>{ const row=document.createElement('div'); row.className='j'+(selMate===i?' sel':''); row.innerHTML=`<span class="nm">${m.locked?'🔒 ':''}${m.parent} → ${m.child}</span><span class="muted">${m.type==='rev'?'회전':(m.type==='grip'?'그리퍼':'고정')}</span>`; row.onclick=()=>selectMate(i); jl.appendChild(row); }); }
+function selectMate(i){ selMate=i; renderMates(); const m=mates[i]; $('jedit').style.display='block'; $('jname').textContent=`${m.parent} → ${m.child} (${m.type==='rev'?'회전':(m.type==='grip'?'그리퍼':'고정')})`;
+  if(m.type==='grip'&&m.min===0&&m.max===180){ m.min=-60; m.max=60; m.angle=0; }   // 기존 grip(회전범위) → 슬라이드 범위(mm) 마이그레이션
   jmin.value=m.min;jmax.value=m.max;mch.value=m.motor.channel;mu0.value=m.motor.us0;mu1.value=m.motor.us180; tslider.min=m.min;tslider.max=m.max;tslider.value=m.angle;$('tval').textContent=m.angle;
+  $('tlabel').textContent=m.type==='grip'?'슬라이드':'테스트 회전'; $('tunit').textContent=m.type==='grip'?'mm':'°';
   const off=m.offset||[0,0,0]; $('aox').value=off[0]; $('aoy').value=off[1]; $('aoz').value=off[2]; $('aroll').value=m.roll||0;
   $('lockMate').textContent=m.locked?'🔓 고정 해제':'🔒 이 결합 고정'; $('lockMate').classList.toggle('on',!!m.locked);
-  const dis=(m.type!=='rev'); [mch,mu0,mu1,tslider].forEach(e=>e.disabled=dis); axInfo(m); }
+  const dis=(m.type==='fix'); [mch,mu0,mu1,tslider].forEach(e=>e.disabled=dis);
+  $('toGrip').style.display=(m.type==='fix')?'none':'block'; $('toGrip').textContent=m.type==='grip'?'↩ 일반 회전 관절로':'🤏 그리퍼 관절로 전환';
+  const isGrip=(m.type==='grip'); $('gripEdit').style.display=isGrip?'block':'none';
+  if(isGrip){ $('gripInfo').textContent=(m.gOpen!=null?`열림 ${m.gOpen}°`:'⚠ 열림 미저장')+' · '+(m.gClose!=null?`닫힘 ${m.gClose}°`:'⚠ 닫힘 미저장')+(gripReady()?' · ✓ 슬라이더로 개폐 가능':''); $('gripSlider').disabled=!gripReady(); }
+  axInfo(m); }
 ['jmin','jmax','mch','mu0','mu1'].forEach(id=>$(id).addEventListener('input',()=>{ if(selMate<0)return; const m=mates[selMate]; m.min=+jmin.value;m.max=+jmax.value;m.motor.channel=+mch.value;m.motor.us0=+mu0.value;m.motor.us180=+mu1.value; tslider.min=m.min;tslider.max=m.max; }));
 $('tslider').addEventListener('input',()=>{ if(selMate<0)return; mates[selMate].angle=+tslider.value; $('tval').textContent=tslider.value; applyAngles(); });
 $('delMate').onclick=()=>{ mates.splice(selMate,1); selMate=-1; $('jedit').style.display='none'; renderMates(); rebuild(); };
 function subtreeParts(root){ const out=[root]; const st=[root]; while(st.length){ const p=st.pop(); mates.forEach(m=>{ if(m.parent===p && !out.includes(m.child)){ out.push(m.child); st.push(m.child); } }); } return out; }
 function editOffset(mate, dx,dy,dz, dRoll){
-  mates.forEach(m=>m.angle=90); applyAngles(); parts.forEach(p=>worldRoot.attach(p.mesh));   // 휴식 자세 + 평면화
+  mates.forEach(m=>m.angle=(m.type==='grip')?0:90); applyAngles(); parts.forEach(p=>worldRoot.attach(p.mesh));   // 휴식 자세(grip=슬라이드0) + 평면화
   const axis=new THREE.Vector3().fromArray(mate.axis).normalize(); const pivot=new THREE.Vector3().fromArray(mate.pivot);
   const dv=new THREE.Vector3(dx,dy,dz); const q=new THREE.Quaternion().setFromAxisAngle(axis, d2r(dRoll));
   const sub=subtreeParts(mate.child); const inSub=nm=>sub.includes(nm);
@@ -453,16 +481,45 @@ function mOff(m){ return m.offset||(m.offset=[0,0,0]); }
 $('aroll').addEventListener('input',()=>{ if(selMate<0)return; const m=mates[selMate]; editOffset(m,0,0,0,(+aroll.value)-(m.roll||0)); m.roll=+aroll.value; });
 // 축 기울기 보정: 회전축(m.axis)을 월드 X/Y/Z로 미세회전 → 관절 돌릴 때 비틀림 제거(휴식 90°는 불변)
 const _AXW=[new THREE.Vector3(1,0,0),new THREE.Vector3(0,1,0),new THREE.Vector3(0,0,1)];
-function axInfo(m){ const e=$('axInfo'); if(e&&m&&m.type==='rev') e.textContent=`회전축 (${m.axis.map(v=>(+v).toFixed(3)).join(', ')}) — 끝각에서 비틀림 최소가 되게 조정 후 💾`; }
-document.querySelectorAll('.axtilt').forEach(b=>b.onclick=()=>{ if(selMate<0)return; const m=mates[selMate]; if(m.type!=='rev')return;
+function axInfo(m){ const e=$('axInfo'); if(!e||!m)return;
+  if(m.type==='rev') e.textContent=`회전축 (${m.axis.map(v=>(+v).toFixed(3)).join(', ')}) — 끝각에서 비틀림 최소가 되게 조정 후 💾`;
+  else if(m.type==='grip') e.textContent=`슬라이드축 (${m.axis.map(v=>(+v).toFixed(3)).join(', ')}) — 손가락이 엉뚱한 방향이면 축기울기로 조정`;
+  else e.textContent=''; }
+// 축 조정 전 휴식자세+평면화 → rebuild가 현재 슬라이드/회전을 베이스에 굽는 드리프트 방지
+function _restFlatten(){ mates.forEach(mm=>{ mm.angle=(mm.type==='grip')?0:90; }); applyAngles(); parts.forEach(p=>worldRoot.attach(p.mesh)); }
+document.querySelectorAll('.axtilt').forEach(b=>b.onclick=()=>{ if(selMate<0)return; const m=mates[selMate]; if(m.type==='fix')return;   // 회전·그리퍼(슬라이드축)
+  _restFlatten();
   const s=(+b.dataset.d)*(+$('atStep').value||1), q=new THREE.Quaternion().setFromAxisAngle(_AXW[+b.dataset.ax], d2r(s));
   const a=new THREE.Vector3().fromArray(m.axis).applyQuaternion(q).normalize();
-  m.axis=[+a.x.toFixed(4),+a.y.toFixed(4),+a.z.toFixed(4)]; rebuild(); axInfo(m); });
-// 축위치 보정: 회전중심(m.pivot)을 월드 X/Y/Z로 평행이동 → 회전 궤도(아크) 정렬(휴식 90°는 불변)
-document.querySelectorAll('.axmove').forEach(b=>b.onclick=()=>{ if(selMate<0)return; const m=mates[selMate]; if(m.type!=='rev')return;
+  m.axis=[+a.x.toFixed(4),+a.y.toFixed(4),+a.z.toFixed(4)]; rebuild(); axInfo(m);
+  $('tslider').value=m.angle; $('tval').textContent=m.angle; });
+// 축위치 보정: 회전중심/슬라이드 기준점(m.pivot)을 월드 X/Y/Z로 평행이동(휴식 위치는 불변)
+document.querySelectorAll('.axmove').forEach(b=>b.onclick=()=>{ if(selMate<0)return; const m=mates[selMate]; if(m.type==='fix')return;   // 회전·그리퍼(슬라이드 기준점)
+  _restFlatten();
   const s=(+b.dataset.d)*(+$('apStep').value||2), i=+b.dataset.ax, pv=(m.pivot||[0,0,0]).slice();
-  pv[i]=+(pv[i]+s).toFixed(2); m.pivot=pv; rebuild(); axInfo(m); });
+  pv[i]=+(pv[i]+s).toFixed(2); m.pivot=pv; rebuild(); axInfo(m);
+  $('tslider').value=m.angle; $('tval').textContent=m.angle; });
 $('lockMate').onclick=()=>{ if(selMate<0)return; const m=mates[selMate]; m.locked=!m.locked; selectMate(selMate); renderMates(); };
+$('toGrip').onclick=()=>{ if(selMate<0)return; const m=mates[selMate]; if(m.type==='fix')return;   // 회전↔그리퍼 전환
+  if(m.type==='grip'){ m.type='rev'; m.min=0; m.max=180; m.angle=90; }
+  else { m.type='grip'; m.motor.channel=6; m.min=-60; m.max=60; m.angle=0; if(m.gOpen===undefined)m.gOpen=null; if(m.gClose===undefined)m.gClose=null; }   // 슬라이드 범위 mm
+  rebuild(); renderMates(); selectMate(selMate); };
+// 그리퍼 개폐 — 'grip' 결합들을 열림/닫힘 하나로 동시 구동
+function gripMates(){ return mates.filter(m=>m.type==='grip'); }
+function gripReady(){ const g=gripMates(); return g.length>0 && g.every(m=>m.gOpen!=null && m.gClose!=null); }
+function setGripper(t){   // 0=완전 열림 .. 1=완전 닫힘
+  t=Math.max(0,Math.min(1,t));
+  gripMates().forEach(m=>{ if(m.gOpen!=null && m.gClose!=null) m.angle=m.gOpen+(m.gClose-m.gOpen)*t; });
+  applyAngles();
+  const sl=$('gripSlider'); if(sl){ sl.value=Math.round(t*100); sl.disabled=!gripReady(); }
+  const v=$('gripVal'); if(v) v.textContent = t<0.05?'열림':(t>0.95?'닫힘':Math.round(t*100)+'%');
+  const j7=$('j7slider'); if(j7) j7.value=Math.round(t*100); const j7p=$('j7pct'); if(j7p) j7p.textContent=Math.round(t*100);   // 제어 J7 동기화
+}
+$('gripSaveOpen').onclick=()=>{ if(selMate<0)return; const m=mates[selMate]; if(m.type!=='grip')return; m.gOpen=+(+$('tslider').value).toFixed(1); selectMate(selMate); };
+$('gripSaveClose').onclick=()=>{ if(selMate<0)return; const m=mates[selMate]; if(m.type!=='grip')return; m.gClose=+(+$('tslider').value).toFixed(1); selectMate(selMate); };
+$('gripSlider').addEventListener('input',()=>{ if(gripReady()) setGripper(+$('gripSlider').value/100); });
+$('j7slider').addEventListener('input',()=>{ if(!gripReady())return; const t=+$('j7slider').value/100; setGripper(t);   // J7 = 그리퍼 개폐
+  if(sync && connected){ const us=Math.round(J7_OPEN_US+(J7_CLOSE_US-J7_OPEN_US)*t); sendJoint(6,us); $('j7us').textContent=us; } });
 // 고정된 결합으로 연결된 부품들 = 하나의 강체 그룹 (조립 모드에서 통째 이동)
 function lockedGroup(name){ const set=new Set([name]); let add=true; while(add){ add=false; mates.forEach(m=>{ if(!m.locked)return; if(set.has(m.parent)&&!set.has(m.child)){set.add(m.child);add=true;} if(set.has(m.child)&&!set.has(m.parent)){set.add(m.parent);add=true;} }); } return [...set]; }
 
@@ -480,29 +537,31 @@ function rebuild(){
   while(placed.size<parts.length && guard++<200){
     mates.forEach(m=>{ if(placed.has(m.child)||!placed.has(m.parent))return;
       const pg=groups[m.parent], cg=groups[m.child]; pg.updateMatrixWorld(true);
-      if(m.type==='rev'){ const pv=new THREE.Group(); pv.name='pv_'+m.child; pg.attach(pv);
-        pg.updateMatrixWorld(true); pv.position.copy(pg.worldToLocal(new THREE.Vector3().fromArray(m.pivot))); pv.updateMatrixWorld(true);
-        pv.attach(cg); cg.attach(partByName(m.child).mesh); m._pv=pv; }
+      if(m.type==='rev'||m.type==='grip'){ const pv=new THREE.Group(); pv.name='pv_'+m.child; pg.attach(pv);
+        pg.updateMatrixWorld(true); const _b=pg.worldToLocal(new THREE.Vector3().fromArray(m.pivot)); pv.position.copy(_b); pv.updateMatrixWorld(true);
+        pv.attach(cg); cg.attach(partByName(m.child).mesh); m._pv=pv; m._base=_b.clone(); }
       else { pg.attach(cg); cg.attach(partByName(m.child).mesh); m._pv=null; }
       placed.add(m.child);
     });
   }
   applyAngles();
 }
-function applyAngles(){ mates.forEach(m=>{ if(m.type!=='rev'||!m._pv)return; const ax=new THREE.Vector3().fromArray(m.axis); if(ax.lengthSq()<1e-6)ax.set(0,1,0); ax.normalize(); m._pv.quaternion.setFromAxisAngle(ax, d2r(((m.angle==null?90:m.angle))-90)); }); }   // 0||90=90 falsy 버그 수정
+function applyAngles(){ mates.forEach(m=>{ if(!m._pv)return; const ax=new THREE.Vector3().fromArray(m.axis); if(ax.lengthSq()<1e-6)ax.set(0,1,0); ax.normalize();
+  if(m.type==='rev'){ m._pv.quaternion.setFromAxisAngle(ax, d2r(((m.angle==null?90:m.angle))-90)); }                 // 회전
+  else if(m.type==='grip'){ m._pv.position.copy(m._base||new THREE.Vector3()).addScaledVector(ax, m.angle||0); }    // 그리퍼=슬라이드(축 방향 mm)
+}); }
 
 // ---- 모드 ----
 function setMode(mo){ mode=mo; $('mAsm').classList.toggle('on',mo==='asm'); $('mMate').classList.toggle('on',mo==='mate'); $('mCtrl').classList.toggle('on',mo==='ctrl');
   $('asmPane').style.display=mo==='asm'?'block':'none'; $('matePane').style.display=mo==='mate'?'block':'none'; $('ctrlPane').style.display=mo==='ctrl'?'block':'none';
   $('phase').textContent=mo==='asm'?'1·조립':(mo==='mate'?'2·결합':'3·연동 제어');
   deselectPart(); tc.detach(); pickFor=null; clrMarks(); $('matebar').style.display='none';
-  if(mo==='mate' || mo==='ctrl'){ rebuild(); if(mo==='ctrl'){ buildCtrlJoints(); refreshConn(); } }
+  if(mo==='mate' || mo==='ctrl'){ mates.forEach(m=>{ m.angle=(m.type==='grip')?0:90; }); rebuild(); if(mo==='ctrl'){ buildCtrlJoints(); refreshConn(); } }   // 진입 시 휴식자세(grip=슬라이드0)에서 리깅 → 베이스 정확(대각선 슬라이드 방지)
   else { parts.forEach(p=>{ worldRoot.attach(p.mesh); p.mesh.scale.set(1,1,1); p.mesh.quaternion.normalize(); }); Object.values(groups).forEach(g=>g.parent&&g.parent.remove(g)); groups={}; } }
 $('mAsm').onclick=()=>setMode('asm'); $('mMate').onclick=()=>setMode('mate'); $('mCtrl').onclick=()=>setMode('ctrl');
 
 // ---- ③ 연동 제어: 실물 로봇팔 ----
 const A_STAT="{% url 'armvision:arm_status' %}", A_CONN="{% url 'armvision:arm_connect' %}", A_DISC="{% url 'armvision:arm_disconnect' %}", A_MOVE="{% url 'armvision:arm_move' %}";
-const MEASU="{% url 'armvision:measure_markers' %}", CSAVE="{% url 'armvision:coldstart_save' %}";
 let sync=false, connected=false;
 const revMates=()=>mates.filter(m=>m.type==='rev');
 function angToUs(m, ang){ let a=(ang==null)?(m.angle==null?90:m.angle):ang;
@@ -535,7 +594,7 @@ function loadCmd(m){ try{ const o=JSON.parse(localStorage.getItem(CMD_KEY)||'{}'
 function mirrorTargets(){ return fetch('/arm/joints/').then(r=>r.json()).then(d=>{ const jo=(d&&d.joints)||{};   // 서버 진실(실물 관절각) 폴링
     revMates().forEach((m,i)=>{ const v=jo['J'+(i+1)]; m._mt=(typeof v==='number'?v:90); }); }).catch(()=>{}); }
 function mirrorRamp(){ let moved=false; revMates().forEach(m=>{ if(m._mt==null)return; let a=(m.angle==null?90:m.angle); const d=m._mt-a;
-  if(Math.abs(d)>0.05){ a+=Math.sign(d)*Math.min(Math.abs(d),2); m.angle=a; moved=true; } }); if(moved) applyAngles(); }
+  if(Math.abs(d)>0.05){ a+=Math.sign(d)*Math.min(Math.abs(d),ctrlSpeed*0.04); m.angle=a; moved=true; } }); if(moved) applyAngles(); }
 function enterEmbed(){ document.body.classList.add('embed'); try{ rebuild(); }catch(e){}
   revMates().forEach(m=>m.angle=90); applyAngles();                        // 기본 홈(90°)에서 시작
   mirrorTargets().then(()=>{ revMates().forEach(m=>m.angle=(m._mt==null?90:m._mt)); applyAngles(); });   // 서버 현재자세로 즉시 스냅
@@ -543,7 +602,7 @@ function enterEmbed(){ document.body.classList.add('embed'); try{ rebuild(); }ca
   [60,250,700,1500].forEach(d=>setTimeout(()=>{ try{ resize(); }catch(e){} }, d));
   try{ new ResizeObserver(()=>{ try{ resize(); }catch(e){} }).observe(vp); }catch(e){}
 }
-// 실측 서보 펄스(0°/180° µs) — 채널별 (arduino/docs/servo_calibration.md). 조립 기본값 대신 이 값 사용.
+// 실측 서보 펄스(0°/180° µs) — 채널별 (arduino/docs/1_servo_calibration.md). 조립 기본값 대신 이 값 사용.
 const SERVO_CAL={0:[600,2740],1:[530,2670],2:[520,2700],3:[540,2720],4:[600,2750],5:[560,2750]};
 function buildCtrlJoints(){ const c=$('ctrlJoints'); c.innerHTML=''; aligning=false; const rm=revMates(); $('jcount').textContent=rm.length;
   rm.forEach((m,i)=>{ const card=document.createElement('div'); card.className='card';
@@ -555,7 +614,15 @@ function buildCtrlJoints(){ const c=$('ctrlJoints'); c.innerHTML=''; aligning=fa
     m._tgt=(m.angle==null?90:m.angle); if(m._cmd==null){ const s=loadCmd(m); m._cmd=(s!=null)?s:90; } m._ui={sl,ca,cu};   // 명령각: 저장값 복원, 없으면 홈(90°)
     cu.textContent=angToUs(m);
     sl.addEventListener('input',()=>{ m._tgt=+sl.value; });   // 목표만 설정 → 램프가 천천히 이동
-    c.appendChild(card); }); }
+    c.appendChild(card); });
+  refreshJ7();   // 그리퍼(J7) 카드 표시
+}
+// ---- J7(그리퍼) 제어: 개폐 슬라이더 = 3D(setGripper) + 실물 ch6 ----
+const J7_OPEN_US=550, J7_CLOSE_US=2500;
+function refreshJ7(){ const ready=gripReady(), has=gripMates().length>0;
+  $('j7Card').style.display=ready?'block':'none'; $('j7Need').style.display=(has&&!ready)?'block':'none';
+  if(ready){ const m=gripMates()[0], rng=(m.gClose-m.gOpen); const t=(rng!==0)?(m.angle-m.gOpen)/rng:0;
+    $('j7slider').value=Math.round(Math.max(0,Math.min(1,t))*100); $('j7pct').textContent=$('j7slider').value; } }
 // ---- 속도 제한 램프 (ctrlSpeed °/s) ----
 // 2단: ① 3D 표시각(m.angle) → 슬라이더 목표(_tgt)   ② 실물 명령각(_cmd) → 3D 표시각
 // 펄스는 _cmd 기준으로 보냄. 정렬·연동 모두 같은 하단 속도로 천천히 움직인다.
@@ -598,84 +665,14 @@ $('btnSync').onclick=()=>{ if(!connected){ alert('먼저 아두이노를 연결�
 $('btnHome').onclick=()=>{ revMates().forEach(m=>m._cmd=90); saveCmd(); $('connStat').textContent='홈(90°) 기준 설정됨 (저장됨 — 페이지 이동해도 유지)'; $('connStat').style.color='var(--c-ok)'; };
 $('btnAlign').onclick=()=>{ if(!connected){ alert('먼저 아두이노를 연결하세요.'); return; }
   armAlign(); $('connStat').textContent='정렬 중… (홈에서 천천히 이동)'; $('connStat').style.color='var(--c-ok)'; };
-$('btnEstop').onclick=()=>{ seqAbort=true; setSync(false); revMates().forEach(m=>m._tgt=(m.angle==null?90:m.angle)); $('connStat').textContent='정지 — 연동 꺼짐(서보는 현재 위치 유지)'; $('connStat').style.color='var(--warn)'; };
+$('btnEstop').onclick=()=>{ seqAbort=true; if(typeof graspSeq!=='undefined')graspSeq=null; if(typeof _ikMove!=='undefined')_ikMove=null; setSync(false); revMates().forEach(m=>m._tgt=(m.angle==null?90:m.angle)); $('connStat').textContent='정지 — 연동 꺼짐(서보는 현재 위치 유지)'; $('connStat').style.color='var(--warn)'; };
 $('ctrlSpeed').addEventListener('input',()=>{ ctrlSpeed=Math.max(1,+$('ctrlSpeed').value||10); });
+// 이 속도 입력이 '모든 페이지·실물 공통' 마스터 컨트롤 — 서버 설정에 반영
+$('ctrlSpeed').addEventListener('change',()=>{ fetch('/arm/config/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({deg_per_s:ctrlSpeed})}).catch(()=>{}); });
+fetch('/arm/config/').then(r=>r.json()).then(c=>{ if(c&&c.deg_per_s){ ctrlSpeed=c.deg_per_s; const e=$('ctrlSpeed'); if(e)e.value=Math.round(c.deg_per_s); } }).catch(()=>{});   // 로드 시 공통 속도 가져오기
 setInterval(()=>{ if(mode==='ctrl'){ refreshConn(); saveCmd(); } }, 2500);   // 끊김 자동 감지 + 명령각 저장
 
-// ---- 콜드스타트 / 작업공간 수집 (단계 ⑥) ----
-let csPoses=[];
-const _sleep=ms=>new Promise(r=>setTimeout(r,ms));
-function _waitSettled(timeout=10000){ return new Promise(res=>{ const t0=performance.now(); const iv=setInterval(()=>{ const done=revMates().every(m=>Math.abs((m.angle==null?90:m.angle)-(m._tgt==null?90:m._tgt))<0.6); if(done||performance.now()-t0>timeout){ clearInterval(iv); res(); } },120); }); }
-async function csAdd(silent){
-  try{ const d=await (await fetch(MEASU)).json();
-    if(!d.ok || !Object.keys(d.markers).length){ if(!silent)$('csStat').textContent='마커가 안 잡힙니다 — 자세/가시성 확인'; return false; }
-    const angles={}; revMates().forEach((m,i)=>angles['J'+(i+1)]=+((m.angle==null?90:m.angle)).toFixed(1));
-    csPoses.push({angles, markers:d.markers}); $('csN').textContent=csPoses.length;
-    if(!silent)$('csStat').textContent=`추가됨 — 마커 ${Object.keys(d.markers).length}개 (${d.frame==='robot'?'로봇기준':'⚠카메라기준(T없음)'})`;
-    return true;
-  }catch(e){ if(!silent)$('csStat').textContent='측정 실패'; return false; }
-}
-async function csSave(){
-  if(!csPoses.length){ $('csStat').textContent='수집된 자세가 없습니다.'; return; }
-  try{ const d=await (await fetch(CSAVE,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({poses:csPoses})})).json();
-    const w=d.workspace;
-    $('csStat').textContent = (d.ok&&w)? `저장 ✓ ${d.poses}자세 · J1축(id${w.axis_id}) 기준 작업공간 X[${w.x}] Y[${w.y}] Z[${w.z}] · 도달 ${w.reach_min}~${w.reach_max}mm`+(w.axis_spread!=null?` · 축흔들림 ${w.axis_spread}mm`:'')
-      : (d.ok? `저장 ✓ ${d.poses}자세 (엔드 마커 없어 작업공간 계산 불가)` : '저장 실패');
-  }catch(e){ $('csStat').textContent='저장 실패'; }
-}
-// ── 검증 시퀀스: "한 번에 한 모터만" + 사이클(이동→측정→복귀) + 끝까지 다음 단계 금지 ──
-// (동시 구동 시 전압강하로 아두이노 리셋되는 문제 → 단일 관절만 움직임)
-let seqAbort=false;
-async function moveJoint(idx, angle){            // 한 관절만 이동, 3D 정착 + 실물 서보 도착까지 대기
-  const m=revMates()[idx]; if(!m) return;
-  console.log(`[seq] moveJoint J${idx+1} ${(m.angle==null?90:m.angle).toFixed(1)}° → ${angle}°`);
-  if(Math.abs((m.angle==null?90:m.angle)-angle)<0.5){ m._tgt=angle; return; }   // 이미 도착
-  m._tgt=angle;
-  await _waitSettled(20000);                     // 3D 램프 정착(이 관절만 움직임)
-  await _sleep(1000);                            // 실물 서보 최종 도착 여유(다음 단계 금지)
-}
-async function runValidation(){
-  if(!connected||!sync){ alert('실물 연결 + 연동 ON 상태에서 실행하세요.'); return; }
-  const rm=revMates(), n=rm.length;
-  const base={J1:90,J2:0,J3:90,J4:90,J5:180,J6:90};   // 평평·마커 다 보임
-  const baseAng=i=>base['J'+(i+1)]!=null?base['J'+(i+1)]:90;
-  const REPEAT=20, REPS=2, TESTS={J1:[50,65,80,95,110,125],J3:[60,75,105,120,135],J4:[60,75,105,120,135],J5:[0,60,120],J2:[20,40]};
-  if(!confirm('검증 시퀀스 시작.\n· 모터는 항상 한 개씩만 이동(전압 리셋 방지)\n· 기준 자세 → 반복성 '+REPEAT+'회 → 관절별 사이클(이동→측정→복귀)\n· [■ 정지]로 언제든 중단\n계속할까요?')) return;
-  seqAbort=false;
-  const stop=()=>seqAbort||!connected;
-  try{
-    // 1) 기준 자세로 — 한 관절씩
-    for(let i=0;i<n;i++){ if(stop())return; $('csStat').textContent=`기준 자세 J${i+1}→${baseAng(i)}°…`; await moveJoint(i, baseAng(i)); }
-    // 2) 반복성 — 기준 자세에서 움직임 없이 반복 측정
-    for(let r=0;r<REPEAT;r++){ if(stop())break; await _sleep(300); const ok=await csAdd(true);
-      $('csStat').textContent=`반복성 ${r+1}/${REPEAT} ${ok?'✓':'마커부족'} · 수집 ${csPoses.length}`; }
-    // 3) 관절별 단독 사이클: 기준 → 목표(측정) → 기준 복귀  (각 단계 한 관절만)
-    for(const j in TESTS){ const idx=+j.slice(1)-1; if(idx>=n)continue;
-      for(const ang of TESTS[j]){ if(stop())return;
-        $('csStat').textContent=`${j}→${ang}° 이동…`; await moveJoint(idx, ang);   if(stop())return;
-        const ok=await csAdd(true); $('csStat').textContent=`${j}=${ang}° ${ok?'측정 ✓':'마커부족'} · 수집 ${csPoses.length} · 복귀…`;
-        await moveJoint(idx, baseAng(idx)); }   // 기준 복귀
-    }
-    $('csStat').textContent=`완료 — ${csPoses.length}자세. [⬇ CSV]로 내보내세요.`;
-  }catch(e){ $('csStat').textContent='시퀀스 오류 — 중단'; }
-}
-function csExportCSV(){
-  if(!csPoses.length){ $('csStat').textContent='수집된 자세가 없습니다.'; return; }
-  const jkeys=Object.keys(csPoses[0].angles); const mids=[0,1,2,3,4,5,6,7];
-  const head=['idx',...jkeys,...mids.flatMap(i=>[`id${i}_x`,`id${i}_y`,`id${i}_z`])];
-  const rows=csPoses.map((p,i)=>{ const a=jkeys.map(k=>p.angles[k]);
-    const m=mids.flatMap(id=>{ const v=p.markers[id]; return v?[v[0],v[1],v[2]]:['','','']; });
-    return [i+1,...a,...m].join(','); });
-  const csv=[head.join(','),...rows].join('\n');
-  const url=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
-  const a=document.createElement('a'); a.href=url; a.download='measure_data.csv'; a.click(); URL.revokeObjectURL(url);
-  $('csStat').textContent=`CSV 내보냄 (${csPoses.length}행) — 파일을 공유해 주세요`;
-}
-$('csAdd').onclick=()=>csAdd(false);
-$('csAuto').onclick=runValidation;
-$('csSave').onclick=csSave;
-$('csCsv').onclick=csExportCSV;
-$('csClear').onclick=()=>{ csPoses=[]; $('csN').textContent='0'; $('csStat').textContent='초기화됨'; };
+let seqAbort=false;   // estop·연결끊김 시 동결 플래그(검증시퀀스 제거됨)
 
 // ---- 클릭 ----
 const ray=new THREE.Raycaster(), mouse=new THREE.Vector2();
@@ -702,8 +699,8 @@ renderer.domElement.addEventListener('pointerdown',e=>{
 });
 
 // ---- 저장/불러오기 ----
-$('save').onclick=async ()=>{ const wasMate=(mode==='mate'); if(wasMate){ mates.forEach(m=>m.angle=90); applyAngles(); parts.forEach(p=>worldRoot.attach(p.mesh)); }
-  const data={ parts: parts.map(p=>({name:p.name,pos:p.mesh.position.toArray().map(v=>+v.toFixed(2)),rot:[r2d(p.mesh.rotation.x),r2d(p.mesh.rotation.y),r2d(p.mesh.rotation.z)].map(v=>+v.toFixed(1)),visible:p.mesh.visible})), mates: mates.map(m=>({parent:m.parent,child:m.child,type:m.type,pivot:m.pivot,axis:m.axis,angle:m.angle,min:m.min,max:m.max,offset:m.offset||[0,0,0],roll:m.roll||0,locked:!!m.locked,motor:m.motor})) };
+$('save').onclick=async ()=>{ const wasMate=(mode==='mate'); if(wasMate){ mates.forEach(m=>m.angle=(m.type==='grip')?0:90); applyAngles(); parts.forEach(p=>worldRoot.attach(p.mesh)); }   // grip 휴식=슬라이드0
+  const data={ parts: parts.map(p=>({name:p.name,pos:p.mesh.position.toArray().map(v=>+v.toFixed(2)),rot:[r2d(p.mesh.rotation.x),r2d(p.mesh.rotation.y),r2d(p.mesh.rotation.z)].map(v=>+v.toFixed(1)),visible:p.mesh.visible})), mates: mates.map(m=>({parent:m.parent,child:m.child,type:m.type,pivot:m.pivot,axis:m.axis,angle:m.angle,min:m.min,max:m.max,offset:m.offset||[0,0,0],roll:m.roll||0,locked:!!m.locked,motor:m.motor,gOpen:(m.gOpen!=null?m.gOpen:null),gClose:(m.gClose!=null?m.gClose:null)})) };
   if(wasMate) rebuild();
   const res=await (await fetch(SAVEU,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})).json(); $('status').textContent=res.ok?'저장됨 ✓':'실패'; setTimeout(()=>$('status').textContent='',2000); };
 $('load').onclick=()=>{ if(confirm('저장된 내용으로 다시 불러옵니다.\n현재 화면의 변경사항은 사라집니다. 계속할까요?')) location.reload(); };
@@ -880,72 +877,14 @@ if($('tcpStart')){
   setTimeout(()=>{ if($('tcpPart')&&!$('tcpPart').options.length) fillTcpParts(); }, 2500);
 }
 
-// ===== #3 C-space 충돌 지도 — 격자(J2·J3·J4) / 랜덤(J2~J6) 스윕 → CSV =====
-// J1은 수직축(yaw) → 높이·부품거리 불변 → 충돌과 무관하므로 항상 고정.
-const CS_HDR=['J1','J2','J3','J4','J5','J6','floor_clear_mm','self_clear_mm','self_target','collision'];
-function _csRow(rm){ const r=_collideOnce(); const coll=(r.floor<0||r.self<0)?1:0;
-  const ang=[0,1,2,3,4,5].map(i=>rm[i]?+(+rm[i].angle).toFixed(1):90);
-  return [...ang, r.floor.toFixed(1), isFinite(r.self)?r.self.toFixed(1):'', r.selfWho||'', coll]; }
+// _csDownload — CSV 다운로드(파지 스윕 공용)
 function _csDownload(rows, fname){
   const n=rows.length-1, nColl=rows.slice(1).filter(r=>r[r.length-1]===1).length;
   const csv=rows.map(r=>r.join(',')).join('\n'), blob=new Blob([csv],{type:'text/csv'}), url=URL.createObjectURL(blob);
   const a=document.createElement('a'); a.href=url; a.download=fname; a.click(); URL.revokeObjectURL(url);
   return {n, nColl};
 }
-async function sweepGrid(){
-  if(_sweeping) return; if(mode!=='ctrl'){ alert('제어 모드에서 실행하세요.'); return; }
-  const rm=revMates(); if(rm.length<4){ alert('관절(J2·J3·J4)이 부족합니다.'); return; }
-  const mJ2=rm[1], mJ3=rm[2], mJ4=rm[3], step=Math.max(2,+$('csStep').value||5), combos=[];
-  for(let a2=mJ2.min;a2<=mJ2.max+1e-6;a2+=step) for(let a3=mJ3.min;a3<=mJ3.max+1e-6;a3+=step) for(let a4=mJ4.min;a4<=mJ4.max+1e-6;a4+=step) combos.push([a2,a3,a4]);
-  if(combos.length>300000){ alert(`조합이 너무 많습니다(${combos.length}). 간격을 키우세요.`); return; }
-  if(!confirm(`격자 스윕: ${combos.length}조합(J2·J3·J4, ${step}°). 진행할까요?`)) return;
-  _sweeping=true; collMark.visible=selfMark.visible=false;
-  const saved=rm.map(m=>m.angle), stat=$('csSweepStat'), rows=[CS_HDR];
-  for(let i=0;i<combos.length;i++){ const c=combos[i]; mJ2.angle=c[0]; mJ3.angle=c[1]; mJ4.angle=c[2]; applyAngles(); rows.push(_csRow(rm));
-    if(i%150===0){ stat.textContent=`격자 ${i}/${combos.length} (${(100*i/combos.length).toFixed(0)}%)`; await new Promise(res=>setTimeout(res)); } }
-  rm.forEach((m,i)=>m.angle=saved[i]); applyAngles(); _sweeping=false;
-  const {n,nColl}=_csDownload(rows,'cspace_grid.csv');
-  stat.innerHTML=`완료(격자): ${n}조합 중 충돌 <b>${nColl}</b> (${(100*nColl/n).toFixed(1)}%) → cspace_grid.csv`;
-}
-async function sweepRandom(){
-  if(_sweeping) return; if(mode!=='ctrl'){ alert('제어 모드에서 실행하세요.'); return; }
-  const rm=revMates(); if(rm.length<6){ alert('관절(J2~J6)이 부족합니다.'); return; }
-  const N=Math.max(1000,Math.min(300000,+$('csN5').value||40000)), varj=[1,2,3,4,5];   // J2~J6 무작위(J1 고정)
-  if(!confirm(`랜덤 스윕: ${N}개 샘플(J2~J6 무작위, J1 고정).\n고차원 C-space를 학습용으로 수집합니다. 진행할까요?`)) return;
-  _sweeping=true; collMark.visible=selfMark.visible=false;
-  const saved=rm.map(m=>m.angle), stat=$('csSweepStat'), rows=[CS_HDR];
-  for(let i=0;i<N;i++){ varj.forEach(j=>{ const m=rm[j]; m.angle=m.min+Math.random()*(m.max-m.min); }); applyAngles(); rows.push(_csRow(rm));
-    if(i%150===0){ stat.textContent=`랜덤 ${i}/${N} (${(100*i/N).toFixed(0)}%)`; await new Promise(res=>setTimeout(res)); } }
-  rm.forEach((m,i)=>m.angle=saved[i]); applyAngles(); _sweeping=false;
-  const {n,nColl}=_csDownload(rows,'cspace_rand.csv');
-  stat.innerHTML=`완료(랜덤): ${n}샘플 중 충돌 <b>${nColl}</b> (${(100*nColl/n).toFixed(1)}%) → cspace_rand.csv`;
-}
-$('csSweep').onclick=sweepGrid;
-$('csRand').onclick=sweepRandom;
 
-// 능동학습: Python이 고른 불확실 자세 목록(cspace_query.csv)을 시뮬로 라벨링 → cspace_labeled.csv
-async function labelQuery(file){
-  if(_sweeping) return; if(mode!=='ctrl'){ alert('제어 모드에서 실행하세요.'); return; }
-  const rm=revMates(); if(rm.length<6){ alert('관절(J2~J6)이 부족합니다.'); return; }
-  const text=await file.text(); const lines=text.trim().split(/\r?\n/);
-  const hdr=lines[0].split(','), jcol={};
-  ['J1','J2','J3','J4','J5','J6'].forEach((j,k)=>{ const i=hdr.indexOf(j); if(i>=0) jcol[k]=i; });
-  const data=lines.slice(1).filter(l=>l.trim());
-  if(!Object.keys(jcol).length || !data.length){ alert('J1~J6 컬럼/데이터가 없습니다.'); return; }
-  if(!confirm(`질의 라벨링: ${data.length}개 자세를 시뮬 충돌검사합니다. 진행할까요?`)) return;
-  _sweeping=true; collMark.visible=selfMark.visible=false;
-  const saved=rm.map(m=>m.angle), stat=$('csSweepStat'), out=[CS_HDR];
-  for(let i=0;i<data.length;i++){
-    const r=data[i].split(','); for(const k in jcol){ const m=rm[k]; if(m) m.angle=+r[jcol[k]]; }
-    applyAngles(); out.push(_csRow(rm));
-    if(i%150===0){ stat.textContent=`라벨링 ${i}/${data.length} (${(100*i/data.length).toFixed(0)}%)`; await new Promise(res=>setTimeout(res)); }
-  }
-  rm.forEach((m,i)=>m.angle=saved[i]); applyAngles(); _sweeping=false;
-  const {n,nColl}=_csDownload(out,'cspace_labeled.csv');
-  stat.innerHTML=`라벨 완료: ${n}개(충돌 ${nColl}) → cspace_labeled.csv`;
-}
-$('csLabelBtn').onclick=()=>$('csLabel').click();
-$('csLabel').addEventListener('change',e=>{ const f=e.target.files[0]; if(f) labelQuery(f); e.target.value=''; });
 
 // ===== 파지 데이터셋 (P1) — J1~J6 무작위 스윕 → [관절각, TCP포즈, 충돌] CSV =====
 // C-space와 달리 J1 포함(방위각). 확정된 TCP(_tcpPose)로 파지점·접근벡터 기록.
@@ -980,7 +919,9 @@ if($('grSweep')) $('grSweep').onclick=sweepGrasp;
 let graspDB=null, graspHasQuat=false; const IK_TOL=45, ORIENT_W=70, IK_ANG_TOL=Math.cos(35*Math.PI/180);   // 위치 45mm·접근축 35°
 const IK_ORIENT_TOL=45, IK_ORIENT_W=1.0;   // 전체자세(쿼터니언) 매칭: 45° 이내, mm당 가중
 const ikMark=_mkMark(0xffaa22);             // 주황 = 목표(물체)
-const ikTargAxes=new THREE.AxesHelper(70); ikTargAxes.material.depthTest=false; ikTargAxes.renderOrder=1002; ikTargAxes.visible=false; scene.add(ikTargAxes);
+const ikTargAxes=new THREE.AxesHelper(60); ikTargAxes.material.depthTest=false; ikTargAxes.renderOrder=1002; ikTargAxes.visible=false; scene.add(ikTargAxes);   // 물체 프레임 = 고정(월드정렬)
+const ikAppArrow=new THREE.ArrowHelper(new THREE.Vector3(0,-1,0), new THREE.Vector3(), 90, 0xffd400, 18, 11);   // 노랑 = 그리퍼 접근방향
+ikAppArrow.line.material.depthTest=false; ikAppArrow.cone.material.depthTest=false; ikAppArrow.line.renderOrder=ikAppArrow.cone.renderOrder=1003; ikAppArrow.visible=false; scene.add(ikAppArrow);
 function _basisQuat(z){ const zz=z.clone(); if(zz.lengthSq()<1e-6) zz.set(0,-1,0); zz.normalize();   // z축 지정 → 안정적 프레임
   let up=new THREE.Vector3(0,1,0); if(Math.abs(zz.dot(up))>0.95) up.set(1,0,0);
   const x=new THREE.Vector3().crossVectors(up,zz).normalize(), y=new THREE.Vector3().crossVectors(zz,x).normalize();
@@ -1003,43 +944,97 @@ async function loadGraspCsv(file){
   graspDB=db; const el=$('ikDbN'); if(el) el.textContent=`충돌없는 ${db.length}자세${graspHasQuat?' · 6DOF':' · 위치+접근축'}`;
   ikStat(`데이터셋 로드: ${db.length}자세 (${graspHasQuat?'전체자세 매칭':'접근축 매칭 — 6DOF 하려면 재스윕'}). 목표를 정하고 잡기.`);
 }
-function solveIK(){
-  if(!graspDB||!graspDB.length){ ikStat('먼저 grasp_dataset.csv를 불러오세요.'); return; }
-  const tx=+$('ikX').value, ty=+$('ikY').value, tz=+$('ikZ').value;
-  const za=new THREE.Vector3(0,0,1).applyQuaternion(ikQuat), tq=ikQuat;   // 목표 접근축 + 전체자세
+// ── 경로계획(P4): 두 자세 사이 직선이 바닥/자기충돌하면 업라이트 경유로 우회 ──
+const IK_HOME=[90,90,90,90,90,90];
+let _ikMove=null;   // {pts:[from,..wps..,to], seg, t} — 동기 보간 실행 상태
+function _cfgCollides(){ const r=_collideOnce(); return (r.floor<0) || (isFinite(r.self) && r.self<0); }
+function pathClear(a,b){   // a→b 직선보간을 ~3°마다 충돌검사
+  const rm=revMates(); const maxd=Math.max(0,...a.map((v,i)=>Math.abs(b[i]-v))); const steps=Math.max(8,Math.ceil(maxd/3));
+  for(let s=1;s<=steps;s++){ const t=s/steps; rm.forEach((m,i)=>{ if(i<6) m.angle=a[i]+(b[i]-a[i])*t; }); applyAngles(); if(_cfgCollides()) return false; }
+  return true;
+}
+function planPath(from,to){   // 충돌없는 경유점 리스트 반환(없으면 null)
+  if(pathClear(from,to)) return [to];
+  const cands=[IK_HOME, [to[0],90,90,to[3],to[4],to[5]], [from[0],90,90,from[3],from[4],from[5]]];  // 업라이트/어깨·팔꿈치 들기
+  for(const w of cands){ if(pathClear(from,w) && pathClear(w,to)) return [w,to]; }
+  return null;
+}
+let _ikT=null;
+function ikDrive(){   // 계획 경로를 '동기 보간'으로 실행(공통 속도 ctrlSpeed) → 검사한 경로와 실제 이동 일치
+  if(!_ikMove){ _ikT=null; return; } const rm=revMates(); const pts=_ikMove.pts, a=pts[_ikMove.seg], b=pts[_ikMove.seg+1];
+  const now=performance.now(); const dt=_ikT?Math.min(0.1,(now-_ikT)/1000):0; _ikT=now;
+  const maxd=Math.max(1,...a.map((v,i)=>Math.abs(b[i]-v)));   // 최대 관절 변화에 속도 맞춤(동기)
+  _ikMove.t += (ctrlSpeed*dt)/maxd; const t=Math.min(1,_ikMove.t);   // 공통 속도(ctrlSpeed °/s)
+  rm.forEach((m,i)=>{ if(i<6){ m.angle=a[i]+(b[i]-a[i])*t; m._tgt=m.angle; } });   // _tgt=angle → rampCtrl 무력화
+  applyAngles();
+  if(t>=1){ _ikMove.seg++; _ikMove.t=0; if(_ikMove.seg>=pts.length-1){ const cb=_ikMove.onDone; _ikMove=null; if(cb) cb(); } }   // 완료 콜백(시퀀스 진행)
+}
+function findGrasp(tx,ty,tz, quat){   // 데이터셋에서 (위치+자세) 최근접 충돌없는 자세 검색. {j,bP,bA} 또는 null. 팔 안 움직임.
+  if(!graspDB||!graspDB.length) return null;
+  const za=new THREE.Vector3(0,0,1).applyQuaternion(quat);
   let best=null, bestCost=Infinity, bP=0, bA=0;
   for(const s of graspDB){
     const dx=s.tx-tx, dy=s.ty-ty, dz=s.tz-tz, pd=Math.sqrt(dx*dx+dy*dy+dz*dz);
     let angDeg;
-    if(graspHasQuat){                            // 전체자세 매칭(roll까지) → 깔끔한 접근자세
-      let d=Math.abs(tq.x*s.qx+tq.y*s.qy+tq.z*s.qz+tq.w*s.qw); d=Math.min(1,d);
-      angDeg=2*Math.acos(d)*180/Math.PI; if(angDeg>IK_ORIENT_TOL) continue;
-    } else {                                     // 구버전 데이터: 접근축만
-      const dot=za.x*s.ax+za.y*s.ay+za.z*s.az; if(dot<IK_ANG_TOL) continue;
-      angDeg=Math.acos(Math.min(1,Math.max(-1,dot)))*180/Math.PI;
-    }
+    if(graspHasQuat){ let d=Math.abs(quat.x*s.qx+quat.y*s.qy+quat.z*s.qz+quat.w*s.qw); d=Math.min(1,d); angDeg=2*Math.acos(d)*180/Math.PI; if(angDeg>IK_ORIENT_TOL) continue; }
+    else { const dot=za.x*s.ax+za.y*s.ay+za.z*s.az; if(dot<IK_ANG_TOL) continue; angDeg=Math.acos(Math.min(1,Math.max(-1,dot)))*180/Math.PI; }
     const cost=pd+IK_ORIENT_W*angDeg;
     if(cost<bestCost){ bestCost=cost; best=s; bP=pd; bA=angDeg; } }
-  if(!best){ ikStat('이 자세로 후보 없음 — 접근/회전을 바꿔보세요.'); return; }
-  if(bP>IK_TOL){ ikStat(`⚠ 도달 어려움 — 최근접 ${bP.toFixed(0)}mm·자세 ${bA.toFixed(0)}° (미도달/자세 제약).`); return; }
-  const rm=revMates(); best.j.forEach((a,i)=>{ if(rm[i]) rm[i]._tgt=a; });   // 램프가 부드럽게 이동
-  ikStat(`✓ 잡기 — 위치 ${bP.toFixed(0)}mm · 자세 ${bA.toFixed(0)}° · 관절 [${best.j.map(a=>Math.round(a)).join(', ')}]`);
+  if(!best || bP>IK_TOL) return null;
+  return {j:best.j, bP, bA};
 }
-function updateIkMark(){ if(mode!=='ctrl' || _sweeping){ ikMark.visible=false; ikTargAxes.visible=false; return; }
+function executeGrasp(toJ, label){   // 충돌없는 경로계획 + 동기 실행. 성공 여부 반환.
+  const rm=revMates(); const from=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle)), to=toJ.slice(0,6);
+  const path=planPath(from,to);
+  rm.forEach((m,i)=>{ if(i<6) m.angle=from[i]; }); applyAngles();   // 계획 중 흐트러진 자세 복원
+  if(!path){ ikStat('✓ 자세는 있으나 충돌없는 경로를 못 찾음 — 다른 접근/위치 필요'); _ikMove=null; return false; }
+  rm.forEach((m,i)=>{ if(i<6) m._tgt=from[i]; });
+  _ikMove={pts:[from,...path], seg:0, t:0};
+  ikStat(`✓ 잡기 — ${label} · 경로 ${path.length}구간${path.length>1?'(업라이트 경유, 바닥회피)':''}`);
+  return true;
+}
+function solveIK(){
+  if(!graspDB||!graspDB.length){ ikStat('먼저 grasp_dataset.csv를 불러오세요.'); return; }
+  const g=findGrasp(+$('ikX').value, +$('ikY').value, +$('ikZ').value, ikQuat);
+  if(!g){ ikStat('⚠ 도달 어려움 — 이 위치/접근으로 충돌없는 자세 없음(위치·접근 변경).'); return; }
+  executeGrasp(g.j, `위치 ${g.bP.toFixed(0)}mm·자세 ${g.bA.toFixed(0)}°`);
+}
+function snapApproach(kind){   // 그 위치 근처 '도달 가능한' 수직/수평 파지 자세로 목표 프레임을 스냅(고정 프리셋 X)
+  if(!graspDB||!graspDB.length){ ikStat('먼저 grasp_dataset.csv를 불러오세요.'); return; }
+  const tx=+$('ikX').value, ty=+$('ikY').value, tz=+$('ikZ').value;
+  let best=null, bd=Infinity;
+  for(const s of graspDB){
+    const ok = kind==='vert' ? (s.ay<-0.6) : (Math.abs(s.ay)<0.4);
+    if(!ok) continue;
+    const dx=s.tx-tx, dy=s.ty-ty, dz=s.tz-tz, d=dx*dx+dy*dy+dz*dz;
+    if(d<bd){ bd=d; best=s; } }
+  if(!best){ ikStat(`이 위치엔 ${kind==='vert'?'수직':'수평'} 파지 후보가 없습니다.`); return; }
+  if(graspHasQuat && best.qx!==undefined) ikQuat.set(best.qx,best.qy,best.qz,best.qw);   // 도달가능 샘플의 실제 자세
+  else ikQuat.copy(_basisQuat(new THREE.Vector3(best.ax,best.ay,best.az)));
+  solveIK();   // 스냅한 자세로 바로 풀기 → 그 샘플(=도달 가능) 근처를 찾음
+}
+const _ikZv=new THREE.Vector3();
+function updateIkMark(){ if(mode!=='ctrl' || _sweeping){ ikMark.visible=ikTargAxes.visible=ikAppArrow.visible=false; return; }
   const x=+$('ikX').value, y=+$('ikY').value, z=+$('ikZ').value;
-  if([x,y,z].some(v=>isNaN(v))){ ikMark.visible=false; ikTargAxes.visible=false; return; }
+  if([x,y,z].some(v=>isNaN(v))){ ikMark.visible=ikTargAxes.visible=ikAppArrow.visible=false; return; }
   ikMark.visible=true; ikMark.position.set(x,y,z);
-  ikTargAxes.visible=true; ikTargAxes.position.set(x,y,z); ikTargAxes.quaternion.copy(ikQuat); }   // 목표 프레임(z=접근)
+  ikTargAxes.visible=true; ikTargAxes.position.set(x,y,z); ikTargAxes.quaternion.identity();          // 물체 프레임 = 고정(안 회전)
+  _ikZv.set(0,0,1).applyQuaternion(ikQuat); const L=90;                                               // 그리퍼 접근 방향(ikQuat z)
+  ikAppArrow.visible=true; ikAppArrow.position.set(x-_ikZv.x*L, y-_ikZv.y*L, z-_ikZv.z*L);            // 물체 바깥(standoff)→물체
+  ikAppArrow.setDirection(_ikZv); ikAppArrow.setLength(L,18,11); }
 if($('ikSolve')){
   $('ikCsvBtn').onclick=()=>$('ikCsv').click();
   $('ikCsv').addEventListener('change',e=>{ const f=e.target.files[0]; if(f) loadGraspCsv(f); e.target.value=''; });
   $('ikSolve').onclick=solveIK;
+  $('ikVision').onclick=()=>{ const s=localStorage.getItem('graspTargetXYZ'); if(!s){ ikStat('5페이지 「IK로」로 비전 좌표를 먼저 보내세요.'); return; }
+    const p=s.split(',').map(Number); $('ikX').value=Math.round(p[0]); $('ikY').value=Math.round(p[1]); $('ikZ').value=Math.round(p[2]);
+    ikStat(`📷 비전 좌표 (${p.map(v=>Math.round(v)).join(', ')}) 적용 — 마커 위치가 실제 물체와 맞는지 확인 후 수직/수평`); };
   const auto=()=>{ if($('ikAuto').checked) solveIK(); };
   document.querySelectorAll('.iknudge').forEach(b=>b.onclick=()=>{ const ax=b.dataset.ax, s=+$('ikStep').value||10;
     const el=$('ik'+ax.toUpperCase()); el.value=Math.round(+el.value+(+b.dataset.d)*s); auto(); });
   ['ikX','ikY','ikZ'].forEach(id=>$(id).addEventListener('change',auto));
-  $('ikVert').onclick=()=>{ ikQuat.copy(_basisQuat(new THREE.Vector3(0,-1,0))); auto(); };       // 수직: z 아래로
-  $('ikHorz').onclick=()=>{ let d=new THREE.Vector3(-(+$('ikX').value),0,-(+$('ikZ').value)); ikQuat.copy(_basisQuat(d)); auto(); };  // 수평: 베이스 쪽 수평
+  $('ikVert').onclick=()=>snapApproach('vert');   // 도달 가능한 가장 가까운 수직 파지로 스냅
+  $('ikHorz').onclick=()=>snapApproach('horz');   // 도달 가능한 가장 가까운 수평 파지로 스냅
   document.querySelectorAll('.ikrot').forEach(b=>b.onclick=()=>{ const i=+b.dataset.ax, s=(+b.dataset.d)*(+$('ikRStep').value||10);
     const e=new THREE.Euler(i===0?d2r(s):0, i===1?d2r(s):0, i===2?d2r(s):0,'XYZ');
     ikQuat.multiply(new THREE.Quaternion().setFromEuler(e)); auto(); });   // 목표 프레임 로컬 회전
@@ -1052,14 +1047,146 @@ const _jaGeo=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new T
 const jAxisLine=new THREE.Line(_jaGeo, new THREE.LineBasicMaterial({color:0xffee00,depthTest:false,transparent:true,opacity:0.9})); jAxisLine.renderOrder=1004; jAxisLine.visible=false; scene.add(jAxisLine);
 const _jaP=new THREE.Vector3(), _jaQ=new THREE.Quaternion(), _jaAx=new THREE.Vector3();
 function updateJointAxis(){
-  if(EMBED || selMate<0 || !mates[selMate] || mates[selMate].type!=='rev' || !mates[selMate]._pv){ jAxisTriad.visible=false; jAxisLine.visible=false; return; }
-  const m=mates[selMate], pv=m._pv;
+  const m=(selMate>=0)?mates[selMate]:null;
+  if(EMBED || !m || (m.type!=='rev' && m.type!=='grip') || !m._pv){ jAxisTriad.visible=false; jAxisLine.visible=false; return; }
+  const pv=m._pv;
   pv.getWorldPosition(_jaP);
   if(pv.parent) pv.parent.getWorldQuaternion(_jaQ); else _jaQ.identity();
-  _jaAx.fromArray(m.axis).applyQuaternion(_jaQ).normalize();    // 부모 프레임 → 월드 축
-  jAxisTriad.visible=true; jAxisTriad.position.copy(_jaP); jAxisTriad.quaternion.copy(_basisQuat(_jaAx));   // z(파랑)=회전축
+  _jaAx.fromArray(m.axis).applyQuaternion(_jaQ).normalize();    // 부모 프레임 → 월드 축 (회전축 또는 슬라이드축)
+  jAxisTriad.visible=true; jAxisTriad.position.copy(_jaP); jAxisTriad.quaternion.copy(_basisQuat(_jaAx));   // z(파랑)=회전/슬라이드 축
   const L=240; _jaGeo.setFromPoints([_jaP.clone().addScaledVector(_jaAx,-L), _jaP.clone().addScaledVector(_jaAx,L)]); jAxisLine.visible=true;
 }
-(function loop(){ requestAnimationFrame(loop); orbit.update(); updateLockLines(); rampCtrl(); updateCollision(); updateTCP(); updateIkMark(); updateJointAxis(); renderer.render(scene,camera); })();
+// ===== 가상 물체(파지 대상) — Inc1: 시뮬 배치 =====
+let vObj=null;
+function _voGeo(type,R,H){
+  if(type==='cyl') return new THREE.CylinderGeometry(R,R,H,28);
+  if(type==='cup') return new THREE.CylinderGeometry(R,R,H,28,1,true);   // 열린 원기둥
+  if(type==='sph') return new THREE.SphereGeometry(R,24,18);
+  return new THREE.BoxGeometry(R*2,H,R*2);
+}
+function showVObj(){
+  const type=$('voType').value, R=Math.max(3,+$('voR').value||25), H=Math.max(5,+$('voH').value||80);
+  if(vObj){ scene.remove(vObj); vObj.geometry.dispose(); vObj.material.dispose(); }
+  const mat=new THREE.MeshStandardMaterial({color:0x55aaff,emissive:0x16314d,transparent:true,opacity:0.55,side:THREE.DoubleSide,roughness:0.6});
+  vObj=new THREE.Mesh(_voGeo(type,R,H),mat); vObj.name='__vobj';
+  vObj.position.set(+$('ikX').value,+$('ikY').value,+$('ikZ').value);   // IK 목표 위치 중심
+  scene.add(vObj);
+  $('voStat').textContent=`✓ ${$('voType').selectedOptions[0].text} R${R}·H${H} @ (${Math.round(+$('ikX').value)}, ${Math.round(+$('ikY').value)}, ${Math.round(+$('ikZ').value)})`;
+}
+// ===== 파지 후보 자동 생성 (Inc 2) — 프리미티브 표면 antipodal =====
+let graspCands=[];                          // {pos, approach(그리퍼 z, 물체로 향함), kind:'vert'|'horz', width}
+const candGroup=new THREE.Group(); scene.add(candGroup);
+function clearCands(){ graspCands=[]; while(candGroup.children.length){ const a=candGroup.children[0]; candGroup.remove(a); } }
+function genGraspCandidates(){
+  clearCands();
+  if(!vObj){ $('voStat').textContent='먼저 물체를 표시하세요.'; return; }
+  const type=$('voType').value, R=Math.max(3,+$('voR').value||25), H=Math.max(5,+$('voH').value||80), gmax=+$('voGrip').value||80;
+  const c=vObj.position.clone(), st=40;
+  const add=(pos,app,kind)=>{ app=app.clone().normalize();
+    const col=kind==='vert'?0x3399ff:0x33cc66, o=pos.clone().addScaledVector(app,-st);   // standoff→물체
+    const ar=new THREE.ArrowHelper(app,o,st,col,10,6); ar.line.material.depthTest=ar.cone.material.depthTest=false; candGroup.add(ar);
+    graspCands.push({pos:pos.clone(), approach:app.clone(), kind, width:Math.min(2*R,gmax), arrow:ar, baseColor:col}); };
+  if(type==='cyl'||type==='cup'||type==='sph'){
+    if(2*R<=gmax){
+      const gy=(type==='sph')?c.y:(c.y + H/2 - Math.min(20,H*0.35));          // 수직: 상단 근처
+      for(let k=0;k<4;k++) add(new THREE.Vector3(c.x,gy,c.z), new THREE.Vector3(0,-1,0), 'vert');
+      const heights=(type==='sph')?[0]:[-0.25,0,0.25];                         // 수평: 옆 방사형(방위각·높이)
+      for(let a=0;a<360;a+=45){ const th=a*Math.PI/180, dir=new THREE.Vector3(-Math.cos(th),0,-Math.sin(th));
+        for(const hf of heights) add(new THREE.Vector3(c.x,c.y+H*hf,c.z), dir, 'horz'); }
+    }
+  } else {                                                                     // box: 2R(x)·H(y)·2R(z)
+    if(2*R<=gmax){
+      add(new THREE.Vector3(c.x,c.y+H/2-Math.min(15,H*0.35),c.z), new THREE.Vector3(0,-1,0), 'vert');
+      for(const d of [[1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1],[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]]) add(c.clone(), new THREE.Vector3(-d[0],0,-d[2]), 'horz');
+    }
+  }
+  const nv=graspCands.filter(g=>g.kind==='vert').length, nh=graspCands.length-nv;
+  $('voStat').textContent = graspCands.length ? `파지 후보 ${graspCands.length}개 (수직 ${nv}·수평 ${nh}) — 다음: 도달가능 후보로 잡기` : `2R(${2*R}mm) > 벌림(${gmax}mm) — 못 잡음`;
+}
+// Inc 3: 후보별 IK 도달성 검증 → 도달가능 표시(원색)·미도달(회색) → 최적 후보로 자동 잡기
+function autoGrasp(){
+  if(!graspCands.length){ $('voStat').textContent='먼저 🎯 파지 후보를 생성하세요.'; return; }
+  if(!graspDB||!graspDB.length){ $('voStat').textContent='파지 IK 데이터셋을 먼저 불러오세요(파지 IK 카드 📂).'; return; }
+  let best=null, bestScore=Infinity, nReach=0;
+  for(const cand of graspCands){
+    const q=_basisQuat(cand.approach.clone());
+    const g=findGrasp(cand.pos.x,cand.pos.y,cand.pos.z, q);
+    if(g){ nReach++; cand.arrow.setColor(new THREE.Color(cand.baseColor));     // 도달 가능 = 원색
+      const score=g.bP+0.5*g.bA; if(score<bestScore){ bestScore=score; best={cand,q,g}; } }
+    else cand.arrow.setColor(new THREE.Color(0x555555));                       // 미도달 = 회색
+  }
+  if(!best){ $('voStat').textContent=`도달 가능한 파지 후보 없음 (${graspCands.length}개 중 0)`; return; }
+  best.cand.arrow.setColor(new THREE.Color(0xffffff));                         // 선택 = 흰색 강조
+  $('ikX').value=Math.round(best.cand.pos.x); $('ikY').value=Math.round(best.cand.pos.y); $('ikZ').value=Math.round(best.cand.pos.z);
+  ikQuat.copy(best.q);
+  $('voStat').textContent=`✓ ${nReach}/${graspCands.length} 도달가능 → ${best.cand.kind==='vert'?'수직':'수평'} 후보로 집기 시퀀스 시작…`;
+  graspSequence(best.cand, best.q, best.g.j);   // Inc4: 프리그래스프→접근→닫기→들기
+}
+// Inc 4: 집기 시퀀스 — 최종 잡기 자세 기준 프리그래스프·들기 자세를 IK로 풀어 순차 실행(그리퍼 개폐)
+let graspSeq=null;   // {steps:[{joints, grip, label}], i}
+const GRASP_STANDOFF=80, GRASP_LIFT=100;   // mm
+function graspSequence(cand, q, graspJoints){
+  const za=new THREE.Vector3(0,0,1).applyQuaternion(q);                 // 접근축(그리퍼 z)
+  const gp=cand.pos.clone();
+  const prePos=gp.clone().addScaledVector(za,-GRASP_STANDOFF);          // 접근축 뒤로(standoff)
+  const liftPos=gp.clone().add(new THREE.Vector3(0,GRASP_LIFT,0));      // 위로
+  const gPre=findGrasp(prePos.x,prePos.y,prePos.z, q);
+  if(!gPre){ ikStat('✗ 프리그래스프 자세 도달 불가 — 다른 후보/위치 필요'); return; }
+  const gLift=findGrasp(liftPos.x,liftPos.y,liftPos.z, q);
+  const steps=[
+    {joints:gPre.j,      grip:'open',  label:'① 프리그래스프(접근 준비)'},
+    {joints:graspJoints, grip:'close', label:'② 접근·파지'},
+  ];
+  if(gLift) steps.push({joints:gLift.j, grip:null, label:'③ 들기'});
+  graspSeq={steps, i:-1}; seqNext();
+}
+function seqNext(){
+  if(!graspSeq) return;
+  graspSeq.i++;
+  if(graspSeq.i>=graspSeq.steps.length){ ikStat('✓ 집기 시퀀스 완료'); graspSeq=null; return; }
+  const st=graspSeq.steps[graspSeq.i], rm=revMates(), from=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle));
+  const path=planPath(from, st.joints.slice(0,6));
+  rm.forEach((m,i)=>{ if(i<6) m.angle=from[i]; }); applyAngles();
+  if(!path){ ikStat(`✗ ${st.label}: 충돌없는 경로 없음 — 시퀀스 중단`); graspSeq=null; return; }
+  rm.forEach((m,i)=>{ if(i<6) m._tgt=from[i]; });
+  _ikMove={pts:[from,...path], seg:0, t:0, onDone:()=>seqStepDone(st)};
+  ikStat(`▶ ${st.label}…`);
+}
+function seqStepDone(st){
+  if(st.grip){ if(gripReady()) setGripper(st.grip==='close'?1:0);   // 시뮬 손가락 개폐
+    if(connected) fetch('/arm/gripper/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:st.grip})}).catch(()=>{});
+    ikStat(`✓ ${st.label} → 그리퍼 ${st.grip==='open'?'열기':'닫기'}`); }
+  setTimeout(seqNext, st.grip?700:120);   // 그리퍼 동작 시간 여유
+}
+if($('voShow')){
+  $('voShow').onclick=()=>{ showVObj(); clearCands(); };
+  $('voHide').onclick=()=>{ if(vObj){ scene.remove(vObj); vObj.geometry.dispose(); vObj.material.dispose(); vObj=null; } clearCands(); $('voStat').textContent='숨김'; };
+  $('voCands').onclick=genGraspCandidates;
+  if($('voAuto')) $('voAuto').onclick=autoGrasp;
+}
+
+// ===== 비전: 감지 물체 3D 좌표(로봇 기준) — 4페이지 시뮬레이터 =====
+async function visScan(){
+  if(!$('visStat')) return; $('visStat').textContent='조회 중…';
+  try{ const d=await (await fetch('/positions3d/')).json(); const tb=$('visBody'); tb.innerHTML='';
+    if(!d.calibrated){ $('visStat').textContent='✗ 스테레오 미캘리브레이션(2페이지)'; return; }
+    if(d.error){ $('visStat').textContent='⚠ '+d.error+' — 카메라 활성 필요(1페이지)'; return; }
+    const objs=d.objects||[]; $('visStat').textContent = objs.length ? (objs.length+'개') : '물체 없음';
+    objs.forEach(o=>{ const p=o.xyz_mm||[0,0,0]; const tr=document.createElement('tr');
+      tr.innerHTML=`<td><b>${o.class}${o.id?('·'+o.id):''}</b></td><td class="muted" style="font-size:12px">(${p[0]}, ${p[1]}, ${p[2]})</td>`
+        +`<td style="text-align:right"><button class="ghost" data-xyz="${p.join(',')}">목표로</button></td>`;
+      tb.appendChild(tr); });
+    tb.querySelectorAll('[data-xyz]').forEach(b=>b.onclick=()=>{ const p=b.dataset.xyz.split(',').map(Number);
+      $('ikX').value=Math.round(p[0]); $('ikY').value=Math.round(p[1]); $('ikZ').value=Math.round(p[2]);
+      $('visStat').textContent=`✓ 목표=(${p.map(v=>Math.round(v)).join(', ')}) — 수직/수평 잡기`; }); }
+  catch(e){ if($('visStat'))$('visStat').textContent='✗ 오류'; }
+}
+if($('visScan')){ $('visScan').onclick=visScan;
+  let _vt=null; $('visAuto').onchange=()=>{ clearInterval(_vt); if($('visAuto').checked){ visScan(); _vt=setInterval(visScan,1000); } }; }
+
+// 4페이지(시뮬레이터)는 제어 모드 고정(조립·결합 탭 숨김) — 파지 작업이 제어 패널에서 이뤄짐
+if('{{ view }}'==='sim' && $('visScan')) visScan();   // 4페이지 제어모드 진입은 모델 로드 콜백에서 처리
+
+(function loop(){ requestAnimationFrame(loop); orbit.update(); updateLockLines(); rampCtrl(); ikDrive(); updateCollision(); updateTCP(); updateIkMark(); updateJointAxis(); renderer.render(scene,camera); })();
 </script>
 {% endblock %}

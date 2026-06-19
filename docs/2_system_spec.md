@@ -2,7 +2,7 @@
 
 > **Voice-Controlled Autonomous Grasping Manipulator** · 대진대 캡스톤 디자인
 > 본 문서는 프로젝트 전체의 마스터 레퍼런스다. 인터페이스 세부는 별도 문서로 분리한다:
-> [architecture](architecture.md) · [gRPC](grpc_interface.md) · [Serial](serial_protocol.md) · [DSL](dsl_spec.md) · [conventions](conventions.md)
+> [architecture](1_architecture.md) · [gRPC](3_grpc_interface.md) · [Serial](4_serial_protocol.md) · [DSL](5_dsl_spec.md) · [conventions](6_conventions.md)
 
 ---
 
@@ -10,7 +10,7 @@
 
 한국어 음성 명령으로 객체를 인식하고 안전하게 그립하는 분산 AI 추론 기반 6-DOF 로봇팔.
 
-전체 아키텍처·책임 분리·정량 목표는 [architecture.md](architecture.md) 참조.
+전체 아키텍처·책임 분리·정량 목표는 [1_architecture.md](1_architecture.md) 참조.
 
 ---
 
@@ -24,7 +24,7 @@
 | Qwen3-Embedding-8B | RAG 벡터 임베딩 (dim 8192) | AI 서버 |
 
 비전 처리 분담:
-- **노트북 (결정적·실시간):** YOLO-World 탐지([laptop/docs/object_detection_model.md](../laptop/docs/object_detection_model.md)), OpenCV 삼각측량, ChArUco/ArUco, 좌표 변환, 비상 정지 감시.
+- **노트북 (결정적·실시간):** YOLO-World 탐지([laptop/docs/2_object_detection_model.md](../laptop/docs/2_object_detection_model.md)), OpenCV 삼각측량, ChArUco/ArUco, 좌표 변환, 비상 정지 감시.
 - **AI 서버 (의미 추론):** 자연어-객체 매칭, 속성 인식, 의도 파싱, JSON DSL 생성.
 
 ---
@@ -32,7 +32,7 @@
 ## 2. 명령 처리 흐름
 
 음성 → STT → 객체 매칭 → 의도 파싱 → JSON DSL → 노트북 검증 → IK → 모터 제어.
-DSL 카탈로그·스키마·검증은 [dsl_spec.md](dsl_spec.md) 참조.
+DSL 카탈로그·스키마·검증은 [5_dsl_spec.md](5_dsl_spec.md) 참조.
 
 ---
 
@@ -90,7 +90,7 @@ DH 파라미터 초기값(설계 도면 기반, 콜드스타트로 실측 갱신
 ### 3.4 보간 + PWM 매핑
 - S-curve `s(t)=3t²-2t³` (양 끝 속도 0 → 충격 없음), `θ(t)=θ_cur+s(t)·(θ_tgt-θ_cur)`
 - 시간 분할 `T = max|Δθ|/60`, `N = T×50`
-- PWM 매핑은 [conventions.md](conventions.md) 참조.
+- PWM 매핑은 [6_conventions.md](6_conventions.md) 참조.
 
 ---
 

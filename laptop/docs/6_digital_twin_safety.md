@@ -6,7 +6,7 @@
 > ② **불확실 자세 기반 능동학습으로 모델이 스스로 약점을 찾아 성장**시키며,
 > ③ 안전 마진을 **측정된 sim-real gap**에 연동해 "시뮬 안전 ⇒ 실물 안전"을 정량 보증한 것이다.
 
-관련: [measurement_validation.md](measurement_validation.md) · [arm3d_simulator.md](arm3d_simulator.md) · [coordinate_3d_pipeline.md](coordinate_3d_pipeline.md)
+관련: [4_measurement_validation.md](4_measurement_validation.md) · [8_arm3d_simulator.md](8_arm3d_simulator.md) · [3_coordinate_3d_pipeline.md](3_coordinate_3d_pipeline.md)
 
 ---
 
@@ -110,7 +110,7 @@ C-space 지도는 **이상적 CAD 기하 + 명령 각도**로 계산된다. 실�
 
 $$\text{안전(실물)} \iff \text{시뮬 여유} > \delta\;(\text{측정된 sim-real gap})$$
 
-이 δ를 **콜드스타트(비전-운동학 자가보정)로 실측**했다 → [measurement_validation.md](measurement_validation.md), `coldstart.py`:
+이 δ를 **콜드스타트(비전-운동학 자가보정)로 실측**했다 → [4_measurement_validation.md](4_measurement_validation.md), `coldstart.py`:
 
 | 측정 | 값 |
 |------|-----|
