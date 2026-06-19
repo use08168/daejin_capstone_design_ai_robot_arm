@@ -213,8 +213,9 @@
           <div class="row" style="margin-bottom:6px"><span class="muted" style="width:38px">크기</span>
             반경<input id="voR" type="number" value="25" step="2" min="3" style="width:48px">
             높이<input id="voH" type="number" value="80" step="5" min="5" style="width:48px"><span class="muted">mm</span></div>
-          <div class="row" style="margin-bottom:0"><button class="primary" id="voShow" style="flex:1">표시 / 갱신(IK 목표에)</button><button class="ghost" id="voHide">숨김</button></div>
-          <div class="hintline" id="voStat" style="margin:6px 0 0;">원기둥/컵 축=수직. IK 목표(주황) 위치 중심에 배치.</div>
+          <div class="row" style="margin-bottom:6px"><button class="primary" id="voShow" style="flex:1">표시 / 갱신(IK 목표에)</button><button class="ghost" id="voHide">숨김</button></div>
+          <div class="row" style="margin-bottom:0"><span class="muted" style="width:38px">벌림</span><input id="voGrip" type="number" value="80" step="5" min="10" style="width:48px"><span class="muted">mm</span><span style="flex:1"></span><button class="ghost" id="voCands">🎯 파지 후보 생성</button></div>
+          <div class="hintline" id="voStat" style="margin:6px 0 0;">물체 표면 antipodal 후보 자동 생성(수직=파랑·수평=초록 접근화살표). 그리퍼 벌림보다 좁은 부위만.</div>
         </div>
 
         <div class="card sim-card" style="margin-top:10px;">
@@ -1007,9 +1008,39 @@ function showVObj(){
   scene.add(vObj);
   $('voStat').textContent=`✓ ${$('voType').selectedOptions[0].text} R${R}·H${H} @ (${Math.round(+$('ikX').value)}, ${Math.round(+$('ikY').value)}, ${Math.round(+$('ikZ').value)})`;
 }
+// ===== 파지 후보 자동 생성 (Inc 2) — 프리미티브 표면 antipodal =====
+let graspCands=[];                          // {pos, approach(그리퍼 z, 물체로 향함), kind:'vert'|'horz', width}
+const candGroup=new THREE.Group(); scene.add(candGroup);
+function clearCands(){ graspCands=[]; while(candGroup.children.length){ const a=candGroup.children[0]; candGroup.remove(a); } }
+function genGraspCandidates(){
+  clearCands();
+  if(!vObj){ $('voStat').textContent='먼저 물체를 표시하세요.'; return; }
+  const type=$('voType').value, R=Math.max(3,+$('voR').value||25), H=Math.max(5,+$('voH').value||80), gmax=+$('voGrip').value||80;
+  const c=vObj.position.clone(), st=40;
+  const add=(pos,app,kind)=>{ app=app.clone().normalize(); graspCands.push({pos:pos.clone(), approach:app.clone(), kind, width:Math.min(2*R,gmax)});
+    const col=kind==='vert'?0x3399ff:0x33cc66, o=pos.clone().addScaledVector(app,-st);   // standoff→물체
+    const ar=new THREE.ArrowHelper(app,o,st,col,10,6); ar.line.material.depthTest=ar.cone.material.depthTest=false; candGroup.add(ar); };
+  if(type==='cyl'||type==='cup'||type==='sph'){
+    if(2*R<=gmax){
+      const gy=(type==='sph')?c.y:(c.y + H/2 - Math.min(20,H*0.35));          // 수직: 상단 근처
+      for(let k=0;k<4;k++) add(new THREE.Vector3(c.x,gy,c.z), new THREE.Vector3(0,-1,0), 'vert');
+      const heights=(type==='sph')?[0]:[-0.25,0,0.25];                         // 수평: 옆 방사형(방위각·높이)
+      for(let a=0;a<360;a+=45){ const th=a*Math.PI/180, dir=new THREE.Vector3(-Math.cos(th),0,-Math.sin(th));
+        for(const hf of heights) add(new THREE.Vector3(c.x,c.y+H*hf,c.z), dir, 'horz'); }
+    }
+  } else {                                                                     // box: 2R(x)·H(y)·2R(z)
+    if(2*R<=gmax){
+      add(new THREE.Vector3(c.x,c.y+H/2-Math.min(15,H*0.35),c.z), new THREE.Vector3(0,-1,0), 'vert');
+      for(const d of [[1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1],[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]]) add(c.clone(), new THREE.Vector3(-d[0],0,-d[2]), 'horz');
+    }
+  }
+  const nv=graspCands.filter(g=>g.kind==='vert').length, nh=graspCands.length-nv;
+  $('voStat').textContent = graspCands.length ? `파지 후보 ${graspCands.length}개 (수직 ${nv}·수평 ${nh}) — 다음: 도달가능 후보로 잡기` : `2R(${2*R}mm) > 벌림(${gmax}mm) — 못 잡음`;
+}
 if($('voShow')){
-  $('voShow').onclick=showVObj;
-  $('voHide').onclick=()=>{ if(vObj){ scene.remove(vObj); vObj.geometry.dispose(); vObj.material.dispose(); vObj=null; } $('voStat').textContent='숨김'; };
+  $('voShow').onclick=()=>{ showVObj(); clearCands(); };
+  $('voHide').onclick=()=>{ if(vObj){ scene.remove(vObj); vObj.geometry.dispose(); vObj.material.dispose(); vObj=null; } clearCands(); $('voStat').textContent='숨김'; };
+  $('voCands').onclick=genGraspCandidates;
 }
 
 // ===== 비전: 감지 물체 3D 좌표(로봇 기준) — 4페이지 시뮬레이터 =====
