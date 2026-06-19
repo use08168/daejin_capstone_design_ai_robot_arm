@@ -479,14 +479,20 @@ function axInfo(m){ const e=$('axInfo'); if(!e||!m)return;
   if(m.type==='rev') e.textContent=`회전축 (${m.axis.map(v=>(+v).toFixed(3)).join(', ')}) — 끝각에서 비틀림 최소가 되게 조정 후 💾`;
   else if(m.type==='grip') e.textContent=`슬라이드축 (${m.axis.map(v=>(+v).toFixed(3)).join(', ')}) — 손가락이 엉뚱한 방향이면 축기울기로 조정`;
   else e.textContent=''; }
+// 축 조정 전 휴식자세+평면화 → rebuild가 현재 슬라이드/회전을 베이스에 굽는 드리프트 방지
+function _restFlatten(){ mates.forEach(mm=>{ mm.angle=(mm.type==='grip')?0:90; }); applyAngles(); parts.forEach(p=>worldRoot.attach(p.mesh)); }
 document.querySelectorAll('.axtilt').forEach(b=>b.onclick=()=>{ if(selMate<0)return; const m=mates[selMate]; if(m.type==='fix')return;   // 회전·그리퍼(슬라이드축)
+  _restFlatten();
   const s=(+b.dataset.d)*(+$('atStep').value||1), q=new THREE.Quaternion().setFromAxisAngle(_AXW[+b.dataset.ax], d2r(s));
   const a=new THREE.Vector3().fromArray(m.axis).applyQuaternion(q).normalize();
-  m.axis=[+a.x.toFixed(4),+a.y.toFixed(4),+a.z.toFixed(4)]; rebuild(); axInfo(m); });
-// 축위치 보정: 회전중심(m.pivot)을 월드 X/Y/Z로 평행이동 → 회전 궤도(아크) 정렬(휴식 90°는 불변)
+  m.axis=[+a.x.toFixed(4),+a.y.toFixed(4),+a.z.toFixed(4)]; rebuild(); axInfo(m);
+  $('tslider').value=m.angle; $('tval').textContent=m.angle; });
+// 축위치 보정: 회전중심/슬라이드 기준점(m.pivot)을 월드 X/Y/Z로 평행이동(휴식 위치는 불변)
 document.querySelectorAll('.axmove').forEach(b=>b.onclick=()=>{ if(selMate<0)return; const m=mates[selMate]; if(m.type==='fix')return;   // 회전·그리퍼(슬라이드 기준점)
+  _restFlatten();
   const s=(+b.dataset.d)*(+$('apStep').value||2), i=+b.dataset.ax, pv=(m.pivot||[0,0,0]).slice();
-  pv[i]=+(pv[i]+s).toFixed(2); m.pivot=pv; rebuild(); axInfo(m); });
+  pv[i]=+(pv[i]+s).toFixed(2); m.pivot=pv; rebuild(); axInfo(m);
+  $('tslider').value=m.angle; $('tval').textContent=m.angle; });
 $('lockMate').onclick=()=>{ if(selMate<0)return; const m=mates[selMate]; m.locked=!m.locked; selectMate(selMate); renderMates(); };
 $('toGrip').onclick=()=>{ if(selMate<0)return; const m=mates[selMate]; if(m.type==='fix')return;   // 회전↔그리퍼 전환
   if(m.type==='grip'){ m.type='rev'; m.min=0; m.max=180; m.angle=90; }
