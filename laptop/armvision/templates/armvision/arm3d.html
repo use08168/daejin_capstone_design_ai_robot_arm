@@ -112,6 +112,7 @@
           <div class="radio" style="margin:10px 0;">
             <label><input type="radio" name="mtype" value="rev" checked> 회전</label>
             <label><input type="radio" name="mtype" value="fix"> 고정</label>
+            <label><input type="radio" name="mtype" value="grip"> 그리퍼</label>
           </div>
           <div class="row" style="margin-bottom:0"><button class="primary" id="doMate">결합 실행</button><button class="ghost" id="clrMate">초기화</button></div>
         </div>
@@ -134,7 +135,8 @@
             <button class="ghost axmove" data-ax="1" data-d="-1">Y−</button><button class="ghost axmove" data-ax="1" data-d="1">Y＋</button>
             <button class="ghost axmove" data-ax="2" data-d="-1">Z−</button><button class="ghost axmove" data-ax="2" data-d="1">Z＋</button></div>
           <div class="hintline" id="axInfo" style="margin:2px 0 6px;color:#9aa;">축기울기=회전방향, 축위치=회전중심 이동. 끝각에서 비틀림·궤도가 맞게 조정 → 💾 저장</div>
-          <button id="lockMate" style="width:100%; margin:2px 0 10px;">🔒 이 결합 고정</button>
+          <button id="lockMate" style="width:100%; margin:2px 0 6px;">🔒 이 결합 고정</button>
+          <button id="toGrip" style="width:100%; margin:0 0 10px;">🤏 그리퍼 관절로 전환</button>
           <div class="hintline" style="margin-bottom:6px;">테스트 회전 <b id="tval">90</b>°</div>
           <input id="tslider" class="slider" type="range" min="0" max="180" value="90">
           <button class="danger" id="delMate" style="width:100%; margin-top:10px;">결합 삭제</button>
@@ -425,17 +427,19 @@ $('doMate').onclick=()=>{
   B.position.sub(perp); pBx.sub(perp); pBp.sub(perp);
   // 3) 면일치: 평면이 만나도록 축 따라 이동
   const along=pAp.clone().sub(pBp).dot(aA); B.position.add(aA.clone().multiplyScalar(along));
-  mates.push({parent:mp.axA.mesh.userData.part, child:B.userData.part, type, pivot:pAx.toArray().map(v=>+v.toFixed(2)), axis:aA.toArray().map(v=>+v.toFixed(4)), angle:90, min:0, max:180, offset:[0,0,0], roll:0, locked:false, motor:{channel:mates.filter(m=>m.type==='rev').length, us0:600, us180:2740}});
+  mates.push({parent:mp.axA.mesh.userData.part, child:B.userData.part, type, pivot:pAx.toArray().map(v=>+v.toFixed(2)), axis:aA.toArray().map(v=>+v.toFixed(4)), angle:90, min:0, max:180, offset:[0,0,0], roll:0, locked:false, motor:{channel: type==='grip'?6:mates.filter(m=>m.type==='rev').length, us0:600, us180:2740}, gOpen:null, gClose:null});
   mp={}; clrMarks(); ['axA','plA','axB','plB'].forEach(k=>$('s_'+k).textContent='미선택'); document.querySelectorAll('.slot').forEach(b=>b.classList.remove('on')); $('matebar').style.display='none';
   renderMates(); rebuild();
 };
 function renderMates(){ const jl=$('jlist'); jl.innerHTML=''; $('mcount').textContent=mates.length;
-  mates.forEach((m,i)=>{ const row=document.createElement('div'); row.className='j'+(selMate===i?' sel':''); row.innerHTML=`<span class="nm">${m.locked?'🔒 ':''}${m.parent} → ${m.child}</span><span class="muted">${m.type==='rev'?'회전':'고정'}</span>`; row.onclick=()=>selectMate(i); jl.appendChild(row); }); }
-function selectMate(i){ selMate=i; renderMates(); const m=mates[i]; $('jedit').style.display='block'; $('jname').textContent=`${m.parent} → ${m.child} (${m.type==='rev'?'회전':'고정'})`;
+  mates.forEach((m,i)=>{ const row=document.createElement('div'); row.className='j'+(selMate===i?' sel':''); row.innerHTML=`<span class="nm">${m.locked?'🔒 ':''}${m.parent} → ${m.child}</span><span class="muted">${m.type==='rev'?'회전':(m.type==='grip'?'그리퍼':'고정')}</span>`; row.onclick=()=>selectMate(i); jl.appendChild(row); }); }
+function selectMate(i){ selMate=i; renderMates(); const m=mates[i]; $('jedit').style.display='block'; $('jname').textContent=`${m.parent} → ${m.child} (${m.type==='rev'?'회전':(m.type==='grip'?'그리퍼':'고정')})`;
   jmin.value=m.min;jmax.value=m.max;mch.value=m.motor.channel;mu0.value=m.motor.us0;mu1.value=m.motor.us180; tslider.min=m.min;tslider.max=m.max;tslider.value=m.angle;$('tval').textContent=m.angle;
   const off=m.offset||[0,0,0]; $('aox').value=off[0]; $('aoy').value=off[1]; $('aoz').value=off[2]; $('aroll').value=m.roll||0;
   $('lockMate').textContent=m.locked?'🔓 고정 해제':'🔒 이 결합 고정'; $('lockMate').classList.toggle('on',!!m.locked);
-  const dis=(m.type!=='rev'); [mch,mu0,mu1,tslider].forEach(e=>e.disabled=dis); axInfo(m); }
+  const dis=(m.type==='fix'); [mch,mu0,mu1,tslider].forEach(e=>e.disabled=dis);
+  $('toGrip').style.display=(m.type==='fix')?'none':'block'; $('toGrip').textContent=m.type==='grip'?'↩ 일반 회전 관절로':'🤏 그리퍼 관절로 전환';
+  axInfo(m); }
 ['jmin','jmax','mch','mu0','mu1'].forEach(id=>$(id).addEventListener('input',()=>{ if(selMate<0)return; const m=mates[selMate]; m.min=+jmin.value;m.max=+jmax.value;m.motor.channel=+mch.value;m.motor.us0=+mu0.value;m.motor.us180=+mu1.value; tslider.min=m.min;tslider.max=m.max; }));
 $('tslider').addEventListener('input',()=>{ if(selMate<0)return; mates[selMate].angle=+tslider.value; $('tval').textContent=tslider.value; applyAngles(); });
 $('delMate').onclick=()=>{ mates.splice(selMate,1); selMate=-1; $('jedit').style.display='none'; renderMates(); rebuild(); };
@@ -471,6 +475,9 @@ document.querySelectorAll('.axmove').forEach(b=>b.onclick=()=>{ if(selMate<0)ret
   const s=(+b.dataset.d)*(+$('apStep').value||2), i=+b.dataset.ax, pv=(m.pivot||[0,0,0]).slice();
   pv[i]=+(pv[i]+s).toFixed(2); m.pivot=pv; rebuild(); axInfo(m); });
 $('lockMate').onclick=()=>{ if(selMate<0)return; const m=mates[selMate]; m.locked=!m.locked; selectMate(selMate); renderMates(); };
+$('toGrip').onclick=()=>{ if(selMate<0)return; const m=mates[selMate]; if(m.type==='fix')return;   // 회전↔그리퍼 전환
+  if(m.type==='grip'){ m.type='rev'; } else { m.type='grip'; m.motor.channel=6; if(m.gOpen===undefined){ m.gOpen=null; m.gClose=null; } }
+  rebuild(); renderMates(); selectMate(selMate); };
 // 고정된 결합으로 연결된 부품들 = 하나의 강체 그룹 (조립 모드에서 통째 이동)
 function lockedGroup(name){ const set=new Set([name]); let add=true; while(add){ add=false; mates.forEach(m=>{ if(!m.locked)return; if(set.has(m.parent)&&!set.has(m.child)){set.add(m.child);add=true;} if(set.has(m.child)&&!set.has(m.parent)){set.add(m.parent);add=true;} }); } return [...set]; }
 
@@ -488,7 +495,7 @@ function rebuild(){
   while(placed.size<parts.length && guard++<200){
     mates.forEach(m=>{ if(placed.has(m.child)||!placed.has(m.parent))return;
       const pg=groups[m.parent], cg=groups[m.child]; pg.updateMatrixWorld(true);
-      if(m.type==='rev'){ const pv=new THREE.Group(); pv.name='pv_'+m.child; pg.attach(pv);
+      if(m.type==='rev'||m.type==='grip'){ const pv=new THREE.Group(); pv.name='pv_'+m.child; pg.attach(pv);
         pg.updateMatrixWorld(true); pv.position.copy(pg.worldToLocal(new THREE.Vector3().fromArray(m.pivot))); pv.updateMatrixWorld(true);
         pv.attach(cg); cg.attach(partByName(m.child).mesh); m._pv=pv; }
       else { pg.attach(cg); cg.attach(partByName(m.child).mesh); m._pv=null; }
@@ -497,7 +504,7 @@ function rebuild(){
   }
   applyAngles();
 }
-function applyAngles(){ mates.forEach(m=>{ if(m.type!=='rev'||!m._pv)return; const ax=new THREE.Vector3().fromArray(m.axis); if(ax.lengthSq()<1e-6)ax.set(0,1,0); ax.normalize(); m._pv.quaternion.setFromAxisAngle(ax, d2r(((m.angle==null?90:m.angle))-90)); }); }   // 0||90=90 falsy 버그 수정
+function applyAngles(){ mates.forEach(m=>{ if((m.type!=='rev'&&m.type!=='grip')||!m._pv)return; const ax=new THREE.Vector3().fromArray(m.axis); if(ax.lengthSq()<1e-6)ax.set(0,1,0); ax.normalize(); m._pv.quaternion.setFromAxisAngle(ax, d2r(((m.angle==null?90:m.angle))-90)); }); }   // rev·grip 모두 회전
 
 // ---- 모드 ----
 function setMode(mo){ mode=mo; $('mAsm').classList.toggle('on',mo==='asm'); $('mMate').classList.toggle('on',mo==='mate'); $('mCtrl').classList.toggle('on',mo==='ctrl');
