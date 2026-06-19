@@ -218,6 +218,18 @@
           <div class="row" style="margin-bottom:0"><button class="primary" id="ikSolve" style="flex:1">🤖 이 위치 잡기(IK)</button></div>
           <div class="hintline" id="ikStat" style="margin:6px 0 0;">데이터셋을 불러오고 목표를 정한 뒤 잡기를 누르세요. 주황 마커 = 목표 물체.</div>
         </div>
+
+        <div class="card" style="margin-top:10px;">
+          <div class="ttl">가상 물체 (파지 대상)</div>
+          <div class="hintline">프리미티브 물체를 IK 목표 위치에 놓고 파지 대상으로 삼습니다. 다음 단계에서 표면 접촉점 파지 후보를 자동 생성합니다.</div>
+          <div class="row" style="margin-bottom:6px"><span class="muted" style="width:38px">종류</span>
+            <select id="voType" style="flex:1"><option value="cyl">원기둥</option><option value="sph">구</option><option value="box">박스</option><option value="cup">컵(열린 원기둥)</option></select></div>
+          <div class="row" style="margin-bottom:6px"><span class="muted" style="width:38px">크기</span>
+            반경<input id="voR" type="number" value="25" step="2" min="3" style="width:48px">
+            높이<input id="voH" type="number" value="80" step="5" min="5" style="width:48px"><span class="muted">mm</span></div>
+          <div class="row" style="margin-bottom:0"><button class="primary" id="voShow" style="flex:1">표시 / 갱신(IK 목표에)</button><button class="ghost" id="voHide">숨김</button></div>
+          <div class="hintline" id="voStat" style="margin:6px 0 0;">원기둥/컵 축=수직. IK 목표(주황) 위치 중심에 배치.</div>
+        </div>
       </div>
 
       <div class="sect">부품 (<span id="pcount">0</span>) <span class="muted" id="ploading">로딩…</span></div>
@@ -1111,6 +1123,28 @@ function updateJointAxis(){
   jAxisTriad.visible=true; jAxisTriad.position.copy(_jaP); jAxisTriad.quaternion.copy(_basisQuat(_jaAx));   // z(파랑)=회전축
   const L=240; _jaGeo.setFromPoints([_jaP.clone().addScaledVector(_jaAx,-L), _jaP.clone().addScaledVector(_jaAx,L)]); jAxisLine.visible=true;
 }
+// ===== 가상 물체(파지 대상) — Inc1: 시뮬 배치 =====
+let vObj=null;
+function _voGeo(type,R,H){
+  if(type==='cyl') return new THREE.CylinderGeometry(R,R,H,28);
+  if(type==='cup') return new THREE.CylinderGeometry(R,R,H,28,1,true);   // 열린 원기둥
+  if(type==='sph') return new THREE.SphereGeometry(R,24,18);
+  return new THREE.BoxGeometry(R*2,H,R*2);
+}
+function showVObj(){
+  const type=$('voType').value, R=Math.max(3,+$('voR').value||25), H=Math.max(5,+$('voH').value||80);
+  if(vObj){ scene.remove(vObj); vObj.geometry.dispose(); vObj.material.dispose(); }
+  const mat=new THREE.MeshStandardMaterial({color:0x55aaff,emissive:0x16314d,transparent:true,opacity:0.55,side:THREE.DoubleSide,roughness:0.6});
+  vObj=new THREE.Mesh(_voGeo(type,R,H),mat); vObj.name='__vobj';
+  vObj.position.set(+$('ikX').value,+$('ikY').value,+$('ikZ').value);   // IK 목표 위치 중심
+  scene.add(vObj);
+  $('voStat').textContent=`✓ ${$('voType').selectedOptions[0].text} R${R}·H${H} @ (${Math.round(+$('ikX').value)}, ${Math.round(+$('ikY').value)}, ${Math.round(+$('ikZ').value)})`;
+}
+if($('voShow')){
+  $('voShow').onclick=showVObj;
+  $('voHide').onclick=()=>{ if(vObj){ scene.remove(vObj); vObj.geometry.dispose(); vObj.material.dispose(); vObj=null; } $('voStat').textContent='숨김'; };
+}
+
 (function loop(){ requestAnimationFrame(loop); orbit.update(); updateLockLines(); rampCtrl(); ikDrive(); updateCollision(); updateTCP(); updateIkMark(); updateJointAxis(); renderer.render(scene,camera); })();
 </script>
 {% endblock %}
