@@ -165,6 +165,12 @@
         </div>
         <div class="sect">관절 (<span id="jcount">0</span>) — 슬라이더로 회전</div>
         <div id="ctrlJoints"></div>
+        <div class="card" id="j7Card" style="display:none; margin-top:8px;">
+          <div class="row" style="justify-content:space-between;margin-bottom:6px"><span style="color:#fbbf24;font-weight:600">J7 · 그리퍼</span><span class="muted">ch6 · <b id="j7us">—</b>µs</span></div>
+          <div class="row" style="margin-bottom:0"><b id="j7pct" style="width:32px;text-align:right">0</b><span class="muted">%</span><input id="j7slider" class="slider" type="range" min="0" max="100" value="0" style="flex:1"></div>
+          <div class="hintline" style="margin-top:4px">0% 열림 ↔ 100% 닫힘 · 슬라이더로 그리퍼 개폐(3D+실물 ch6)</div>
+        </div>
+        <div class="card" id="j7Need" style="display:none; margin-top:8px;"><div class="hintline">⚠ 그리퍼 개폐 보정 필요 — 결합 모드에서 그리퍼 손가락의 열림/닫힘을 저장하세요.</div></div>
 
         <div class="card sim-card" style="margin-top:10px;">
           <div class="ttl">그리퍼 중심(TCP) 설정 (파지 P0)</div>
@@ -507,10 +513,13 @@ function setGripper(t){   // 0=완전 열림 .. 1=완전 닫힘
   applyAngles();
   const sl=$('gripSlider'); if(sl){ sl.value=Math.round(t*100); sl.disabled=!gripReady(); }
   const v=$('gripVal'); if(v) v.textContent = t<0.05?'열림':(t>0.95?'닫힘':Math.round(t*100)+'%');
+  const j7=$('j7slider'); if(j7) j7.value=Math.round(t*100); const j7p=$('j7pct'); if(j7p) j7p.textContent=Math.round(t*100);   // 제어 J7 동기화
 }
 $('gripSaveOpen').onclick=()=>{ if(selMate<0)return; const m=mates[selMate]; if(m.type!=='grip')return; m.gOpen=+(+$('tslider').value).toFixed(1); selectMate(selMate); };
 $('gripSaveClose').onclick=()=>{ if(selMate<0)return; const m=mates[selMate]; if(m.type!=='grip')return; m.gClose=+(+$('tslider').value).toFixed(1); selectMate(selMate); };
 $('gripSlider').addEventListener('input',()=>{ if(gripReady()) setGripper(+$('gripSlider').value/100); });
+$('j7slider').addEventListener('input',()=>{ if(!gripReady())return; const t=+$('j7slider').value/100; setGripper(t);   // J7 = 그리퍼 개폐
+  if(sync && connected){ const us=Math.round(J7_OPEN_US+(J7_CLOSE_US-J7_OPEN_US)*t); sendJoint(6,us); $('j7us').textContent=us; } });
 // 고정된 결합으로 연결된 부품들 = 하나의 강체 그룹 (조립 모드에서 통째 이동)
 function lockedGroup(name){ const set=new Set([name]); let add=true; while(add){ add=false; mates.forEach(m=>{ if(!m.locked)return; if(set.has(m.parent)&&!set.has(m.child)){set.add(m.child);add=true;} if(set.has(m.child)&&!set.has(m.parent)){set.add(m.parent);add=true;} }); } return [...set]; }
 
@@ -547,7 +556,7 @@ function setMode(mo){ mode=mo; $('mAsm').classList.toggle('on',mo==='asm'); $('m
   $('asmPane').style.display=mo==='asm'?'block':'none'; $('matePane').style.display=mo==='mate'?'block':'none'; $('ctrlPane').style.display=mo==='ctrl'?'block':'none';
   $('phase').textContent=mo==='asm'?'1·조립':(mo==='mate'?'2·결합':'3·연동 제어');
   deselectPart(); tc.detach(); pickFor=null; clrMarks(); $('matebar').style.display='none';
-  if(mo==='mate' || mo==='ctrl'){ mates.forEach(m=>{ if(m.type==='grip') m.angle=0; else if(mo==='mate'&&m.type==='rev') m.angle=90; }); rebuild(); if(mo==='ctrl'){ buildCtrlJoints(); refreshConn(); } }   // 진입 시 그리퍼 슬라이드0(휴식) — 손가락 튐 방지
+  if(mo==='mate' || mo==='ctrl'){ mates.forEach(m=>{ m.angle=(m.type==='grip')?0:90; }); rebuild(); if(mo==='ctrl'){ buildCtrlJoints(); refreshConn(); } }   // 진입 시 휴식자세(grip=슬라이드0)에서 리깅 → 베이스 정확(대각선 슬라이드 방지)
   else { parts.forEach(p=>{ worldRoot.attach(p.mesh); p.mesh.scale.set(1,1,1); p.mesh.quaternion.normalize(); }); Object.values(groups).forEach(g=>g.parent&&g.parent.remove(g)); groups={}; } }
 $('mAsm').onclick=()=>setMode('asm'); $('mMate').onclick=()=>setMode('mate'); $('mCtrl').onclick=()=>setMode('ctrl');
 
@@ -605,7 +614,15 @@ function buildCtrlJoints(){ const c=$('ctrlJoints'); c.innerHTML=''; aligning=fa
     m._tgt=(m.angle==null?90:m.angle); if(m._cmd==null){ const s=loadCmd(m); m._cmd=(s!=null)?s:90; } m._ui={sl,ca,cu};   // 명령각: 저장값 복원, 없으면 홈(90°)
     cu.textContent=angToUs(m);
     sl.addEventListener('input',()=>{ m._tgt=+sl.value; });   // 목표만 설정 → 램프가 천천히 이동
-    c.appendChild(card); }); }
+    c.appendChild(card); });
+  refreshJ7();   // 그리퍼(J7) 카드 표시
+}
+// ---- J7(그리퍼) 제어: 개폐 슬라이더 = 3D(setGripper) + 실물 ch6 ----
+const J7_OPEN_US=550, J7_CLOSE_US=2500;
+function refreshJ7(){ const ready=gripReady(), has=gripMates().length>0;
+  $('j7Card').style.display=ready?'block':'none'; $('j7Need').style.display=(has&&!ready)?'block':'none';
+  if(ready){ const m=gripMates()[0], rng=(m.gClose-m.gOpen); const t=(rng!==0)?(m.angle-m.gOpen)/rng:0;
+    $('j7slider').value=Math.round(Math.max(0,Math.min(1,t))*100); $('j7pct').textContent=$('j7slider').value; } }
 // ---- 속도 제한 램프 (ctrlSpeed °/s) ----
 // 2단: ① 3D 표시각(m.angle) → 슬라이더 목표(_tgt)   ② 실물 명령각(_cmd) → 3D 표시각
 // 펄스는 _cmd 기준으로 보냄. 정렬·연동 모두 같은 하단 속도로 천천히 움직인다.
