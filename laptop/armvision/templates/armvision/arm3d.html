@@ -139,6 +139,12 @@
           <button id="toGrip" style="width:100%; margin:0 0 10px;">🤏 그리퍼 관절로 전환</button>
           <div class="hintline" style="margin-bottom:6px;">테스트 회전 <b id="tval">90</b>°</div>
           <input id="tslider" class="slider" type="range" min="0" max="180" value="90">
+          <div id="gripEdit" style="display:none; margin-top:10px; border-top:1px solid var(--c-line); padding-top:8px;">
+            <div class="hintline" style="margin-bottom:6px;">테스트 회전으로 이 손가락을 <b>완전 열림</b>/<b>완전 닫힘</b>에 두고 각각 저장. 두 손가락 모두 저장하면 아래 슬라이더로 동시 개폐.</div>
+            <div class="row"><button class="ghost" id="gripSaveOpen">현재=열림 저장</button><button class="ghost" id="gripSaveClose">현재=닫힘 저장</button></div>
+            <div class="row" style="margin-bottom:0"><span class="muted" style="width:38px">개폐</span><input id="gripSlider" type="range" min="0" max="100" value="0" style="flex:1" disabled><span class="muted" id="gripVal" style="width:42px;text-align:right">열림</span></div>
+            <div class="hintline" id="gripInfo" style="margin:4px 0 0;color:#9aa;"></div>
+          </div>
           <button class="danger" id="delMate" style="width:100%; margin-top:10px;">결합 삭제</button>
         </div>
       </div>
@@ -439,6 +445,8 @@ function selectMate(i){ selMate=i; renderMates(); const m=mates[i]; $('jedit').s
   $('lockMate').textContent=m.locked?'🔓 고정 해제':'🔒 이 결합 고정'; $('lockMate').classList.toggle('on',!!m.locked);
   const dis=(m.type==='fix'); [mch,mu0,mu1,tslider].forEach(e=>e.disabled=dis);
   $('toGrip').style.display=(m.type==='fix')?'none':'block'; $('toGrip').textContent=m.type==='grip'?'↩ 일반 회전 관절로':'🤏 그리퍼 관절로 전환';
+  const isGrip=(m.type==='grip'); $('gripEdit').style.display=isGrip?'block':'none';
+  if(isGrip){ $('gripInfo').textContent=(m.gOpen!=null?`열림 ${m.gOpen}°`:'⚠ 열림 미저장')+' · '+(m.gClose!=null?`닫힘 ${m.gClose}°`:'⚠ 닫힘 미저장')+(gripReady()?' · ✓ 슬라이더로 개폐 가능':''); $('gripSlider').disabled=!gripReady(); }
   axInfo(m); }
 ['jmin','jmax','mch','mu0','mu1'].forEach(id=>$(id).addEventListener('input',()=>{ if(selMate<0)return; const m=mates[selMate]; m.min=+jmin.value;m.max=+jmax.value;m.motor.channel=+mch.value;m.motor.us0=+mu0.value;m.motor.us180=+mu1.value; tslider.min=m.min;tslider.max=m.max; }));
 $('tslider').addEventListener('input',()=>{ if(selMate<0)return; mates[selMate].angle=+tslider.value; $('tval').textContent=tslider.value; applyAngles(); });
@@ -478,6 +486,19 @@ $('lockMate').onclick=()=>{ if(selMate<0)return; const m=mates[selMate]; m.locke
 $('toGrip').onclick=()=>{ if(selMate<0)return; const m=mates[selMate]; if(m.type==='fix')return;   // 회전↔그리퍼 전환
   if(m.type==='grip'){ m.type='rev'; } else { m.type='grip'; m.motor.channel=6; if(m.gOpen===undefined){ m.gOpen=null; m.gClose=null; } }
   rebuild(); renderMates(); selectMate(selMate); };
+// 그리퍼 개폐 — 'grip' 결합들을 열림/닫힘 하나로 동시 구동
+function gripMates(){ return mates.filter(m=>m.type==='grip'); }
+function gripReady(){ const g=gripMates(); return g.length>0 && g.every(m=>m.gOpen!=null && m.gClose!=null); }
+function setGripper(t){   // 0=완전 열림 .. 1=완전 닫힘
+  t=Math.max(0,Math.min(1,t));
+  gripMates().forEach(m=>{ if(m.gOpen!=null && m.gClose!=null) m.angle=m.gOpen+(m.gClose-m.gOpen)*t; });
+  applyAngles();
+  const sl=$('gripSlider'); if(sl){ sl.value=Math.round(t*100); sl.disabled=!gripReady(); }
+  const v=$('gripVal'); if(v) v.textContent = t<0.05?'열림':(t>0.95?'닫힘':Math.round(t*100)+'%');
+}
+$('gripSaveOpen').onclick=()=>{ if(selMate<0)return; const m=mates[selMate]; if(m.type!=='grip')return; m.gOpen=+(+$('tslider').value).toFixed(1); selectMate(selMate); };
+$('gripSaveClose').onclick=()=>{ if(selMate<0)return; const m=mates[selMate]; if(m.type!=='grip')return; m.gClose=+(+$('tslider').value).toFixed(1); selectMate(selMate); };
+$('gripSlider').addEventListener('input',()=>{ if(gripReady()) setGripper(+$('gripSlider').value/100); });
 // 고정된 결합으로 연결된 부품들 = 하나의 강체 그룹 (조립 모드에서 통째 이동)
 function lockedGroup(name){ const set=new Set([name]); let add=true; while(add){ add=false; mates.forEach(m=>{ if(!m.locked)return; if(set.has(m.parent)&&!set.has(m.child)){set.add(m.child);add=true;} if(set.has(m.child)&&!set.has(m.parent)){set.add(m.parent);add=true;} }); } return [...set]; }
 
@@ -1099,7 +1120,8 @@ function seqNext(){
   ikStat(`▶ ${st.label}…`);
 }
 function seqStepDone(st){
-  if(st.grip){ if(connected) fetch('/arm/gripper/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:st.grip})}).catch(()=>{});
+  if(st.grip){ if(gripReady()) setGripper(st.grip==='close'?1:0);   // 시뮬 손가락 개폐
+    if(connected) fetch('/arm/gripper/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:st.grip})}).catch(()=>{});
     ikStat(`✓ ${st.label} → 그리퍼 ${st.grip==='open'?'열기':'닫기'}`); }
   setTimeout(seqNext, st.grip?700:120);   // 그리퍼 동작 시간 여유
 }
