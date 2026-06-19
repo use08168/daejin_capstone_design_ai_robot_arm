@@ -1018,7 +1018,7 @@ function solveIK(){
 function _closingPerp(j){   // 주어진 6관절각에서 닫힘선(두 손가락 중심 연결)↔물체중심 수직거리
   if(!vObj) return Infinity; const gm=gripMates(); if(gm.length<2) return Infinity;
   const rm=revMates(), save=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle));
-  rm.forEach((m,i)=>{ if(i<6) m.angle=j[i]; }); applyAngles();
+  rm.forEach((m,i)=>{ if(i<6) m.angle=j[i]; }); applyAngles(); rigRoot.updateMatrixWorld(true);   // 월드행렬 강제갱신(동기루프)
   const cs=gm.map(m=>{ const pb=partByName(m.child); return pb&&pb.mesh?_fingerCenter(pb.mesh):null; }).filter(Boolean);
   let perp=Infinity;
   if(cs.length>=2){ const cc=cs[0].clone().add(cs[1]).multiplyScalar(0.5), d=cs[1].clone().sub(cs[0]);
@@ -1046,7 +1046,7 @@ function optimizeRoll(){
 function _graspQuality(j, type,R,H, invObj, O){   // 열림 상태에서 양손가락-물체 정렬·대칭·도달 → cost(낮을수록 좋음)
   const rm=revMates(), gm=gripMates(); if(gm.length<2) return null;
   const saveJ=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle)), saveG=gm.map(m=>m.angle);
-  rm.forEach((m,i)=>{ if(i<6) m.angle=j[i]; }); gm.forEach(m=>{ if(m.gOpen!=null) m.angle=m.gOpen; }); applyAngles();   // 열림
+  rm.forEach((m,i)=>{ if(i<6) m.angle=j[i]; }); gm.forEach(m=>{ if(m.gOpen!=null) m.angle=m.gOpen; }); applyAngles(); rigRoot.updateMatrixWorld(true);   // 열림 + 월드행렬 강제갱신(동기루프)
   let out=null;
   const res=gm.map(m=>{ const pb=partByName(m.child), mesh=pb&&pb.mesh; if(!mesh)return null; const nr=_fingerNearest(mesh,invObj,type,R,H); return nr?{d:nr.d, c:_fingerCenter(mesh)}:null; }).filter(Boolean);
   if(res.length>=2){ res.sort((a,b)=>a.d-b.d); const a=res[0], b=res[1];
@@ -1334,7 +1334,7 @@ function evalGraspContact(){
   if(!vObj){ el.textContent=''; return; }
   const gm=gripMates(); if(gm.length<2){ el.textContent='그리퍼 손가락 2개 필요(결합에서 grip 설정)'; el.style.color='#fa6'; return; }
   const type=$('voType').value, R=Math.max(3,+$('voR').value||25), H=Math.max(5,+$('voH').value||80);
-  vObj.updateMatrixWorld(true); const invObj=new THREE.Matrix4().copy(vObj.matrixWorld).invert(), center=vObj.position.clone();
+  vObj.updateMatrixWorld(true); rigRoot.updateMatrixWorld(true); const invObj=new THREE.Matrix4().copy(vObj.matrixWorld).invert(), center=vObj.position.clone();
   const res=gm.map(m=>{ const pb=partByName(m.child), mesh=pb&&pb.mesh; if(!mesh)return null; const nr=_fingerNearest(mesh,invObj,type,R,H); return nr?{...nr, center:_fingerCenter(mesh)}:null; }).filter(Boolean);
   if(res.length<2){ el.textContent='손가락 메시를 찾지 못함'; el.style.color='#fa6'; return; }
   res.sort((a,b)=>a.d-b.d); const a=res[0], b=res[1];
