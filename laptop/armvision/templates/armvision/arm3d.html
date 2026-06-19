@@ -137,10 +137,10 @@
           <div class="hintline" id="axInfo" style="margin:2px 0 6px;color:#9aa;">축기울기=회전방향, 축위치=회전중심 이동. 끝각에서 비틀림·궤도가 맞게 조정 → 💾 저장</div>
           <button id="lockMate" style="width:100%; margin:2px 0 6px;">🔒 이 결합 고정</button>
           <button id="toGrip" style="width:100%; margin:0 0 10px;">🤏 그리퍼 관절로 전환</button>
-          <div class="hintline" style="margin-bottom:6px;">테스트 회전 <b id="tval">90</b>°</div>
+          <div class="hintline" style="margin-bottom:6px;"><span id="tlabel">테스트 회전</span> <b id="tval">90</b><span id="tunit">°</span></div>
           <input id="tslider" class="slider" type="range" min="0" max="180" value="90">
           <div id="gripEdit" style="display:none; margin-top:10px; border-top:1px solid var(--c-line); padding-top:8px;">
-            <div class="hintline" style="margin-bottom:6px;">테스트 회전으로 이 손가락을 <b>완전 열림</b>/<b>완전 닫힘</b>에 두고 각각 저장. 두 손가락 모두 저장하면 아래 슬라이더로 동시 개폐.</div>
+            <div class="hintline" style="margin-bottom:6px;">위 <b>슬라이드</b> 슬라이더로 이 손가락을 <b>완전 열림</b>/<b>완전 닫힘</b>에 두고 각각 저장. 두 손가락 모두 저장하면 아래로 동시 개폐.</div>
             <div class="row"><button class="ghost" id="gripSaveOpen">현재=열림 저장</button><button class="ghost" id="gripSaveClose">현재=닫힘 저장</button></div>
             <div class="row" style="margin-bottom:0"><span class="muted" style="width:38px">개폐</span><input id="gripSlider" type="range" min="0" max="100" value="0" style="flex:1" disabled><span class="muted" id="gripVal" style="width:42px;text-align:right">열림</span></div>
             <div class="hintline" id="gripInfo" style="margin:4px 0 0;color:#9aa;"></div>
@@ -440,7 +440,9 @@ $('doMate').onclick=()=>{
 function renderMates(){ const jl=$('jlist'); jl.innerHTML=''; $('mcount').textContent=mates.length;
   mates.forEach((m,i)=>{ const row=document.createElement('div'); row.className='j'+(selMate===i?' sel':''); row.innerHTML=`<span class="nm">${m.locked?'🔒 ':''}${m.parent} → ${m.child}</span><span class="muted">${m.type==='rev'?'회전':(m.type==='grip'?'그리퍼':'고정')}</span>`; row.onclick=()=>selectMate(i); jl.appendChild(row); }); }
 function selectMate(i){ selMate=i; renderMates(); const m=mates[i]; $('jedit').style.display='block'; $('jname').textContent=`${m.parent} → ${m.child} (${m.type==='rev'?'회전':(m.type==='grip'?'그리퍼':'고정')})`;
+  if(m.type==='grip'&&m.min===0&&m.max===180){ m.min=-60; m.max=60; m.angle=0; }   // 기존 grip(회전범위) → 슬라이드 범위(mm) 마이그레이션
   jmin.value=m.min;jmax.value=m.max;mch.value=m.motor.channel;mu0.value=m.motor.us0;mu1.value=m.motor.us180; tslider.min=m.min;tslider.max=m.max;tslider.value=m.angle;$('tval').textContent=m.angle;
+  $('tlabel').textContent=m.type==='grip'?'슬라이드':'테스트 회전'; $('tunit').textContent=m.type==='grip'?'mm':'°';
   const off=m.offset||[0,0,0]; $('aox').value=off[0]; $('aoy').value=off[1]; $('aoz').value=off[2]; $('aroll').value=m.roll||0;
   $('lockMate').textContent=m.locked?'🔓 고정 해제':'🔒 이 결합 고정'; $('lockMate').classList.toggle('on',!!m.locked);
   const dis=(m.type==='fix'); [mch,mu0,mu1,tslider].forEach(e=>e.disabled=dis);
@@ -473,7 +475,10 @@ function mOff(m){ return m.offset||(m.offset=[0,0,0]); }
 $('aroll').addEventListener('input',()=>{ if(selMate<0)return; const m=mates[selMate]; editOffset(m,0,0,0,(+aroll.value)-(m.roll||0)); m.roll=+aroll.value; });
 // 축 기울기 보정: 회전축(m.axis)을 월드 X/Y/Z로 미세회전 → 관절 돌릴 때 비틀림 제거(휴식 90°는 불변)
 const _AXW=[new THREE.Vector3(1,0,0),new THREE.Vector3(0,1,0),new THREE.Vector3(0,0,1)];
-function axInfo(m){ const e=$('axInfo'); if(e&&m&&m.type==='rev') e.textContent=`회전축 (${m.axis.map(v=>(+v).toFixed(3)).join(', ')}) — 끝각에서 비틀림 최소가 되게 조정 후 💾`; }
+function axInfo(m){ const e=$('axInfo'); if(!e||!m)return;
+  if(m.type==='rev') e.textContent=`회전축 (${m.axis.map(v=>(+v).toFixed(3)).join(', ')}) — 끝각에서 비틀림 최소가 되게 조정 후 💾`;
+  else if(m.type==='grip') e.textContent=`슬라이드축 (${m.axis.map(v=>(+v).toFixed(3)).join(', ')}) — 손가락이 엉뚱한 방향이면 축기울기로 조정`;
+  else e.textContent=''; }
 document.querySelectorAll('.axtilt').forEach(b=>b.onclick=()=>{ if(selMate<0)return; const m=mates[selMate]; if(m.type!=='rev')return;
   const s=(+b.dataset.d)*(+$('atStep').value||1), q=new THREE.Quaternion().setFromAxisAngle(_AXW[+b.dataset.ax], d2r(s));
   const a=new THREE.Vector3().fromArray(m.axis).applyQuaternion(q).normalize();
@@ -484,7 +489,8 @@ document.querySelectorAll('.axmove').forEach(b=>b.onclick=()=>{ if(selMate<0)ret
   pv[i]=+(pv[i]+s).toFixed(2); m.pivot=pv; rebuild(); axInfo(m); });
 $('lockMate').onclick=()=>{ if(selMate<0)return; const m=mates[selMate]; m.locked=!m.locked; selectMate(selMate); renderMates(); };
 $('toGrip').onclick=()=>{ if(selMate<0)return; const m=mates[selMate]; if(m.type==='fix')return;   // 회전↔그리퍼 전환
-  if(m.type==='grip'){ m.type='rev'; } else { m.type='grip'; m.motor.channel=6; if(m.gOpen===undefined){ m.gOpen=null; m.gClose=null; } }
+  if(m.type==='grip'){ m.type='rev'; m.min=0; m.max=180; m.angle=90; }
+  else { m.type='grip'; m.motor.channel=6; m.min=-60; m.max=60; m.angle=0; if(m.gOpen===undefined)m.gOpen=null; if(m.gClose===undefined)m.gClose=null; }   // 슬라이드 범위 mm
   rebuild(); renderMates(); selectMate(selMate); };
 // 그리퍼 개폐 — 'grip' 결합들을 열림/닫힘 하나로 동시 구동
 function gripMates(){ return mates.filter(m=>m.type==='grip'); }
@@ -517,15 +523,18 @@ function rebuild(){
     mates.forEach(m=>{ if(placed.has(m.child)||!placed.has(m.parent))return;
       const pg=groups[m.parent], cg=groups[m.child]; pg.updateMatrixWorld(true);
       if(m.type==='rev'||m.type==='grip'){ const pv=new THREE.Group(); pv.name='pv_'+m.child; pg.attach(pv);
-        pg.updateMatrixWorld(true); pv.position.copy(pg.worldToLocal(new THREE.Vector3().fromArray(m.pivot))); pv.updateMatrixWorld(true);
-        pv.attach(cg); cg.attach(partByName(m.child).mesh); m._pv=pv; }
+        pg.updateMatrixWorld(true); const _b=pg.worldToLocal(new THREE.Vector3().fromArray(m.pivot)); pv.position.copy(_b); pv.updateMatrixWorld(true);
+        pv.attach(cg); cg.attach(partByName(m.child).mesh); m._pv=pv; m._base=_b.clone(); }
       else { pg.attach(cg); cg.attach(partByName(m.child).mesh); m._pv=null; }
       placed.add(m.child);
     });
   }
   applyAngles();
 }
-function applyAngles(){ mates.forEach(m=>{ if((m.type!=='rev'&&m.type!=='grip')||!m._pv)return; const ax=new THREE.Vector3().fromArray(m.axis); if(ax.lengthSq()<1e-6)ax.set(0,1,0); ax.normalize(); m._pv.quaternion.setFromAxisAngle(ax, d2r(((m.angle==null?90:m.angle))-90)); }); }   // rev·grip 모두 회전
+function applyAngles(){ mates.forEach(m=>{ if(!m._pv)return; const ax=new THREE.Vector3().fromArray(m.axis); if(ax.lengthSq()<1e-6)ax.set(0,1,0); ax.normalize();
+  if(m.type==='rev'){ m._pv.quaternion.setFromAxisAngle(ax, d2r(((m.angle==null?90:m.angle))-90)); }                 // 회전
+  else if(m.type==='grip'){ m._pv.position.copy(m._base||new THREE.Vector3()).addScaledVector(ax, m.angle||0); }    // 그리퍼=슬라이드(축 방향 mm)
+}); }
 
 // ---- 모드 ----
 function setMode(mo){ mode=mo; $('mAsm').classList.toggle('on',mo==='asm'); $('mMate').classList.toggle('on',mo==='mate'); $('mCtrl').classList.toggle('on',mo==='ctrl');
