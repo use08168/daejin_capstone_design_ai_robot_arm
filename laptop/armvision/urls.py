@@ -47,13 +47,4 @@ urlpatterns = [
     path("arm/config/", views.arm_config, name="arm_config"),
     path("arm/set_angle/", views.arm_set_angle, name="arm_set_angle"),
     path("arm/home/", views.arm_home, name="arm_home"),
-    # Teach-and-repeat (관절각 기록·재생 집기) — 5페이지
-    path("teach/", views.teach, name="teach"),
-    path("arm/teach/list/", views.teach_list, name="teach_list"),
-    path("arm/teach/record/", views.teach_record, name="teach_record"),
-    path("arm/teach/delete/", views.teach_delete, name="teach_delete"),
-    path("arm/teach/clear/", views.teach_clear, name="teach_clear"),
-    path("arm/teach/reorder/", views.teach_reorder, name="teach_reorder"),
-    path("arm/teach/goto/", views.teach_goto, name="teach_goto"),
-    path("arm/teach/play/", views.teach_play, name="teach_play"),
 ]

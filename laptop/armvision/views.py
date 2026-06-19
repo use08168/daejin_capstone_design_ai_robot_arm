@@ -78,15 +78,11 @@ def control(request):
 from django.views.decorators.clickjacking import xframe_options_sameorigin
 
 
-@xframe_options_sameorigin   # 3페이지가 ?embed=1로 iframe 임베드 가능하게(기본 DENY 해제)
+@xframe_options_sameorigin   # 5페이지(자연어)가 ?embed=1로 iframe 임베드 가능하게(기본 DENY 해제)
 def arm3d(request):
-    """4페이지 — 3D 로봇팔 제어 뷰어(3D-only, 실물 연동 예정)."""
-    return render(request, "armvision/arm3d.html")
-
-
-def teach(request):
-    """5페이지 — Teach-and-repeat: 잡는 자세 기록 → 시퀀스 재생(IK 없이 집기)."""
-    return render(request, "armvision/teach.html")
+    """3페이지 3D 제어(?view=control) / 4페이지 3D 시뮬레이터(?view=sim) — 같은 엔진, 패널만 다름."""
+    return render(request, "armvision/arm3d.html",
+                  {"view": "sim" if request.GET.get("view") == "sim" else "control"})
 
 
 CAD_DIR = r"C:\robotic_arm\laptop\cad"
