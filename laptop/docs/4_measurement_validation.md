@@ -5,7 +5,7 @@
 > 즉 본 비전 측정 파이프라인이 **물리적으로 정확**하며, 이후 시각-운동학 자가보정(콜드스타트)의
 > 신뢰할 수 있는 입력이 됨을 **두 차례 독립 실행(24·30자세)** 의 실측으로 입증한다.
 
-관련: [coordinate_3d_pipeline.md](coordinate_3d_pipeline.md) · [arm3d_simulator.md](arm3d_simulator.md) · [aruco_markers.md](aruco_markers.md)
+관련: [3_coordinate_3d_pipeline.md](3_coordinate_3d_pipeline.md) · [8_arm3d_simulator.md](8_arm3d_simulator.md) · [13_aruco_markers.md](13_aruco_markers.md)
 
 ---
 
@@ -132,7 +132,7 @@ SVD 평면 피팅 + Kasa 원 피팅으로 궤적을 복원:
 | J1 회전반경 교차실행 일치 | **377 vs 381 mm (1%)** | 운동학 정합·재현성 |
 | 자세 다양성 | 24 + 30 = **54자세**, 6관절 중 5관절 단독 스윕 | 검증 폭 |
 
-스테레오 캘리브레이션 기준: 재투영오차 ~0.5 px, 베이스라인 588 mm, 보드 30 mm를 0.32 mm 오차로 복원(→ [coordinate_3d_pipeline.md](coordinate_3d_pipeline.md)).
+스테레오 캘리브레이션 기준: 재투영오차 ~0.5 px, 베이스라인 588 mm, 보드 30 mm를 0.32 mm 오차로 복원(→ [3_coordinate_3d_pipeline.md](3_coordinate_3d_pipeline.md)).
 
 ---
 

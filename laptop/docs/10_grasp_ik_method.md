@@ -5,7 +5,7 @@
 > 채택하고, 실패 모드를 하나씩 제거하며 비용함수를 진화시켰다. 본 문서는 **그 도출 과정(왜 각 항이 필요했는가)** 과
 > **최종 정식화**를 정리한다.
 
-관련: [grasp_pipeline.md](grasp_pipeline.md)(구현 명세) · [digital_twin_safety.md](digital_twin_safety.md) · [measurement_validation.md](measurement_validation.md)
+관련: [9_grasp_pipeline.md](9_grasp_pipeline.md)(구현 명세) · [6_digital_twin_safety.md](6_digital_twin_safety.md) · [4_measurement_validation.md](4_measurement_validation.md)
 
 ---
 

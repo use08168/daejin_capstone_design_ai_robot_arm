@@ -3,26 +3,27 @@
 > 📂 [루트](../../README.md) → [공통 docs](../../docs/README.md) → [laptop](../README.md) → **laptop/docs (여기, 가장 상세)**
 
 > **역할: "어떻게 할지" 번역.** AI 서버의 DSL을 실제 모터 명령으로 변환하고, 실시간 안전을 독립적으로 보장한다.
-> 위로는 [gRPC](../../docs/grpc_interface.md)로 AI 서버와, 아래로는 [Serial](../../docs/serial_protocol.md)로 Arduino와 통신한다.
+> 위로는 [gRPC](../../docs/3_grpc_interface.md)로 AI 서버와, 아래로는 [Serial](../../docs/4_serial_protocol.md)로 Arduino와 통신한다.
 
 ### 세부 문서
 
 | 문서 | 내용 |
 |------|------|
-| [web_app.md](web_app.md) | Django 웹앱 4페이지 + 엔드포인트 기능 명세 |
-| [object_detection_model.md](object_detection_model.md) | 객체 탐지 모델 선정 (YOLO-World, 오픈 보캐뷸러리) |
-| [coordinate_3d_pipeline.md](coordinate_3d_pipeline.md) | ChArUco 스테레오 캘리브레이션 + 삼각측량 3D 파이프라인 |
-| [measurement_validation.md](measurement_validation.md) | **측정 검증** — 마커 3D가 실제 강체 운동학과 일치(불변점·강체거리·축복원) |
-| [coldstart_procedure.md](coldstart_procedure.md) | **콜드스타트 절차** — 비전-운동학 자가보정(축복원·PoE FK·sim-real gap·계층 역할) |
-| [digital_twin_safety.md](digital_twin_safety.md) | **디지털 트윈 안전 + 자가학습** — C-space 충돌지도·충돌예측 신경망·능동학습·AI 검증층 |
-| [ai_integration.md](ai_integration.md) | **AI 서버 연동(3페이지)** — gRPC 클라이언트·자연어/음성 제어·3D 미러·set_joint 실물 실행 |
-| [arm3d_simulator.md](arm3d_simulator.md) | **STL 3D 시뮬레이터 + 실물 연동(4페이지)** — 조립·면결합·관절제어 |
-| [grasp_pipeline.md](grasp_pipeline.md) | **물체 파지 파이프라인** — TCP 정의·축보정·파지DB·6DOF IK·방향별 도달영역(capability map) |
-| [grasp_ik_method.md](grasp_ik_method.md) | **데이터 기반 파지 IK — 방법론 도출 과정과 최종 정식화**(학술) — 비용함수 진화(v1→v4)·경로·capability 정식화 |
-| [setup_procedure.md](setup_procedure.md) | 환경 구성 / 실행 절차 |
-| [aruco_markers.md](aruco_markers.md) | ArUco / ChArUco 마커 명세 |
+| [1_web_app.md](1_web_app.md) | Django 웹앱 4페이지 + 엔드포인트 기능 명세 |
+| [2_object_detection_model.md](2_object_detection_model.md) | 객체 탐지 모델 선정 (YOLO-World, 오픈 보캐뷸러리) |
+| [3_coordinate_3d_pipeline.md](3_coordinate_3d_pipeline.md) | ChArUco 스테레오 캘리브레이션 + 삼각측량 3D 파이프라인 |
+| [4_measurement_validation.md](4_measurement_validation.md) | **측정 검증** — 마커 3D가 실제 강체 운동학과 일치(불변점·강체거리·축복원) |
+| [5_coldstart_procedure.md](5_coldstart_procedure.md) | **콜드스타트 절차** — 비전-운동학 자가보정(축복원·PoE FK·sim-real gap·계층 역할) |
+| [6_digital_twin_safety.md](6_digital_twin_safety.md) | **디지털 트윈 안전 + 자가학습** — C-space 충돌지도·충돌예측 신경망·능동학습·AI 검증층 |
+| [7_ai_integration.md](7_ai_integration.md) | **AI 서버 연동(3페이지)** — gRPC 클라이언트·자연어/음성 제어·3D 미러·set_joint 실물 실행 |
+| [8_arm3d_simulator.md](8_arm3d_simulator.md) | **STL 3D 시뮬레이터 + 실물 연동(4페이지)** — 조립·면결합·관절제어 |
+| [9_grasp_pipeline.md](9_grasp_pipeline.md) | **물체 파지 파이프라인** — TCP 정의·축보정·파지DB·6DOF IK·방향별 도달영역(capability map) |
+| [10_grasp_ik_method.md](10_grasp_ik_method.md) | **데이터 기반 파지 IK — 방법론 도출 과정과 최종 정식화**(학술) — 비용함수 진화(v1→v4)·경로·capability 정식화 |
+| [11_gripper_design.md](11_gripper_design.md) | **그리퍼 정밀 설계** — 평행집게 개폐(prismatic) 시뮬·왜 디테일하게(파지 접촉검증)·J7 제어·리깅 드리프트 제거 |
+| [12_setup_procedure.md](12_setup_procedure.md) | 환경 구성 / 실행 절차 |
+| [13_aruco_markers.md](13_aruco_markers.md) | ArUco / ChArUco 마커 명세 |
 
-> **현황:** ① YOLO-World 탐지 + 객체 id, ② ChArUco 스테레오 캘리브레이션(~0.5px, 588mm) + 삼각측량 3D(30mm를 0.32mm 오차로 복원) — 실측 검증. ③ **STL 3D 시뮬레이터로 6관절 조립·리깅 완료 → 관절 슬라이더가 3D+실물 서보 동시 구동(연동 ON/OFF). AI 연동 직전 단계.**
+> **현황:** ① YOLO-World 탐지 + 객체 id, ② ChArUco 스테레오 캘리브레이션(~0.5px, 588mm) + 삼각측량 3D(30mm를 0.32mm 오차로 복원) — 실측 검증. ③ STL 3D 시뮬레이터로 6관절 조립·리깅 완료 → 관절 슬라이더가 3D+실물 서보 동시 구동(연동 ON/OFF). ④ 디지털 트윈 안전검증(C-space 충돌지도·신경망 99.5%·능동학습)·콜드스타트 자가보정. ⑤ **파지 파이프라인**(FK 샘플링 파지 DB 10만·6DOF IK·capability map) + **그리퍼 정밀 개폐**(평행집게 슬라이드·J7 제어). **다음: 손가락-물체 접촉 검증 → AI 서버 연동.**
 
 ---
 
@@ -58,7 +59,7 @@
 ```
 DSL + 픽셀좌표 → ①삼각측량 → ②좌표변환 → ③IK(Pieper) → ④S-curve+PWM → Arduino(50Hz)
 ```
-수식 세부는 [system_spec.md §3](../../docs/system_spec.md) 참조.
+수식 세부는 [2_system_spec.md §3](../../docs/2_system_spec.md) 참조.
 
 ---
 
@@ -75,7 +76,7 @@ DSL + 픽셀좌표 → ①삼각측량 → ②좌표변환 → ③IK(Pieper) →
 
 노트북 계층은 **Django 웹앱**으로 구현되어 있다. 4개 페이지를 제공한다:
 (1) 카메라·객체탐지(좌/우 카메라 선택), (2) 캘리브레이션 위저드(6단계), (3) 자연어 제어(골격),
-(4) **STL 3D 시뮬레이터 + 실물 연동**(조립·면결합·관절 슬라이더→3D+실물). 상세는 [web_app.md](web_app.md), [arm3d_simulator.md](arm3d_simulator.md).
+(4) **STL 3D 시뮬레이터 + 실물 연동**(조립·면결합·관절 슬라이더→3D+실물). 상세는 [1_web_app.md](1_web_app.md), [8_arm3d_simulator.md](8_arm3d_simulator.md).
 
 ```
 laptop/

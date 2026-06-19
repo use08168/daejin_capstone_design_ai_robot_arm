@@ -5,7 +5,7 @@
 > **물체 위치 + 접근 방향(수직/수평) → 충돌 없는 관절각**을 얻는다. 같은 위치라도 접근 방향마다
 > 도달 가능 여부가 다르므로(**capability map**), AI가 명령할 때 접근 전략 자체를 데이터로 결정한다.
 
-관련: [digital_twin_safety.md](digital_twin_safety.md) · [arm3d_simulator.md](arm3d_simulator.md) · [coordinate_3d_pipeline.md](coordinate_3d_pipeline.md)
+관련: [6_digital_twin_safety.md](6_digital_twin_safety.md) · [8_arm3d_simulator.md](8_arm3d_simulator.md) · [3_coordinate_3d_pipeline.md](3_coordinate_3d_pipeline.md)
 
 ---
 

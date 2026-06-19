@@ -2,7 +2,7 @@
 
 > **노트북이 AI 서버(EdgeXpert)와 gRPC로 연결**해, 음성/텍스트 명령 → DSL을 받아 표시·실행하는 구현.
 > 3계층 중 노트북(Layer 2, "어떻게") ↔ AI 서버(Layer 3, "무엇을")의 다리.
-> AI 서버 측: [../../ai_server/docs/implementation.md](../../ai_server/docs/implementation.md) · 인터페이스: [grpc_interface.md](../../docs/grpc_interface.md) · [dsl_spec.md](../../docs/dsl_spec.md)
+> AI 서버 측: [../../ai_server/docs/1_implementation.md](../../ai_server/docs/1_implementation.md) · 인터페이스: [3_grpc_interface.md](../../docs/3_grpc_interface.md) · [5_dsl_spec.md](../../docs/5_dsl_spec.md)
 
 ---
 

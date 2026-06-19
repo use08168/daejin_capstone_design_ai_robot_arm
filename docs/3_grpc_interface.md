@@ -65,7 +65,7 @@ message RobotState {
 }
 
 message GraspPlanResponse {
-  string dsl_script = 1;         // JSON 인코딩된 DSL (dsl_spec.md 참조)
+  string dsl_script = 1;         // JSON 인코딩된 DSL (5_dsl_spec.md 참조)
   float confidence = 2;
   int32 inference_time_ms = 3;
   string reasoning = 4;          // Chain-of-Thought
@@ -99,7 +99,7 @@ message SafetyAlert {
 
 - **삼각측량은 노트북이 수행한다.** AI 서버에는 이미 3D 좌표(`position_3d_mm`)가 채워진 `DetectedObject`가 전달된다. AI 서버는 좌표를 다시 계산하지 않는다.
 - **AI 서버가 반환하는 DSL은 좌표가 아니라 객체 ID 기반 명령이다.** (`target: "cup_2"`) 실제 좌표 해석·IK는 노트북 책임.
-- **DSL 검증은 노트북이 수행한다.** AI 서버 출력은 신뢰하지 않고 화이트리스트/파라미터/시퀀스 검증을 거친다 → [dsl_spec.md](dsl_spec.md).
+- **DSL 검증은 노트북이 수행한다.** AI 서버 출력은 신뢰하지 않고 화이트리스트/파라미터/시퀀스 검증을 거친다 → [5_dsl_spec.md](5_dsl_spec.md).
 
 ---
 
@@ -108,7 +108,7 @@ message SafetyAlert {
 - 모든 길이: **mm**
 - 모든 각도: **degree** (proto 필드명에 `_deg` 명시)
 - 타임스탬프: **Unix epoch milliseconds** (`int64`)
-- 좌표계 정의는 [conventions.md](conventions.md) 참조.
+- 좌표계 정의는 [6_conventions.md](6_conventions.md) 참조.
 
 ---
 

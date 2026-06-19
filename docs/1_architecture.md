@@ -1,7 +1,7 @@
 # 시스템 아키텍처
 
 > 본 문서는 전체 시스템의 3계층 분산 구조와 각 계층의 책임 경계를 정의한다.
-> 세부 인터페이스는 [gRPC 명세](grpc_interface.md), [Serial 명세](serial_protocol.md), [DSL 명세](dsl_spec.md) 참조.
+> 세부 인터페이스는 [gRPC 명세](3_grpc_interface.md), [Serial 명세](4_serial_protocol.md), [DSL 명세](5_dsl_spec.md) 참조.
 
 ---
 

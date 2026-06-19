@@ -5,7 +5,7 @@
 > 명령↔실제 각도 관계)을 복원한다. 3D 프린트 누적오차 + 서보 비선형으로 실물은 CAD와 다르므로,
 > 이를 측정으로 잡아내야 디지털 트윈(시뮬)이 실물과 일치한다.
 
-관련: [measurement_validation.md](measurement_validation.md)(측정 신뢰성) · [digital_twin_safety.md](digital_twin_safety.md)(시뮬 안전모델) · [coordinate_3d_pipeline.md](coordinate_3d_pipeline.md)(3D 측정)
+관련: [4_measurement_validation.md](4_measurement_validation.md)(측정 신뢰성) · [6_digital_twin_safety.md](6_digital_twin_safety.md)(시뮬 안전모델) · [3_coordinate_3d_pipeline.md](3_coordinate_3d_pipeline.md)(3D 측정)
 
 ---
 
@@ -40,7 +40,7 @@ Arduino   : 펄스 실행
 | 3 | **데이터 수집**: 4페이지 `검증 시퀀스` — **한 관절씩 단독**으로 각도를 바꾸며 매 자세에서 8개 마커 3D를 스테레오 측정 → CSV `{idx, J1~J6, id0_x…id7_z}` | `calibration/validation_data/run{1,2}_*.csv` |
 | 4 | **관절 축 복원**: 단독 회전 시 말단 마커가 그리는 **원을 피팅**(SVD 평면 + Kasa 원) → 회전축(방향 ω·축상의 점 q) + **명령↔실제 각도 보정계수 k** | `calibration/coldstart.py` |
 | 5 | **PoE 순기구학(FK) 구성·검증**: 복원 축으로 FK를 만들어 측정 자세를 예측 → **잔차 = sim-real gap** | `coldstart.py` |
-| 6 | **결과 사용**: gap을 디지털 트윈 **안전 마진**으로 연동 | [digital_twin_safety.md §5](digital_twin_safety.md) |
+| 6 | **결과 사용**: gap을 디지털 트윈 **안전 마진**으로 연동 | [6_digital_twin_safety.md §5](6_digital_twin_safety.md) |
 
 > **펄스를 기록하는 이유:** 각도는 서보 보정이 한 겹 얹힌 추상이고, **펄스가 "진짜 명령"** 이다.
 > `{펄스, 측정 3D}`를 직접 보정하면 "명령 75°가 실제 68°(k=0.913)" 같은 비선형을 펄스 단위로 잡는다.

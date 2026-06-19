@@ -104,11 +104,11 @@ daejin_capstone_design_ai_robot_arm/
 
 | 더 알고 싶다면 | 문서 |
 |----------------|------|
-| **전체 아키텍처 · 왜 3계층인지** | [docs/README.md](docs/README.md) · [docs/architecture.md](docs/architecture.md) |
-| 계층 간 인터페이스 | [grpc_interface](docs/grpc_interface.md) · [serial_protocol](docs/serial_protocol.md) · [dsl_spec](docs/dsl_spec.md) · [conventions](docs/conventions.md) · [system_spec](docs/system_spec.md) |
+| **전체 아키텍처 · 왜 3계층인지** | [docs/README.md](docs/README.md) · [docs/1_architecture.md](docs/1_architecture.md) |
+| 계층 간 인터페이스 | [grpc_interface](docs/3_grpc_interface.md) · [serial_protocol](docs/4_serial_protocol.md) · [dsl_spec](docs/5_dsl_spec.md) · [conventions](docs/6_conventions.md) · [system_spec](docs/2_system_spec.md) |
 | **노트북 — 비전·3D 시뮬·실물 연동** | [laptop/README.md](laptop/README.md) → [laptop/docs](laptop/docs/README.md) |
-| **3D 모델링·조립·연동** (방법 포함) | [laptop/docs/arm3d_simulator.md](laptop/docs/arm3d_simulator.md) |
-| **ChArUco 캘리브레이션** (방법 포함) | [laptop/docs/coordinate_3d_pipeline.md](laptop/docs/coordinate_3d_pipeline.md) |
+| **3D 모델링·조립·연동** (방법 포함) | [laptop/docs/8_arm3d_simulator.md](laptop/docs/8_arm3d_simulator.md) |
+| **ChArUco 캘리브레이션** (방법 포함) | [laptop/docs/3_coordinate_3d_pipeline.md](laptop/docs/3_coordinate_3d_pipeline.md) |
 | 펌웨어 · 서보 캘리브레이션 | [arduino/README.md](arduino/README.md) → [arduino/docs](arduino/docs/README.md) |
 | AI 서버 (예정) | [ai_server/README.md](ai_server/README.md) |
 
@@ -127,10 +127,10 @@ daejin_capstone_design_ai_robot_arm/
 
 📌 **하드웨어 조립 완료 · 비전·시뮬레이션·실물 연동까지 구동 — AI 연동 직전 단계.**
 
-- 6-DOF 로봇팔 **조립 완료**. Arduino + PCA9685로 J1~J6 서보 **펄스 캘리브레이션 완료** (관절별 0°/180° 실측, [arduino/docs/servo_calibration.md](arduino/docs/servo_calibration.md)).
-- **비전 (실측 검증):** YOLO-World 객체 탐지(GPU) + **ChArUco 스테레오 캘리브레이션**(`DICT_5X5_100`, 6×8, 30/23mm, 재투영오차 ~0.5px, 베이스라인 588mm) + 삼각측량 3D 좌표(보드 30mm를 0.32mm 오차로 복원). → [laptop/docs/coordinate_3d_pipeline.md](laptop/docs/coordinate_3d_pipeline.md)
-- **STL 3D 시뮬레이터 + 실물 연동 (4페이지, Three.js):** 팀원 STL 부품을 브라우저에서 **면대면 결합(CATIA식 원통 동심 + 평면 일치)** 으로 직접 조립 → **6관절 리깅 완료**. 관절 슬라이더가 3D를 돌리고, **연동 ON 시 실제 서보를 동시 구동**(각도→펄스 변환은 노트북, 아두이노엔 `u ch us` 전송 — 펌웨어 수정 불필요). → [laptop/docs/arm3d_simulator.md](laptop/docs/arm3d_simulator.md)
-- **웹 UI 4페이지**(Django): 카메라·탐지(좌/우 카메라 선택) / 캘리브레이션 위저드 / 자연어 제어(골격) / **STL 3D 시뮬레이터·실물 연동**. → [laptop/docs/web_app.md](laptop/docs/web_app.md)
+- 6-DOF 로봇팔 **조립 완료**. Arduino + PCA9685로 J1~J6 서보 **펄스 캘리브레이션 완료** (관절별 0°/180° 실측, [arduino/docs/1_servo_calibration.md](arduino/docs/1_servo_calibration.md)).
+- **비전 (실측 검증):** YOLO-World 객체 탐지(GPU) + **ChArUco 스테레오 캘리브레이션**(`DICT_5X5_100`, 6×8, 30/23mm, 재투영오차 ~0.5px, 베이스라인 588mm) + 삼각측량 3D 좌표(보드 30mm를 0.32mm 오차로 복원). → [laptop/docs/3_coordinate_3d_pipeline.md](laptop/docs/3_coordinate_3d_pipeline.md)
+- **STL 3D 시뮬레이터 + 실물 연동 (4페이지, Three.js):** 팀원 STL 부품을 브라우저에서 **면대면 결합(CATIA식 원통 동심 + 평면 일치)** 으로 직접 조립 → **6관절 리깅 완료**. 관절 슬라이더가 3D를 돌리고, **연동 ON 시 실제 서보를 동시 구동**(각도→펄스 변환은 노트북, 아두이노엔 `u ch us` 전송 — 펌웨어 수정 불필요). → [laptop/docs/8_arm3d_simulator.md](laptop/docs/8_arm3d_simulator.md)
+- **웹 UI 4페이지**(Django): 카메라·탐지(좌/우 카메라 선택) / 캘리브레이션 위저드 / 자연어 제어(골격) / **STL 3D 시뮬레이터·실물 연동**. → [laptop/docs/1_web_app.md](laptop/docs/1_web_app.md)
 - **이후 단계:** 베이스 ArUco로 카메라→로봇 좌표변환(T), EdgeXpert / AI 서버(Whisper·Gemma) 연동 → 자연어 명령이 위 연동 경로로 로봇 구동. **미통합:** ToF(VL53L0X), 이진 시리얼 프로토콜.
 
 ---

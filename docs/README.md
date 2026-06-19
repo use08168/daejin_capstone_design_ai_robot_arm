@@ -16,7 +16,7 @@
 | [`laptop/`](../laptop/README.md) | L2 | **"어떻게 할지"** — 의도를 비전·좌표·운동학으로 번역하고, **실시간 안전을 AI 응답에 의존하지 않고 독립 보장**한다. | YOLO-World · OpenCV · IK · Three.js 3D |
 | [`arduino/`](../arduino/README.md) | L1 | **"실제 실행"** — 결정적 50Hz PWM 생성. 판단하지 않는 단순 실행자라 펌웨어가 작고 안정적. | PCA9685 · VL53L0X |
 
-> 이렇게 나누면 ① 네트워크가 끊겨도 노트북이 **독립적으로 비상 정지**할 수 있고, ② 무거운 추론(서버)과 실시간 제어(MCU)를 분리해 각자 최적화할 수 있다. 상세 → [architecture.md](architecture.md).
+> 이렇게 나누면 ① 네트워크가 끊겨도 노트북이 **독립적으로 비상 정지**할 수 있고, ② 무거운 추론(서버)과 실시간 제어(MCU)를 분리해 각자 최적화할 수 있다. 상세 → [1_architecture.md](1_architecture.md).
 
 ```
 사용자 음성 ─▶ [AI 서버] 의도(DSL) ──gRPC──▶ [노트북] 좌표·IK·안전 ──Serial──▶ [Arduino] PWM ─▶ 서보
@@ -28,12 +28,12 @@
 
 | 문서 | 내용 |
 |------|------|
-| [architecture.md](architecture.md) | 3계층 구조·책임 분리·통신 채널·동작 시나리오·정량 목표 |
-| [system_spec.md](system_spec.md) | 시스템 마스터 사양 (전체 레퍼런스) |
-| [grpc_interface.md](grpc_interface.md) | AI 서버 ↔ 노트북 gRPC/Protobuf |
-| [serial_protocol.md](serial_protocol.md) | 노트북 ↔ Arduino USB Serial 패킷 |
-| [dsl_spec.md](dsl_spec.md) | JSON DSL (명령 표현 언어) + 검증 |
-| [conventions.md](conventions.md) | 좌표계 / 단위 / 명명 규약 |
+| [1_architecture.md](1_architecture.md) | 3계층 구조·책임 분리·통신 채널·동작 시나리오·정량 목표 |
+| [2_system_spec.md](2_system_spec.md) | 시스템 마스터 사양 (전체 레퍼런스) |
+| [3_grpc_interface.md](3_grpc_interface.md) | AI 서버 ↔ 노트북 gRPC/Protobuf |
+| [4_serial_protocol.md](4_serial_protocol.md) | 노트북 ↔ Arduino USB Serial 패킷 |
+| [5_dsl_spec.md](5_dsl_spec.md) | JSON DSL (명령 표현 언어) + 검증 |
+| [6_conventions.md](6_conventions.md) | 좌표계 / 단위 / 명명 규약 |
 
 **원칙:** 인터페이스는 **코드보다 문서를 먼저** 갱신한다. 양측 코드가 같은 문서에서 파생되므로 문서 불일치 = 통신 장애.
 

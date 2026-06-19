@@ -2,7 +2,7 @@
 
 > **역할: "실제 실행".** 노트북의 명령을 받아 PWM을 생성하고, 센서값을 보고한다.
 > 판단·계산은 하지 않는다 (의미 추론=AI 서버, 결정적 계산=노트북).
-> 통신 명세: [Serial 프로토콜](../../docs/serial_protocol.md)
+> 통신 명세: [Serial 프로토콜](../../docs/4_serial_protocol.md)
 
 ---
 
@@ -60,7 +60,7 @@ loop():
 > **현황(2026-06):** 위 이진 CommandPacket 구조는 **최종 목표**다. 현재 캘리브레이션·검증에 쓰는
 > 테스트 펌웨어(`src/main.cpp`)는 사람이 읽기 쉬운 **ASCII 시리얼 명령**(`u <ch> <us>` 펄스 직접,
 > `a <ch> <deg>`, `s`/`w` 스윕 등)으로 동작하며, 노트북에서 펄스를 보내 서보를 구동한다. 추후 이진
-> 패킷 프로토콜로 교체 예정. (각도→펄스 변환은 노트북이 담당 → [servo_calibration.md](servo_calibration.md))
+> 패킷 프로토콜로 교체 예정. (각도→펄스 변환은 노트북이 담당 → [1_servo_calibration.md](1_servo_calibration.md))
 
 ---
 
@@ -70,9 +70,9 @@ loop():
 PWM_μs    = 1500 + (θ_deg / 90) * 500
 PCA_value = int(PWM_μs * 4096 / 20000)
 ```
-> **주의:** 위 균일 공식은 원래 설계값이다. 실제 매핑은 관절별 실측 0°/180° 펄스폭([servo_calibration.md](servo_calibration.md))을 사용하며 가동범위는 **0~180°**다. 서보가 **끝 스톱 없는 마그네틱(절대위치) 엔코더형**이라 소프트웨어 관절 한계가 필수다.
+> **주의:** 위 균일 공식은 원래 설계값이다. 실제 매핑은 관절별 실측 0°/180° 펄스폭([1_servo_calibration.md](1_servo_calibration.md))을 사용하며 가동범위는 **0~180°**다. 서보가 **끝 스톱 없는 마그네틱(절대위치) 엔코더형**이라 소프트웨어 관절 한계가 필수다.
 
-규약 세부는 [conventions.md](../../docs/conventions.md) 참조.
+규약 세부는 [6_conventions.md](../../docs/6_conventions.md) 참조.
 
 ---
 
