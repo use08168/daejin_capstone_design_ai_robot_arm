@@ -58,9 +58,12 @@
   /* 임베드(읽기전용 미러, 3페이지 iframe) — UI 숨기고 3D만 */
   body.embed nav, body.embed h1, body.embed #panel, body.embed #hint3d, body.embed #matebar, body.embed #collHud { display:none !important; }
   body.embed main{ padding:0 !important; } body.embed .wrap{ height:100vh !important; min-height:0 !important; gap:0 !important; }
+  body.view-sim .control-card { display:none !important; }      /* 4페이지 시뮬레이터: 조립·결합 숨김 */
+  body.view-control .sim-card { display:none !important; }      /* 3페이지 제어: 파지·연구 카드 숨김 */
 {% endblock %}
 {% block content %}
-  <h1>4 · 3D 시뮬레이션 <span class="badge3d" id="phase">조립/결합</span></h1>
+  <script>document.body.classList.add('view-{{ view }}');</script>   {# 3페이지=view-control / 4페이지=view-sim #}
+  <h1>{% if view == 'sim' %}4 · 3D 시뮬레이터 (파지 학습){% else %}3 · 3D 제어{% endif %} <span class="badge3d" id="phase">조립/결합</span></h1>
   <div class="wrap">
     <div id="viewport">
       <div id="matebar"></div>
@@ -70,8 +73,8 @@
     </div>
     <div id="panel">
       <div class="seg">
-        <button class="on" id="mAsm">조립</button>
-        <button id="mMate">결합</button>
+        <button class="on control-card" id="mAsm">조립</button>
+        <button class="control-card" id="mMate">결합</button>
         <button id="mCtrl">제어</button>
       </div>
       <div class="toolbar">
@@ -155,15 +158,7 @@
         <div class="sect">관절 (<span id="jcount">0</span>) — 슬라이더로 회전</div>
         <div id="ctrlJoints"></div>
 
-        <div class="card" style="margin-top:10px;">
-          <div class="ttl">콜드스타트 / 작업공간 수집 (단계 ⑥)</div>
-          <div class="hintline">각 자세에서 마커를 측정해 모읍니다. 평평한 자세(J2=0)처럼 마커가 다 보일 때 추가하세요. (연동 ON 필요)</div>
-          <div class="row"><button class="primary" id="csAdd" style="flex:1">📌 이 자세 추가</button><button class="ghost" id="csAuto">🎬 검증 시퀀스</button></div>
-          <div class="row"><span class="muted">수집 <b id="csN">0</b>자세</span><span style="flex:1"></span><button class="ghost" id="csCsv">⬇ CSV</button><button class="ghost" id="csSave">💾 저장</button><button class="ghost" id="csClear">초기화</button></div>
-          <div class="hintline" id="csStat" style="margin:0;">검증용: 한 자세에서 안 움직이고 여러 번 '추가'=반복성, 한 관절만 바꿔 '추가'=관절별. → CSV로 내보내 분석.</div>
-        </div>
-
-        <div class="card" style="margin-top:10px;">
+        <div class="card sim-card" style="margin-top:10px;">
           <div class="ttl">그리퍼 중심(TCP) 설정 (파지 P0)</div>
           <div class="hintline">기준 STL 부품을 고르고 XYZ로 미세조정 → 확정하면 그 점이 그리퍼 파지중심(TCP)이 됩니다. 부품 로컬좌표로 저장돼 관절 따라 이동합니다.</div>
           <div class="row" style="margin-bottom:6px"><span class="muted" style="width:38px">기준</span><select id="tcpPart" style="flex:1"></select><button class="ghost" id="tcpStart">✎ 편집</button></div>
@@ -179,23 +174,14 @@
           <div class="hintline" id="tcpStat" style="margin:6px 0 0;">자동 추정 사용 중. '편집'을 눌러 직접 지정하세요.</div>
         </div>
 
-        <div class="card" style="margin-top:10px;">
-          <div class="ttl">C-space 충돌 지도 (#3 — 가상 학습 데이터)</div>
-          <div class="hintline">J2·J3·J4를 격자로 전부 회전시켜 각 조합의 바닥여유·자기충돌을 시뮬에서 자동 기록 → CSV. (실물 불필요)</div>
-          <div class="row" style="margin-bottom:6px"><span class="muted" style="width:38px">간격</span><input id="csStep" type="number" value="5" step="1" min="2" max="15" style="width:56px"><span class="muted">°</span><span style="flex:1"></span><button class="primary" id="csSweep">🗺 격자(J2·J3·J4)</button></div>
-          <div class="row" style="margin-bottom:6px"><span class="muted" style="width:38px">샘플</span><input id="csN5" type="number" value="40000" step="5000" min="1000" style="width:72px"><span class="muted">개</span><span style="flex:1"></span><button class="ghost" id="csRand">🎲 랜덤(J2~J6)</button></div>
-          <div class="row" style="margin-bottom:0"><span class="muted">능동학습</span><span style="flex:1"></span><input id="csLabel" type="file" accept=".csv" style="display:none"><button class="ghost" id="csLabelBtn">🏷 질의 라벨링(CSV)</button></div>
-          <div class="hintline" id="csSweepStat" style="margin:6px 0 0;">격자=J2·J3·J4(히트맵). 랜덤=J2~J6 무작위(학습). 질의라벨링=Python이 준 cspace_query.csv를 시뮬로 라벨→cspace_labeled.csv.</div>
-        </div>
-
-        <div class="card" style="margin-top:10px;">
+        <div class="card sim-card" style="margin-top:10px;">
           <div class="ttl">파지 데이터셋 (P1 — TCP↔관절 매핑)</div>
           <div class="hintline">J1~J6를 무작위로 쓸어 각 자세의 [관절각, TCP 위치·접근벡터, 바닥/자기충돌]을 기록 → grasp_dataset.csv. 역질의(IK)·파지 학습의 데이터. (TCP 확정 후 실행 권장)</div>
           <div class="row" style="margin-bottom:0"><span class="muted" style="width:38px">샘플</span><input id="grN" type="number" value="30000" step="5000" min="1000" style="width:72px"><span class="muted">개</span><span style="flex:1"></span><button class="primary" id="grSweep">🤏 파지 스윕(J1~J6)</button></div>
           <div class="hintline" id="grStat" style="margin:6px 0 0;">J1 포함(방위각). 결과는 Python에서 KD-tree IK로 사용. 수직/수평은 접근 ay로 분류.</div>
         </div>
 
-        <div class="card" style="margin-top:10px;">
+        <div class="card sim-card" style="margin-top:10px;">
           <div class="ttl">파지 IK (P2 — 목표 위치 잡기)</div>
           <div class="hintline">grasp_dataset.csv를 불러오고 목표(물체) XYZ를 정하면, 그 위치를 충돌없이 잡는 관절각을 데이터셋에서 찾아 팔이 이동합니다. 목표를 옮기면 관절이 따라 움직입니다.</div>
           <div class="row" style="margin-bottom:6px"><span class="muted">데이터셋</span><input id="ikCsv" type="file" accept=".csv" style="display:none"><button class="ghost" id="ikCsvBtn">📂 grasp_dataset.csv</button><span style="flex:1"></span><span class="muted" id="ikDbN">미로드</span></div>
@@ -219,7 +205,7 @@
           <div class="hintline" id="ikStat" style="margin:6px 0 0;">데이터셋을 불러오고 목표를 정한 뒤 잡기를 누르세요. 주황 마커 = 목표 물체.</div>
         </div>
 
-        <div class="card" style="margin-top:10px;">
+        <div class="card sim-card" style="margin-top:10px;">
           <div class="ttl">가상 물체 (파지 대상)</div>
           <div class="hintline">프리미티브 물체를 IK 목표 위치에 놓고 파지 대상으로 삼습니다. 다음 단계에서 표면 접촉점 파지 후보를 자동 생성합니다.</div>
           <div class="row" style="margin-bottom:6px"><span class="muted" style="width:38px">종류</span>
@@ -229,6 +215,13 @@
             높이<input id="voH" type="number" value="80" step="5" min="5" style="width:48px"><span class="muted">mm</span></div>
           <div class="row" style="margin-bottom:0"><button class="primary" id="voShow" style="flex:1">표시 / 갱신(IK 목표에)</button><button class="ghost" id="voHide">숨김</button></div>
           <div class="hintline" id="voStat" style="margin:6px 0 0;">원기둥/컵 축=수직. IK 목표(주황) 위치 중심에 배치.</div>
+        </div>
+
+        <div class="card sim-card" style="margin-top:10px;">
+          <div class="ttl">감지 물체 (비전) <span id="visStat" class="muted" style="font-weight:400"></span></div>
+          <div class="hintline">스테레오 카메라가 본 물체의 3D 좌표(로봇 기준 mm). 카메라는 1페이지에서 활성화.</div>
+          <div class="row" style="margin-bottom:6px"><button class="ghost" id="visScan">🔄 새로고침</button><label class="muted" style="display:flex;align-items:center;gap:5px;"><input type="checkbox" id="visAuto"> 자동(1초)</label></div>
+          <table style="width:100%"><tbody id="visBody"></tbody></table>
         </div>
       </div>
 
@@ -515,7 +508,6 @@ $('mAsm').onclick=()=>setMode('asm'); $('mMate').onclick=()=>setMode('mate'); $(
 
 // ---- ③ 연동 제어: 실물 로봇팔 ----
 const A_STAT="{% url 'armvision:arm_status' %}", A_CONN="{% url 'armvision:arm_connect' %}", A_DISC="{% url 'armvision:arm_disconnect' %}", A_MOVE="{% url 'armvision:arm_move' %}";
-const MEASU="{% url 'armvision:measure_markers' %}", CSAVE="{% url 'armvision:coldstart_save' %}";
 let sync=false, connected=false;
 const revMates=()=>mates.filter(m=>m.type==='rev');
 function angToUs(m, ang){ let a=(ang==null)?(m.angle==null?90:m.angle):ang;
@@ -618,80 +610,7 @@ $('ctrlSpeed').addEventListener('change',()=>{ fetch('/arm/config/',{method:'POS
 fetch('/arm/config/').then(r=>r.json()).then(c=>{ if(c&&c.deg_per_s){ ctrlSpeed=c.deg_per_s; const e=$('ctrlSpeed'); if(e)e.value=Math.round(c.deg_per_s); } }).catch(()=>{});   // 로드 시 공통 속도 가져오기
 setInterval(()=>{ if(mode==='ctrl'){ refreshConn(); saveCmd(); } }, 2500);   // 끊김 자동 감지 + 명령각 저장
 
-// ---- 콜드스타트 / 작업공간 수집 (단계 ⑥) ----
-let csPoses=[];
-const _sleep=ms=>new Promise(r=>setTimeout(r,ms));
-function _waitSettled(timeout=10000){ return new Promise(res=>{ const t0=performance.now(); const iv=setInterval(()=>{ const done=revMates().every(m=>Math.abs((m.angle==null?90:m.angle)-(m._tgt==null?90:m._tgt))<0.6); if(done||performance.now()-t0>timeout){ clearInterval(iv); res(); } },120); }); }
-async function csAdd(silent){
-  try{ const d=await (await fetch(MEASU)).json();
-    if(!d.ok || !Object.keys(d.markers).length){ if(!silent)$('csStat').textContent='마커가 안 잡힙니다 — 자세/가시성 확인'; return false; }
-    const angles={}; revMates().forEach((m,i)=>angles['J'+(i+1)]=+((m.angle==null?90:m.angle)).toFixed(1));
-    csPoses.push({angles, markers:d.markers}); $('csN').textContent=csPoses.length;
-    if(!silent)$('csStat').textContent=`추가됨 — 마커 ${Object.keys(d.markers).length}개 (${d.frame==='robot'?'로봇기준':'⚠카메라기준(T없음)'})`;
-    return true;
-  }catch(e){ if(!silent)$('csStat').textContent='측정 실패'; return false; }
-}
-async function csSave(){
-  if(!csPoses.length){ $('csStat').textContent='수집된 자세가 없습니다.'; return; }
-  try{ const d=await (await fetch(CSAVE,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({poses:csPoses})})).json();
-    const w=d.workspace;
-    $('csStat').textContent = (d.ok&&w)? `저장 ✓ ${d.poses}자세 · J1축(id${w.axis_id}) 기준 작업공간 X[${w.x}] Y[${w.y}] Z[${w.z}] · 도달 ${w.reach_min}~${w.reach_max}mm`+(w.axis_spread!=null?` · 축흔들림 ${w.axis_spread}mm`:'')
-      : (d.ok? `저장 ✓ ${d.poses}자세 (엔드 마커 없어 작업공간 계산 불가)` : '저장 실패');
-  }catch(e){ $('csStat').textContent='저장 실패'; }
-}
-// ── 검증 시퀀스: "한 번에 한 모터만" + 사이클(이동→측정→복귀) + 끝까지 다음 단계 금지 ──
-// (동시 구동 시 전압강하로 아두이노 리셋되는 문제 → 단일 관절만 움직임)
-let seqAbort=false;
-async function moveJoint(idx, angle){            // 한 관절만 이동, 3D 정착 + 실물 서보 도착까지 대기
-  const m=revMates()[idx]; if(!m) return;
-  console.log(`[seq] moveJoint J${idx+1} ${(m.angle==null?90:m.angle).toFixed(1)}° → ${angle}°`);
-  if(Math.abs((m.angle==null?90:m.angle)-angle)<0.5){ m._tgt=angle; return; }   // 이미 도착
-  m._tgt=angle;
-  await _waitSettled(20000);                     // 3D 램프 정착(이 관절만 움직임)
-  await _sleep(1000);                            // 실물 서보 최종 도착 여유(다음 단계 금지)
-}
-async function runValidation(){
-  if(!connected||!sync){ alert('실물 연결 + 연동 ON 상태에서 실행하세요.'); return; }
-  const rm=revMates(), n=rm.length;
-  const base={J1:90,J2:0,J3:90,J4:90,J5:180,J6:90};   // 평평·마커 다 보임
-  const baseAng=i=>base['J'+(i+1)]!=null?base['J'+(i+1)]:90;
-  const REPEAT=20, REPS=2, TESTS={J1:[50,65,80,95,110,125],J3:[60,75,105,120,135],J4:[60,75,105,120,135],J5:[0,60,120],J2:[20,40]};
-  if(!confirm('검증 시퀀스 시작.\n· 모터는 항상 한 개씩만 이동(전압 리셋 방지)\n· 기준 자세 → 반복성 '+REPEAT+'회 → 관절별 사이클(이동→측정→복귀)\n· [■ 정지]로 언제든 중단\n계속할까요?')) return;
-  seqAbort=false;
-  const stop=()=>seqAbort||!connected;
-  try{
-    // 1) 기준 자세로 — 한 관절씩
-    for(let i=0;i<n;i++){ if(stop())return; $('csStat').textContent=`기준 자세 J${i+1}→${baseAng(i)}°…`; await moveJoint(i, baseAng(i)); }
-    // 2) 반복성 — 기준 자세에서 움직임 없이 반복 측정
-    for(let r=0;r<REPEAT;r++){ if(stop())break; await _sleep(300); const ok=await csAdd(true);
-      $('csStat').textContent=`반복성 ${r+1}/${REPEAT} ${ok?'✓':'마커부족'} · 수집 ${csPoses.length}`; }
-    // 3) 관절별 단독 사이클: 기준 → 목표(측정) → 기준 복귀  (각 단계 한 관절만)
-    for(const j in TESTS){ const idx=+j.slice(1)-1; if(idx>=n)continue;
-      for(const ang of TESTS[j]){ if(stop())return;
-        $('csStat').textContent=`${j}→${ang}° 이동…`; await moveJoint(idx, ang);   if(stop())return;
-        const ok=await csAdd(true); $('csStat').textContent=`${j}=${ang}° ${ok?'측정 ✓':'마커부족'} · 수집 ${csPoses.length} · 복귀…`;
-        await moveJoint(idx, baseAng(idx)); }   // 기준 복귀
-    }
-    $('csStat').textContent=`완료 — ${csPoses.length}자세. [⬇ CSV]로 내보내세요.`;
-  }catch(e){ $('csStat').textContent='시퀀스 오류 — 중단'; }
-}
-function csExportCSV(){
-  if(!csPoses.length){ $('csStat').textContent='수집된 자세가 없습니다.'; return; }
-  const jkeys=Object.keys(csPoses[0].angles); const mids=[0,1,2,3,4,5,6,7];
-  const head=['idx',...jkeys,...mids.flatMap(i=>[`id${i}_x`,`id${i}_y`,`id${i}_z`])];
-  const rows=csPoses.map((p,i)=>{ const a=jkeys.map(k=>p.angles[k]);
-    const m=mids.flatMap(id=>{ const v=p.markers[id]; return v?[v[0],v[1],v[2]]:['','','']; });
-    return [i+1,...a,...m].join(','); });
-  const csv=[head.join(','),...rows].join('\n');
-  const url=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
-  const a=document.createElement('a'); a.href=url; a.download='measure_data.csv'; a.click(); URL.revokeObjectURL(url);
-  $('csStat').textContent=`CSV 내보냄 (${csPoses.length}행) — 파일을 공유해 주세요`;
-}
-$('csAdd').onclick=()=>csAdd(false);
-$('csAuto').onclick=runValidation;
-$('csSave').onclick=csSave;
-$('csCsv').onclick=csExportCSV;
-$('csClear').onclick=()=>{ csPoses=[]; $('csN').textContent='0'; $('csStat').textContent='초기화됨'; };
+let seqAbort=false;   // estop·연결끊김 시 동결 플래그(검증시퀀스 제거됨)
 
 // ---- 클릭 ----
 const ray=new THREE.Raycaster(), mouse=new THREE.Vector2();
@@ -896,72 +815,14 @@ if($('tcpStart')){
   setTimeout(()=>{ if($('tcpPart')&&!$('tcpPart').options.length) fillTcpParts(); }, 2500);
 }
 
-// ===== #3 C-space 충돌 지도 — 격자(J2·J3·J4) / 랜덤(J2~J6) 스윕 → CSV =====
-// J1은 수직축(yaw) → 높이·부품거리 불변 → 충돌과 무관하므로 항상 고정.
-const CS_HDR=['J1','J2','J3','J4','J5','J6','floor_clear_mm','self_clear_mm','self_target','collision'];
-function _csRow(rm){ const r=_collideOnce(); const coll=(r.floor<0||r.self<0)?1:0;
-  const ang=[0,1,2,3,4,5].map(i=>rm[i]?+(+rm[i].angle).toFixed(1):90);
-  return [...ang, r.floor.toFixed(1), isFinite(r.self)?r.self.toFixed(1):'', r.selfWho||'', coll]; }
+// _csDownload — CSV 다운로드(파지 스윕 공용)
 function _csDownload(rows, fname){
   const n=rows.length-1, nColl=rows.slice(1).filter(r=>r[r.length-1]===1).length;
   const csv=rows.map(r=>r.join(',')).join('\n'), blob=new Blob([csv],{type:'text/csv'}), url=URL.createObjectURL(blob);
   const a=document.createElement('a'); a.href=url; a.download=fname; a.click(); URL.revokeObjectURL(url);
   return {n, nColl};
 }
-async function sweepGrid(){
-  if(_sweeping) return; if(mode!=='ctrl'){ alert('제어 모드에서 실행하세요.'); return; }
-  const rm=revMates(); if(rm.length<4){ alert('관절(J2·J3·J4)이 부족합니다.'); return; }
-  const mJ2=rm[1], mJ3=rm[2], mJ4=rm[3], step=Math.max(2,+$('csStep').value||5), combos=[];
-  for(let a2=mJ2.min;a2<=mJ2.max+1e-6;a2+=step) for(let a3=mJ3.min;a3<=mJ3.max+1e-6;a3+=step) for(let a4=mJ4.min;a4<=mJ4.max+1e-6;a4+=step) combos.push([a2,a3,a4]);
-  if(combos.length>300000){ alert(`조합이 너무 많습니다(${combos.length}). 간격을 키우세요.`); return; }
-  if(!confirm(`격자 스윕: ${combos.length}조합(J2·J3·J4, ${step}°). 진행할까요?`)) return;
-  _sweeping=true; collMark.visible=selfMark.visible=false;
-  const saved=rm.map(m=>m.angle), stat=$('csSweepStat'), rows=[CS_HDR];
-  for(let i=0;i<combos.length;i++){ const c=combos[i]; mJ2.angle=c[0]; mJ3.angle=c[1]; mJ4.angle=c[2]; applyAngles(); rows.push(_csRow(rm));
-    if(i%150===0){ stat.textContent=`격자 ${i}/${combos.length} (${(100*i/combos.length).toFixed(0)}%)`; await new Promise(res=>setTimeout(res)); } }
-  rm.forEach((m,i)=>m.angle=saved[i]); applyAngles(); _sweeping=false;
-  const {n,nColl}=_csDownload(rows,'cspace_grid.csv');
-  stat.innerHTML=`완료(격자): ${n}조합 중 충돌 <b>${nColl}</b> (${(100*nColl/n).toFixed(1)}%) → cspace_grid.csv`;
-}
-async function sweepRandom(){
-  if(_sweeping) return; if(mode!=='ctrl'){ alert('제어 모드에서 실행하세요.'); return; }
-  const rm=revMates(); if(rm.length<6){ alert('관절(J2~J6)이 부족합니다.'); return; }
-  const N=Math.max(1000,Math.min(300000,+$('csN5').value||40000)), varj=[1,2,3,4,5];   // J2~J6 무작위(J1 고정)
-  if(!confirm(`랜덤 스윕: ${N}개 샘플(J2~J6 무작위, J1 고정).\n고차원 C-space를 학습용으로 수집합니다. 진행할까요?`)) return;
-  _sweeping=true; collMark.visible=selfMark.visible=false;
-  const saved=rm.map(m=>m.angle), stat=$('csSweepStat'), rows=[CS_HDR];
-  for(let i=0;i<N;i++){ varj.forEach(j=>{ const m=rm[j]; m.angle=m.min+Math.random()*(m.max-m.min); }); applyAngles(); rows.push(_csRow(rm));
-    if(i%150===0){ stat.textContent=`랜덤 ${i}/${N} (${(100*i/N).toFixed(0)}%)`; await new Promise(res=>setTimeout(res)); } }
-  rm.forEach((m,i)=>m.angle=saved[i]); applyAngles(); _sweeping=false;
-  const {n,nColl}=_csDownload(rows,'cspace_rand.csv');
-  stat.innerHTML=`완료(랜덤): ${n}샘플 중 충돌 <b>${nColl}</b> (${(100*nColl/n).toFixed(1)}%) → cspace_rand.csv`;
-}
-$('csSweep').onclick=sweepGrid;
-$('csRand').onclick=sweepRandom;
 
-// 능동학습: Python이 고른 불확실 자세 목록(cspace_query.csv)을 시뮬로 라벨링 → cspace_labeled.csv
-async function labelQuery(file){
-  if(_sweeping) return; if(mode!=='ctrl'){ alert('제어 모드에서 실행하세요.'); return; }
-  const rm=revMates(); if(rm.length<6){ alert('관절(J2~J6)이 부족합니다.'); return; }
-  const text=await file.text(); const lines=text.trim().split(/\r?\n/);
-  const hdr=lines[0].split(','), jcol={};
-  ['J1','J2','J3','J4','J5','J6'].forEach((j,k)=>{ const i=hdr.indexOf(j); if(i>=0) jcol[k]=i; });
-  const data=lines.slice(1).filter(l=>l.trim());
-  if(!Object.keys(jcol).length || !data.length){ alert('J1~J6 컬럼/데이터가 없습니다.'); return; }
-  if(!confirm(`질의 라벨링: ${data.length}개 자세를 시뮬 충돌검사합니다. 진행할까요?`)) return;
-  _sweeping=true; collMark.visible=selfMark.visible=false;
-  const saved=rm.map(m=>m.angle), stat=$('csSweepStat'), out=[CS_HDR];
-  for(let i=0;i<data.length;i++){
-    const r=data[i].split(','); for(const k in jcol){ const m=rm[k]; if(m) m.angle=+r[jcol[k]]; }
-    applyAngles(); out.push(_csRow(rm));
-    if(i%150===0){ stat.textContent=`라벨링 ${i}/${data.length} (${(100*i/data.length).toFixed(0)}%)`; await new Promise(res=>setTimeout(res)); }
-  }
-  rm.forEach((m,i)=>m.angle=saved[i]); applyAngles(); _sweeping=false;
-  const {n,nColl}=_csDownload(out,'cspace_labeled.csv');
-  stat.innerHTML=`라벨 완료: ${n}개(충돌 ${nColl}) → cspace_labeled.csv`;
-}
-$('csLabelBtn').onclick=()=>$('csLabel').click();
-$('csLabel').addEventListener('change',e=>{ const f=e.target.files[0]; if(f) labelQuery(f); e.target.value=''; });
 
 // ===== 파지 데이터셋 (P1) — J1~J6 무작위 스윕 → [관절각, TCP포즈, 충돌] CSV =====
 // C-space와 달리 J1 포함(방위각). 확정된 TCP(_tcpPose)로 파지점·접근벡터 기록.
@@ -1144,6 +1005,28 @@ if($('voShow')){
   $('voShow').onclick=showVObj;
   $('voHide').onclick=()=>{ if(vObj){ scene.remove(vObj); vObj.geometry.dispose(); vObj.material.dispose(); vObj=null; } $('voStat').textContent='숨김'; };
 }
+
+// ===== 비전: 감지 물체 3D 좌표(로봇 기준) — 4페이지 시뮬레이터 =====
+async function visScan(){
+  if(!$('visStat')) return; $('visStat').textContent='조회 중…';
+  try{ const d=await (await fetch('/positions3d/')).json(); const tb=$('visBody'); tb.innerHTML='';
+    if(!d.calibrated){ $('visStat').textContent='✗ 스테레오 미캘리브레이션(2페이지)'; return; }
+    if(d.error){ $('visStat').textContent='⚠ '+d.error+' — 카메라 활성 필요(1페이지)'; return; }
+    const objs=d.objects||[]; $('visStat').textContent = objs.length ? (objs.length+'개') : '물체 없음';
+    objs.forEach(o=>{ const p=o.xyz_mm||[0,0,0]; const tr=document.createElement('tr');
+      tr.innerHTML=`<td><b>${o.class}${o.id?('·'+o.id):''}</b></td><td class="muted" style="font-size:12px">(${p[0]}, ${p[1]}, ${p[2]})</td>`
+        +`<td style="text-align:right"><button class="ghost" data-xyz="${p.join(',')}">목표로</button></td>`;
+      tb.appendChild(tr); });
+    tb.querySelectorAll('[data-xyz]').forEach(b=>b.onclick=()=>{ const p=b.dataset.xyz.split(',').map(Number);
+      $('ikX').value=Math.round(p[0]); $('ikY').value=Math.round(p[1]); $('ikZ').value=Math.round(p[2]);
+      $('visStat').textContent=`✓ 목표=(${p.map(v=>Math.round(v)).join(', ')}) — 수직/수평 잡기`; }); }
+  catch(e){ if($('visStat'))$('visStat').textContent='✗ 오류'; }
+}
+if($('visScan')){ $('visScan').onclick=visScan;
+  let _vt=null; $('visAuto').onchange=()=>{ clearInterval(_vt); if($('visAuto').checked){ visScan(); _vt=setInterval(visScan,1000); } }; }
+
+// 4페이지(시뮬레이터)는 제어 모드 고정(조립·결합 탭 숨김) — 파지 작업이 제어 패널에서 이뤄짐
+if('{{ view }}'==='sim'){ const c=$('mCtrl'); if(c) setTimeout(()=>c.click(), 50); if($('visScan')) visScan(); }
 
 (function loop(){ requestAnimationFrame(loop); orbit.update(); updateLockLines(); rampCtrl(); ikDrive(); updateCollision(); updateTCP(); updateIkMark(); updateJointAxis(); renderer.render(scene,camera); })();
 </script>
