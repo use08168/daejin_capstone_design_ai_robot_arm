@@ -214,7 +214,8 @@
             반경<input id="voR" type="number" value="25" step="2" min="3" style="width:48px">
             높이<input id="voH" type="number" value="80" step="5" min="5" style="width:48px"><span class="muted">mm</span></div>
           <div class="row" style="margin-bottom:6px"><button class="primary" id="voShow" style="flex:1">표시 / 갱신(IK 목표에)</button><button class="ghost" id="voHide">숨김</button></div>
-          <div class="row" style="margin-bottom:0"><span class="muted" style="width:38px">벌림</span><input id="voGrip" type="number" value="80" step="5" min="10" style="width:48px"><span class="muted">mm</span><span style="flex:1"></span><button class="ghost" id="voCands">🎯 파지 후보 생성</button></div>
+          <div class="row" style="margin-bottom:6px"><span class="muted" style="width:38px">벌림</span><input id="voGrip" type="number" value="80" step="5" min="10" style="width:48px"><span class="muted">mm</span><span style="flex:1"></span><button class="ghost" id="voCands">🎯 파지 후보 생성</button></div>
+          <div class="row" style="margin-bottom:0"><button class="primary" id="voAuto" style="flex:1">🤖 자동 잡기 (도달가능 최적 후보)</button></div>
           <div class="hintline" id="voStat" style="margin:6px 0 0;">물체 표면 antipodal 후보 자동 생성(수직=파랑·수평=초록 접근화살표). 그리퍼 벌림보다 좁은 부위만.</div>
         </div>
 
@@ -908,32 +909,35 @@ function ikDrive(){   // 계획 경로를 '동기 보간'으로 실행(공통 �
   applyAngles();
   if(t>=1){ _ikMove.seg++; _ikMove.t=0; if(_ikMove.seg>=pts.length-1) _ikMove=null; }
 }
-function solveIK(){
-  if(!graspDB||!graspDB.length){ ikStat('먼저 grasp_dataset.csv를 불러오세요.'); return; }
-  const tx=+$('ikX').value, ty=+$('ikY').value, tz=+$('ikZ').value;
-  const za=new THREE.Vector3(0,0,1).applyQuaternion(ikQuat), tq=ikQuat;   // 목표 접근축 + 전체자세
+function findGrasp(tx,ty,tz, quat){   // 데이터셋에서 (위치+자세) 최근접 충돌없는 자세 검색. {j,bP,bA} 또는 null. 팔 안 움직임.
+  if(!graspDB||!graspDB.length) return null;
+  const za=new THREE.Vector3(0,0,1).applyQuaternion(quat);
   let best=null, bestCost=Infinity, bP=0, bA=0;
   for(const s of graspDB){
     const dx=s.tx-tx, dy=s.ty-ty, dz=s.tz-tz, pd=Math.sqrt(dx*dx+dy*dy+dz*dz);
     let angDeg;
-    if(graspHasQuat){                            // 전체자세 매칭(roll까지) → 깔끔한 접근자세
-      let d=Math.abs(tq.x*s.qx+tq.y*s.qy+tq.z*s.qz+tq.w*s.qw); d=Math.min(1,d);
-      angDeg=2*Math.acos(d)*180/Math.PI; if(angDeg>IK_ORIENT_TOL) continue;
-    } else {                                     // 구버전 데이터: 접근축만
-      const dot=za.x*s.ax+za.y*s.ay+za.z*s.az; if(dot<IK_ANG_TOL) continue;
-      angDeg=Math.acos(Math.min(1,Math.max(-1,dot)))*180/Math.PI;
-    }
+    if(graspHasQuat){ let d=Math.abs(quat.x*s.qx+quat.y*s.qy+quat.z*s.qz+quat.w*s.qw); d=Math.min(1,d); angDeg=2*Math.acos(d)*180/Math.PI; if(angDeg>IK_ORIENT_TOL) continue; }
+    else { const dot=za.x*s.ax+za.y*s.ay+za.z*s.az; if(dot<IK_ANG_TOL) continue; angDeg=Math.acos(Math.min(1,Math.max(-1,dot)))*180/Math.PI; }
     const cost=pd+IK_ORIENT_W*angDeg;
     if(cost<bestCost){ bestCost=cost; best=s; bP=pd; bA=angDeg; } }
-  if(!best){ ikStat('이 자세로 후보 없음 — 접근/회전을 바꿔보세요.'); return; }
-  if(bP>IK_TOL){ ikStat(`⚠ 도달 어려움 — 최근접 ${bP.toFixed(0)}mm·자세 ${bA.toFixed(0)}° (미도달/자세 제약).`); return; }
-  const rm=revMates(); const from=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle)), to=best.j.slice(0,6);
+  if(!best || bP>IK_TOL) return null;
+  return {j:best.j, bP, bA};
+}
+function executeGrasp(toJ, label){   // 충돌없는 경로계획 + 동기 실행. 성공 여부 반환.
+  const rm=revMates(); const from=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle)), to=toJ.slice(0,6);
   const path=planPath(from,to);
   rm.forEach((m,i)=>{ if(i<6) m.angle=from[i]; }); applyAngles();   // 계획 중 흐트러진 자세 복원
-  if(!path){ ikStat(`✓ 자세는 있으나(위치 ${bP.toFixed(0)}mm) 충돌없는 경로를 못 찾음 — 다른 접근/위치 필요`); _ikMove=null; return; }
-  rm.forEach((m,i)=>{ if(i<6) m._tgt=from[i]; });           // 시작 글리치 방지(rampCtrl 무력화)
-  _ikMove={pts:[from,...path], seg:0, t:0};                 // 동기 보간으로 실행
-  ikStat(`✓ 잡기 — 위치 ${bP.toFixed(0)}mm·자세 ${bA.toFixed(0)}° · 경로 ${path.length}구간${path.length>1?'(업라이트 경유, 바닥회피)':''}`);
+  if(!path){ ikStat('✓ 자세는 있으나 충돌없는 경로를 못 찾음 — 다른 접근/위치 필요'); _ikMove=null; return false; }
+  rm.forEach((m,i)=>{ if(i<6) m._tgt=from[i]; });
+  _ikMove={pts:[from,...path], seg:0, t:0};
+  ikStat(`✓ 잡기 — ${label} · 경로 ${path.length}구간${path.length>1?'(업라이트 경유, 바닥회피)':''}`);
+  return true;
+}
+function solveIK(){
+  if(!graspDB||!graspDB.length){ ikStat('먼저 grasp_dataset.csv를 불러오세요.'); return; }
+  const g=findGrasp(+$('ikX').value, +$('ikY').value, +$('ikZ').value, ikQuat);
+  if(!g){ ikStat('⚠ 도달 어려움 — 이 위치/접근으로 충돌없는 자세 없음(위치·접근 변경).'); return; }
+  executeGrasp(g.j, `위치 ${g.bP.toFixed(0)}mm·자세 ${g.bA.toFixed(0)}°`);
 }
 function snapApproach(kind){   // 그 위치 근처 '도달 가능한' 수직/수평 파지 자세로 목표 프레임을 스냅(고정 프리셋 X)
   if(!graspDB||!graspDB.length){ ikStat('먼저 grasp_dataset.csv를 불러오세요.'); return; }
@@ -1017,9 +1021,10 @@ function genGraspCandidates(){
   if(!vObj){ $('voStat').textContent='먼저 물체를 표시하세요.'; return; }
   const type=$('voType').value, R=Math.max(3,+$('voR').value||25), H=Math.max(5,+$('voH').value||80), gmax=+$('voGrip').value||80;
   const c=vObj.position.clone(), st=40;
-  const add=(pos,app,kind)=>{ app=app.clone().normalize(); graspCands.push({pos:pos.clone(), approach:app.clone(), kind, width:Math.min(2*R,gmax)});
+  const add=(pos,app,kind)=>{ app=app.clone().normalize();
     const col=kind==='vert'?0x3399ff:0x33cc66, o=pos.clone().addScaledVector(app,-st);   // standoff→물체
-    const ar=new THREE.ArrowHelper(app,o,st,col,10,6); ar.line.material.depthTest=ar.cone.material.depthTest=false; candGroup.add(ar); };
+    const ar=new THREE.ArrowHelper(app,o,st,col,10,6); ar.line.material.depthTest=ar.cone.material.depthTest=false; candGroup.add(ar);
+    graspCands.push({pos:pos.clone(), approach:app.clone(), kind, width:Math.min(2*R,gmax), arrow:ar, baseColor:col}); };
   if(type==='cyl'||type==='cup'||type==='sph'){
     if(2*R<=gmax){
       const gy=(type==='sph')?c.y:(c.y + H/2 - Math.min(20,H*0.35));          // 수직: 상단 근처
@@ -1037,10 +1042,30 @@ function genGraspCandidates(){
   const nv=graspCands.filter(g=>g.kind==='vert').length, nh=graspCands.length-nv;
   $('voStat').textContent = graspCands.length ? `파지 후보 ${graspCands.length}개 (수직 ${nv}·수평 ${nh}) — 다음: 도달가능 후보로 잡기` : `2R(${2*R}mm) > 벌림(${gmax}mm) — 못 잡음`;
 }
+// Inc 3: 후보별 IK 도달성 검증 → 도달가능 표시(원색)·미도달(회색) → 최적 후보로 자동 잡기
+function autoGrasp(){
+  if(!graspCands.length){ $('voStat').textContent='먼저 🎯 파지 후보를 생성하세요.'; return; }
+  if(!graspDB||!graspDB.length){ $('voStat').textContent='파지 IK 데이터셋을 먼저 불러오세요(파지 IK 카드 📂).'; return; }
+  let best=null, bestScore=Infinity, nReach=0;
+  for(const cand of graspCands){
+    const q=_basisQuat(cand.approach.clone());
+    const g=findGrasp(cand.pos.x,cand.pos.y,cand.pos.z, q);
+    if(g){ nReach++; cand.arrow.setColor(new THREE.Color(cand.baseColor));     // 도달 가능 = 원색
+      const score=g.bP+0.5*g.bA; if(score<bestScore){ bestScore=score; best={cand,q,g}; } }
+    else cand.arrow.setColor(new THREE.Color(0x555555));                       // 미도달 = 회색
+  }
+  if(!best){ $('voStat').textContent=`도달 가능한 파지 후보 없음 (${graspCands.length}개 중 0)`; return; }
+  best.cand.arrow.setColor(new THREE.Color(0xffffff));                         // 선택 = 흰색 강조
+  $('ikX').value=Math.round(best.cand.pos.x); $('ikY').value=Math.round(best.cand.pos.y); $('ikZ').value=Math.round(best.cand.pos.z);
+  ikQuat.copy(best.q);
+  executeGrasp(best.g.j, `${best.cand.kind==='vert'?'수직':'수평'} 후보`);
+  $('voStat').textContent=`✓ ${nReach}/${graspCands.length} 도달가능 → ${best.cand.kind==='vert'?'수직':'수평'} 후보로 잡기 (잔차 ${best.g.bP.toFixed(0)}mm·${best.g.bA.toFixed(0)}°)`;
+}
 if($('voShow')){
   $('voShow').onclick=()=>{ showVObj(); clearCands(); };
   $('voHide').onclick=()=>{ if(vObj){ scene.remove(vObj); vObj.geometry.dispose(); vObj.material.dispose(); vObj=null; } clearCands(); $('voStat').textContent='숨김'; };
   $('voCands').onclick=genGraspCandidates;
+  if($('voAuto')) $('voAuto').onclick=autoGrasp;
 }
 
 // ===== 비전: 감지 물체 3D 좌표(로봇 기준) — 4페이지 시뮬레이터 =====
