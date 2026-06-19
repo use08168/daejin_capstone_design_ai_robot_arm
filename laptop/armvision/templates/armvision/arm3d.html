@@ -202,7 +202,8 @@
           <div class="row" style="margin-bottom:6px"><span class="muted" style="width:38px">목표</span>
             X<input id="ikX" type="number" value="-115" step="5" style="width:58px">
             Y<input id="ikY" type="number" value="150" step="5" style="width:52px">
-            Z<input id="ikZ" type="number" value="150" step="5" style="width:52px"></div>
+            Z<input id="ikZ" type="number" value="150" step="5" style="width:52px">
+            <button class="ghost" id="ikVision" title="5페이지에서 보낸 비전 감지 좌표 불러오기">📷 비전</button></div>
           <div class="row" style="margin-bottom:6px"><span class="muted" style="width:38px">스텝</span><input id="ikStep" type="number" value="10" step="5" min="1" style="width:46px"><span class="muted">mm</span>
             <button class="ghost iknudge" data-ax="x" data-d="-1">X−</button><button class="ghost iknudge" data-ax="x" data-d="1">X＋</button>
             <button class="ghost iknudge" data-ax="y" data-d="-1">Y−</button><button class="ghost iknudge" data-ax="y" data-d="1">Y＋</button>
@@ -1081,6 +1082,9 @@ if($('ikSolve')){
   $('ikCsvBtn').onclick=()=>$('ikCsv').click();
   $('ikCsv').addEventListener('change',e=>{ const f=e.target.files[0]; if(f) loadGraspCsv(f); e.target.value=''; });
   $('ikSolve').onclick=solveIK;
+  $('ikVision').onclick=()=>{ const s=localStorage.getItem('graspTargetXYZ'); if(!s){ ikStat('5페이지 「IK로」로 비전 좌표를 먼저 보내세요.'); return; }
+    const p=s.split(',').map(Number); $('ikX').value=Math.round(p[0]); $('ikY').value=Math.round(p[1]); $('ikZ').value=Math.round(p[2]);
+    ikStat(`📷 비전 좌표 (${p.map(v=>Math.round(v)).join(', ')}) 적용 — 마커 위치가 실제 물체와 맞는지 확인 후 수직/수평`); };
   const auto=()=>{ if($('ikAuto').checked) solveIK(); };
   document.querySelectorAll('.iknudge').forEach(b=>b.onclick=()=>{ const ax=b.dataset.ax, s=+$('ikStep').value||10;
     const el=$('ik'+ax.toUpperCase()); el.value=Math.round(+el.value+(+b.dataset.d)*s); auto(); });

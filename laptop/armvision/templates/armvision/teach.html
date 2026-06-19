@@ -46,6 +46,16 @@
       </div>
 
       <div class="card">
+        <h2>감지 물체 (비전) <span id="visStat" class="mut" style="font-weight:400"></span></h2>
+        <div class="rowflex" style="margin-bottom:8px;">
+          <button class="tbtn" id="visScan">🔄 새로고침</button>
+          <label class="mut" style="display:flex;align-items:center;gap:5px;"><input type="checkbox" id="visAuto"> 자동(1초)</label>
+        </div>
+        <table class="seq" style="width:100%;"><tbody id="visBody"></tbody></table>
+        <div class="mut" style="margin-top:6px;">스테레오 카메라가 본 물체의 3D 좌표(로봇 기준 mm). 카메라는 1페이지에서 선택·활성화하세요.</div>
+      </div>
+
+      <div class="card">
         <h2>현재 자세 기록</h2>
         <div class="rowflex">
           <input class="tin" id="pname" placeholder="자세 이름 (예: 접근, 잡기, 들기, 놓기)" style="flex:1; min-width:140px;">
@@ -181,6 +191,28 @@ async function pollConn(){ try{ const s=await (await fetch(U.status)).json();
   const c=$('conn'); if(s.connected){ c.className='srv ok'; c.textContent='실물 연결됨'; } else { c.className='srv no'; c.textContent='실물 미연결 — 4페이지에서 연결'; }
   }catch(e){ $('conn').textContent='상태 오류'; } }
 
-syncFromServer(); loadSteps(); pollConn(); setInterval(pollConn, 3000);
+// 비전: 감지 물체 3D 좌표(로봇 기준 mm)
+async function visScan(){
+  $('visStat').textContent='조회 중…';
+  try{ const d=await (await fetch('/positions3d/')).json();
+    const tb=$('visBody'); tb.innerHTML='';
+    if(!d.calibrated){ $('visStat').textContent='✗ 스테레오 미캘리브레이션(2페이지)'; return; }
+    if(d.error){ $('visStat').textContent='⚠ '+d.error+' — 카메라 활성 필요(1페이지)'; return; }
+    const objs=d.objects||[];
+    $('visStat').textContent = objs.length ? (objs.length+'개') : '물체 없음';
+    objs.forEach(o=>{ const p=o.xyz_mm||[0,0,0]; const tr=document.createElement('tr');
+      tr.innerHTML=`<td><b>${o.class}${o.id?('·'+o.id):''}</b> <span class="mut">${o.frame||''}</span></td>`
+        +`<td class="mut">(${p[0]}, ${p[1]}, ${p[2]}) mm</td>`
+        +`<td style="text-align:right"><button class="tbtn" data-xyz="${p.join(',')}">IK로</button></td>`;
+      tb.appendChild(tr); });
+    tb.querySelectorAll('[data-xyz]').forEach(b=>b.onclick=()=>{ localStorage.setItem('graspTargetXYZ', b.dataset.xyz);
+      $('visStat').textContent='✓ 좌표 저장 — 4페이지 파지 IK에서 「📷 비전좌표」'; });
+  }catch(e){ $('visStat').textContent='✗ 오류'; }
+}
+$('visScan').onclick=visScan;
+let _visTimer=null;
+$('visAuto').onchange=()=>{ clearInterval(_visTimer); if($('visAuto').checked){ visScan(); _visTimer=setInterval(visScan,1000); } };
+
+syncFromServer(); loadSteps(); pollConn(); setInterval(pollConn, 3000); visScan();
 </script>
 {% endblock %}
