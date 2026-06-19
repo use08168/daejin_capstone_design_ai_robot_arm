@@ -231,6 +231,10 @@
           <div class="row" style="margin-bottom:6px"><span class="muted" style="width:38px">벌림</span><input id="voGrip" type="number" value="80" step="5" min="10" style="width:48px"><span class="muted">mm</span><span style="flex:1"></span><button class="ghost" id="voCands">🎯 파지 후보 생성</button></div>
           <div class="row" style="margin-bottom:0"><button class="primary" id="voAuto" style="flex:1">🤖 자동 잡기 (도달가능 최적 후보)</button></div>
           <div class="hintline" id="voStat" style="margin:6px 0 0;">물체 표면 antipodal 후보 자동 생성(수직=파랑·수평=초록 접근화살표). 그리퍼 벌림보다 좁은 부위만.</div>
+          <div style="margin:8px 0 0; border-top:1px solid var(--c-line); padding-top:8px;">
+            <div class="row" style="margin-bottom:4px;justify-content:space-between"><b style="font-size:12px">파지 접촉 검증 (C)</b><button class="ghost" id="voCheck" style="padding:2px 8px;font-size:12px">🤝 검사</button></div>
+            <div id="voContact" style="font-size:13px;font-weight:600;color:#9cf;min-height:16px">그리퍼를 닫으면 손가락-물체 접촉을 실시간 판정합니다(✅양쪽·⚠️헛잡음/관통).</div>
+          </div>
         </div>
 
         <div class="card sim-card" style="margin-top:10px;">
@@ -514,6 +518,7 @@ function setGripper(t){   // 0=완전 열림 .. 1=완전 닫힘
   const sl=$('gripSlider'); if(sl){ sl.value=Math.round(t*100); sl.disabled=!gripReady(); }
   const v=$('gripVal'); if(v) v.textContent = t<0.05?'열림':(t>0.95?'닫힘':Math.round(t*100)+'%');
   const j7=$('j7slider'); if(j7) j7.value=Math.round(t*100); const j7p=$('j7pct'); if(j7p) j7p.textContent=Math.round(t*100);   // 제어 J7 동기화
+  if(vObj && typeof evalGraspContact==='function') evalGraspContact();   // C: 개폐 시 손가락-물체 접촉 실시간 판정
 }
 $('gripSaveOpen').onclick=()=>{ if(selMate<0)return; const m=mates[selMate]; if(m.type!=='grip')return; m.gOpen=+(+$('tslider').value).toFixed(1); selectMate(selMate); };
 $('gripSaveClose').onclick=()=>{ if(selMate<0)return; const m=mates[selMate]; if(m.type!=='grip')return; m.gClose=+(+$('tslider').value).toFixed(1); selectMate(selMate); };
@@ -1159,10 +1164,55 @@ function seqStepDone(st){
   setTimeout(seqNext, st.grip?700:120);   // 그리퍼 동작 시간 여유
 }
 if($('voShow')){
-  $('voShow').onclick=()=>{ showVObj(); clearCands(); };
-  $('voHide').onclick=()=>{ if(vObj){ scene.remove(vObj); vObj.geometry.dispose(); vObj.material.dispose(); vObj=null; } clearCands(); $('voStat').textContent='숨김'; };
+  $('voShow').onclick=()=>{ showVObj(); clearCands(); evalGraspContact(); };
+  $('voHide').onclick=()=>{ if(vObj){ scene.remove(vObj); vObj.geometry.dispose(); vObj.material.dispose(); vObj=null; } clearCands(); clearContactMarks(); $('voStat').textContent='숨김'; if($('voContact')){ $('voContact').textContent=''; } };
   $('voCands').onclick=genGraspCandidates;
   if($('voAuto')) $('voAuto').onclick=autoGrasp;
+  if($('voCheck')) $('voCheck').onclick=evalGraspContact;
+}
+
+// ===== C: 손가락-물체 접촉 검출 (파지 검증) =====
+// 가상 물체(프리미티브)를 물체-로컬 좌표로 두고, 각 손가락 메시 정점의 표면까지 부호거리(SDF) 최소값을
+// 구해 접촉(간격≤TOL)·관통(<−TOL)을 판정. 두 손가락이 양쪽(antipodal)에서 접촉하면 = 유효 파지.
+const _contactGroup=new THREE.Group(); scene.add(_contactGroup);
+const CONTACT_TOL=4, PEN_TOL=2;   // mm: 접촉 간격 임계 / 관통 깊이 임계
+function clearContactMarks(){ while(_contactGroup.children.length){ const c=_contactGroup.children[0]; _contactGroup.remove(c); c.geometry.dispose(); c.material.dispose(); } }
+function _objSDF(p,type,R,H){      // p: 물체 로컬좌표(중심 원점, 축=Y) → 표면까지 부호거리(음=내부)
+  if(type==='sph') return p.length()-R;
+  if(type==='cyl'||type==='cup'){ const r=Math.hypot(p.x,p.z), dY=Math.abs(p.y)-H/2;
+    if(dY<=0) return r-R;                                  // 높이 범위 내 → 측면 부호거리(파지 핵심)
+    return Math.hypot(Math.max(r-R,0), dY); }              // 캡 바깥
+  const qx=Math.abs(p.x)-R, qy=Math.abs(p.y)-H/2, qz=Math.abs(p.z)-R;   // box: 반치수(R,H/2,R)
+  return Math.hypot(Math.max(qx,0),Math.max(qy,0),Math.max(qz,0)) + Math.min(Math.max(qx,Math.max(qy,qz)),0);
+}
+function _fingerNearest(mesh,invObj,type,R,H){   // 손가락 메시 정점 중 물체 표면에 가장 가까운 점(월드)
+  mesh.updateMatrixWorld(true); const pos=mesh.geometry.attributes.position; if(!pos) return null;
+  const stride=Math.max(1,Math.floor(pos.count/240)), v=new THREE.Vector3(), lv=new THREE.Vector3();
+  let bd=Infinity, bw=null;
+  for(let i=0;i<pos.count;i+=stride){ v.fromBufferAttribute(pos,i).applyMatrix4(mesh.matrixWorld);
+    lv.copy(v).applyMatrix4(invObj); const d=_objSDF(lv,type,R,H); if(d<bd){ bd=d; bw=v.clone(); } }
+  return bw?{d:bd, world:bw}:null;
+}
+function evalGraspContact(){
+  clearContactMarks(); const el=$('voContact'); if(!el) return;
+  if(!vObj){ el.textContent=''; return; }
+  const gm=gripMates(); if(gm.length<2){ el.textContent='그리퍼 손가락 2개 필요(결합에서 grip 설정)'; el.style.color='#fa6'; return; }
+  const type=$('voType').value, R=Math.max(3,+$('voR').value||25), H=Math.max(5,+$('voH').value||80);
+  vObj.updateMatrixWorld(true); const invObj=new THREE.Matrix4().copy(vObj.matrixWorld).invert(), center=vObj.position.clone();
+  const res=gm.map(m=>{ const pb=partByName(m.child), mesh=pb&&pb.mesh; return mesh?_fingerNearest(mesh,invObj,type,R,H):null; }).filter(Boolean);
+  if(res.length<2){ el.textContent='손가락 메시를 찾지 못함'; el.style.color='#fa6'; return; }
+  res.sort((a,b)=>a.d-b.d); const a=res[0], b=res[1];
+  const touch=x=>x.d<=CONTACT_TOL, pen=x=>x.d<-PEN_TOL;
+  const va=a.world.clone().sub(center).setY(0), vb=b.world.clone().sub(center).setY(0);   // 수평면 방위(antipodal)
+  const opp=(va.lengthSq()>1 && vb.lengthSq()>1) ? va.normalize().dot(vb.normalize())<-0.2 : true;
+  let txt,col,mk;
+  if(pen(a)||pen(b)){ txt=`⚠ 관통 — 손가락이 물체를 ${Math.round(Math.max(-a.d,-b.d))}mm 파고듦`; col='#f66'; mk=0xff5555; }
+  else if(touch(a)&&touch(b)&&opp){ txt=`✅ 유효 파지 — 양쪽 접촉 (간격 ${a.d.toFixed(1)}·${b.d.toFixed(1)}mm)`; col='#6f6'; mk=0x44ff66; }
+  else if(touch(a)&&touch(b)){ txt=`⚠ 같은쪽 접촉 — antipodal 아님 (간격 ${a.d.toFixed(1)}·${b.d.toFixed(1)}mm)`; col='#fa6'; mk=0xffaa44; }
+  else if(touch(a)||touch(b)){ txt=`⚠ 헛잡음 — 한쪽만 접촉 (간격 ${a.d.toFixed(1)}·${b.d.toFixed(1)}mm)`; col='#fa6'; mk=0xffaa44; }
+  else { txt=`미접촉 — 더 닫으세요 (간격 ${a.d.toFixed(1)}·${b.d.toFixed(1)}mm)`; col='#9cf'; mk=0x3399ff; }
+  el.textContent=txt; el.style.color=col;
+  [a,b].forEach(x=>{ const s=new THREE.Mesh(new THREE.SphereGeometry(4,10,8), new THREE.MeshBasicMaterial({color:mk,depthTest:false})); s.position.copy(x.world); s.renderOrder=999; _contactGroup.add(s); });
 }
 
 // ===== 비전: 감지 물체 3D 좌표(로봇 기준) — 4페이지 시뮬레이터 =====
