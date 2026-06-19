@@ -605,7 +605,7 @@ $('btnSync').onclick=()=>{ if(!connected){ alert('먼저 아두이노를 연결�
 $('btnHome').onclick=()=>{ revMates().forEach(m=>m._cmd=90); saveCmd(); $('connStat').textContent='홈(90°) 기준 설정됨 (저장됨 — 페이지 이동해도 유지)'; $('connStat').style.color='var(--c-ok)'; };
 $('btnAlign').onclick=()=>{ if(!connected){ alert('먼저 아두이노를 연결하세요.'); return; }
   armAlign(); $('connStat').textContent='정렬 중… (홈에서 천천히 이동)'; $('connStat').style.color='var(--c-ok)'; };
-$('btnEstop').onclick=()=>{ seqAbort=true; setSync(false); revMates().forEach(m=>m._tgt=(m.angle==null?90:m.angle)); $('connStat').textContent='정지 — 연동 꺼짐(서보는 현재 위치 유지)'; $('connStat').style.color='var(--warn)'; };
+$('btnEstop').onclick=()=>{ seqAbort=true; if(typeof graspSeq!=='undefined')graspSeq=null; if(typeof _ikMove!=='undefined')_ikMove=null; setSync(false); revMates().forEach(m=>m._tgt=(m.angle==null?90:m.angle)); $('connStat').textContent='정지 — 연동 꺼짐(서보는 현재 위치 유지)'; $('connStat').style.color='var(--warn)'; };
 $('ctrlSpeed').addEventListener('input',()=>{ ctrlSpeed=Math.max(1,+$('ctrlSpeed').value||10); });
 // 이 속도 입력이 '모든 페이지·실물 공통' 마스터 컨트롤 — 서버 설정에 반영
 $('ctrlSpeed').addEventListener('change',()=>{ fetch('/arm/config/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({deg_per_s:ctrlSpeed})}).catch(()=>{}); });
@@ -907,7 +907,7 @@ function ikDrive(){   // 계획 경로를 '동기 보간'으로 실행(공통 �
   _ikMove.t += (ctrlSpeed*dt)/maxd; const t=Math.min(1,_ikMove.t);   // 공통 속도(ctrlSpeed °/s)
   rm.forEach((m,i)=>{ if(i<6){ m.angle=a[i]+(b[i]-a[i])*t; m._tgt=m.angle; } });   // _tgt=angle → rampCtrl 무력화
   applyAngles();
-  if(t>=1){ _ikMove.seg++; _ikMove.t=0; if(_ikMove.seg>=pts.length-1) _ikMove=null; }
+  if(t>=1){ _ikMove.seg++; _ikMove.t=0; if(_ikMove.seg>=pts.length-1){ const cb=_ikMove.onDone; _ikMove=null; if(cb) cb(); } }   // 완료 콜백(시퀀스 진행)
 }
 function findGrasp(tx,ty,tz, quat){   // 데이터셋에서 (위치+자세) 최근접 충돌없는 자세 검색. {j,bP,bA} 또는 null. 팔 안 움직임.
   if(!graspDB||!graspDB.length) return null;
@@ -1058,8 +1058,43 @@ function autoGrasp(){
   best.cand.arrow.setColor(new THREE.Color(0xffffff));                         // 선택 = 흰색 강조
   $('ikX').value=Math.round(best.cand.pos.x); $('ikY').value=Math.round(best.cand.pos.y); $('ikZ').value=Math.round(best.cand.pos.z);
   ikQuat.copy(best.q);
-  executeGrasp(best.g.j, `${best.cand.kind==='vert'?'수직':'수평'} 후보`);
-  $('voStat').textContent=`✓ ${nReach}/${graspCands.length} 도달가능 → ${best.cand.kind==='vert'?'수직':'수평'} 후보로 잡기 (잔차 ${best.g.bP.toFixed(0)}mm·${best.g.bA.toFixed(0)}°)`;
+  $('voStat').textContent=`✓ ${nReach}/${graspCands.length} 도달가능 → ${best.cand.kind==='vert'?'수직':'수평'} 후보로 집기 시퀀스 시작…`;
+  graspSequence(best.cand, best.q, best.g.j);   // Inc4: 프리그래스프→접근→닫기→들기
+}
+// Inc 4: 집기 시퀀스 — 최종 잡기 자세 기준 프리그래스프·들기 자세를 IK로 풀어 순차 실행(그리퍼 개폐)
+let graspSeq=null;   // {steps:[{joints, grip, label}], i}
+const GRASP_STANDOFF=80, GRASP_LIFT=100;   // mm
+function graspSequence(cand, q, graspJoints){
+  const za=new THREE.Vector3(0,0,1).applyQuaternion(q);                 // 접근축(그리퍼 z)
+  const gp=cand.pos.clone();
+  const prePos=gp.clone().addScaledVector(za,-GRASP_STANDOFF);          // 접근축 뒤로(standoff)
+  const liftPos=gp.clone().add(new THREE.Vector3(0,GRASP_LIFT,0));      // 위로
+  const gPre=findGrasp(prePos.x,prePos.y,prePos.z, q);
+  if(!gPre){ ikStat('✗ 프리그래스프 자세 도달 불가 — 다른 후보/위치 필요'); return; }
+  const gLift=findGrasp(liftPos.x,liftPos.y,liftPos.z, q);
+  const steps=[
+    {joints:gPre.j,      grip:'open',  label:'① 프리그래스프(접근 준비)'},
+    {joints:graspJoints, grip:'close', label:'② 접근·파지'},
+  ];
+  if(gLift) steps.push({joints:gLift.j, grip:null, label:'③ 들기'});
+  graspSeq={steps, i:-1}; seqNext();
+}
+function seqNext(){
+  if(!graspSeq) return;
+  graspSeq.i++;
+  if(graspSeq.i>=graspSeq.steps.length){ ikStat('✓ 집기 시퀀스 완료'); graspSeq=null; return; }
+  const st=graspSeq.steps[graspSeq.i], rm=revMates(), from=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle));
+  const path=planPath(from, st.joints.slice(0,6));
+  rm.forEach((m,i)=>{ if(i<6) m.angle=from[i]; }); applyAngles();
+  if(!path){ ikStat(`✗ ${st.label}: 충돌없는 경로 없음 — 시퀀스 중단`); graspSeq=null; return; }
+  rm.forEach((m,i)=>{ if(i<6) m._tgt=from[i]; });
+  _ikMove={pts:[from,...path], seg:0, t:0, onDone:()=>seqStepDone(st)};
+  ikStat(`▶ ${st.label}…`);
+}
+function seqStepDone(st){
+  if(st.grip){ if(connected) fetch('/arm/gripper/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:st.grip})}).catch(()=>{});
+    ikStat(`✓ ${st.label} → 그리퍼 ${st.grip==='open'?'열기':'닫기'}`); }
+  setTimeout(seqNext, st.grip?700:120);   // 그리퍼 동작 시간 여유
 }
 if($('voShow')){
   $('voShow').onclick=()=>{ showVObj(); clearCands(); };
