@@ -1024,12 +1024,13 @@ const _jaGeo=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new T
 const jAxisLine=new THREE.Line(_jaGeo, new THREE.LineBasicMaterial({color:0xffee00,depthTest:false,transparent:true,opacity:0.9})); jAxisLine.renderOrder=1004; jAxisLine.visible=false; scene.add(jAxisLine);
 const _jaP=new THREE.Vector3(), _jaQ=new THREE.Quaternion(), _jaAx=new THREE.Vector3();
 function updateJointAxis(){
-  if(EMBED || selMate<0 || !mates[selMate] || mates[selMate].type!=='rev' || !mates[selMate]._pv){ jAxisTriad.visible=false; jAxisLine.visible=false; return; }
-  const m=mates[selMate], pv=m._pv;
+  const m=(selMate>=0)?mates[selMate]:null;
+  if(EMBED || !m || (m.type!=='rev' && m.type!=='grip') || !m._pv){ jAxisTriad.visible=false; jAxisLine.visible=false; return; }
+  const pv=m._pv;
   pv.getWorldPosition(_jaP);
   if(pv.parent) pv.parent.getWorldQuaternion(_jaQ); else _jaQ.identity();
-  _jaAx.fromArray(m.axis).applyQuaternion(_jaQ).normalize();    // 부모 프레임 → 월드 축
-  jAxisTriad.visible=true; jAxisTriad.position.copy(_jaP); jAxisTriad.quaternion.copy(_basisQuat(_jaAx));   // z(파랑)=회전축
+  _jaAx.fromArray(m.axis).applyQuaternion(_jaQ).normalize();    // 부모 프레임 → 월드 축 (회전축 또는 슬라이드축)
+  jAxisTriad.visible=true; jAxisTriad.position.copy(_jaP); jAxisTriad.quaternion.copy(_basisQuat(_jaAx));   // z(파랑)=회전/슬라이드 축
   const L=240; _jaGeo.setFromPoints([_jaP.clone().addScaledVector(_jaAx,-L), _jaP.clone().addScaledVector(_jaAx,L)]); jAxisLine.visible=true;
 }
 // ===== 가상 물체(파지 대상) — Inc1: 시뮬 배치 =====
