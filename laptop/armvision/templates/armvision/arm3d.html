@@ -175,14 +175,6 @@
         </div>
 
         <div class="card sim-card" style="margin-top:10px;">
-          <div class="ttl">그리퍼 개폐 (J7)</div>
-          <div class="hintline">두 손가락(f·f.1)을 J7 하나로 동시 개폐. 먼저 관절 슬라이더로 손가락을 <b>완전 열림</b>/<b>완전 닫힘</b>에 두고 각각 저장하세요.</div>
-          <div class="row" style="margin-bottom:6px"><button class="ghost" id="gpSaveOpen">완전 열림 저장</button><button class="ghost" id="gpSaveClose">완전 닫힘 저장</button><span class="muted" id="gpCal" style="flex:1;text-align:right"></span></div>
-          <div class="row" style="margin-bottom:0"><span class="muted" style="width:38px">개폐</span><input id="gpSlider" type="range" min="0" max="100" value="0" style="flex:1"><span class="muted" id="gpVal" style="width:42px;text-align:right">열림</span></div>
-          <div class="hintline" id="gpStat" style="margin:6px 0 0;">0=완전 열림 · 100=완전 닫힘. 집기 시퀀스의 닫기/열기가 이걸 구동합니다.</div>
-        </div>
-
-        <div class="card sim-card" style="margin-top:10px;">
           <div class="ttl">파지 데이터셋 (P1 — TCP↔관절 매핑)</div>
           <div class="hintline">J1~J6를 무작위로 쓸어 각 자세의 [관절각, TCP 위치·접근벡터, 바닥/자기충돌]을 기록 → grasp_dataset.csv. 역질의(IK)·파지 학습의 데이터. (TCP 확정 후 실행 권장)</div>
           <div class="row" style="margin-bottom:0"><span class="muted" style="width:38px">샘플</span><input id="grN" type="number" value="30000" step="5000" min="1000" style="width:72px"><span class="muted">개</span><span style="flex:1"></span><button class="primary" id="grSweep">🤏 파지 스윕(J1~J6)</button></div>
@@ -1069,26 +1061,6 @@ function autoGrasp(){
   $('voStat').textContent=`✓ ${nReach}/${graspCands.length} 도달가능 → ${best.cand.kind==='vert'?'수직':'수평'} 후보로 집기 시퀀스 시작…`;
   graspSequence(best.cand, best.q, best.g.j);   // Inc4: 프리그래스프→접근→닫기→들기
 }
-// ===== 그리퍼 개폐 (J7) — 두 손가락(분기점 rev 자식) 동시 구동 =====
-function fingerMates(){ const {handRoot}=_chainInfo(); return mates.filter(m=>m.type==='rev' && m.parent===handRoot); }
-let gripOpen={}, gripClose={};
-try{ gripOpen=JSON.parse(localStorage.getItem('gripOpen_v1')||'{}'); gripClose=JSON.parse(localStorage.getItem('gripClose_v1')||'{}'); }catch(e){}
-function gripCalibrated(){ const f=fingerMates(); return f.length>0 && f.every(m=>gripOpen[m.child]!=null && gripClose[m.child]!=null); }
-function setGripper(g){   // 0=완전 열림 .. 1=완전 닫힘 (시뮬 손가락)
-  g=Math.max(0,Math.min(1,g));
-  fingerMates().forEach(m=>{ const o=gripOpen[m.child], c=gripClose[m.child]; if(o!=null && c!=null){ const a=o+(c-o)*g; m.angle=a; m._tgt=a; } });
-  applyAngles();
-  const sl=$('gpSlider'); if(sl) sl.value=Math.round(g*100);
-  const v=$('gpVal'); if(v) v.textContent = g<0.05?'열림':(g>0.95?'닫힘':Math.round(g*100)+'%');
-}
-if($('gpSlider')){
-  function gpUpd(){ const f=fingerMates(); $('gpCal').textContent = gripCalibrated()?'✓ 보정됨':`손가락 ${f.length}개 · 미보정`; }
-  $('gpSaveOpen').onclick=()=>{ fingerMates().forEach(m=>gripOpen[m.child]=+(m.angle==null?90:m.angle).toFixed(1)); localStorage.setItem('gripOpen_v1',JSON.stringify(gripOpen)); gpUpd(); $('gpStat').textContent='✓ 완전 열림 저장됨'; };
-  $('gpSaveClose').onclick=()=>{ fingerMates().forEach(m=>gripClose[m.child]=+(m.angle==null?90:m.angle).toFixed(1)); localStorage.setItem('gripClose_v1',JSON.stringify(gripClose)); gpUpd(); $('gpStat').textContent='✓ 완전 닫힘 저장됨'; };
-  $('gpSlider').addEventListener('input',()=>{ if(!gripCalibrated()){ $('gpStat').textContent='먼저 열림·닫힘을 저장하세요.'; return; } setGripper(+$('gpSlider').value/100); });
-  setTimeout(gpUpd, 500);
-}
-
 // Inc 4: 집기 시퀀스 — 최종 잡기 자세 기준 프리그래스프·들기 자세를 IK로 풀어 순차 실행(그리퍼 개폐)
 let graspSeq=null;   // {steps:[{joints, grip, label}], i}
 const GRASP_STANDOFF=80, GRASP_LIFT=100;   // mm
@@ -1120,8 +1092,7 @@ function seqNext(){
   ikStat(`▶ ${st.label}…`);
 }
 function seqStepDone(st){
-  if(st.grip){ if(gripCalibrated()) setGripper(st.grip==='close'?1:0);   // 시뮬 손가락 개폐
-    if(connected) fetch('/arm/gripper/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:st.grip})}).catch(()=>{});
+  if(st.grip){ if(connected) fetch('/arm/gripper/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:st.grip})}).catch(()=>{});
     ikStat(`✓ ${st.label} → 그리퍼 ${st.grip==='open'?'열기':'닫기'}`); }
   setTimeout(seqNext, st.grip?700:120);   // 그리퍼 동작 시간 여유
 }
