@@ -455,7 +455,7 @@ $('tslider').addEventListener('input',()=>{ if(selMate<0)return; mates[selMate].
 $('delMate').onclick=()=>{ mates.splice(selMate,1); selMate=-1; $('jedit').style.display='none'; renderMates(); rebuild(); };
 function subtreeParts(root){ const out=[root]; const st=[root]; while(st.length){ const p=st.pop(); mates.forEach(m=>{ if(m.parent===p && !out.includes(m.child)){ out.push(m.child); st.push(m.child); } }); } return out; }
 function editOffset(mate, dx,dy,dz, dRoll){
-  mates.forEach(m=>m.angle=90); applyAngles(); parts.forEach(p=>worldRoot.attach(p.mesh));   // 휴식 자세 + 평면화
+  mates.forEach(m=>m.angle=(m.type==='grip')?0:90); applyAngles(); parts.forEach(p=>worldRoot.attach(p.mesh));   // 휴식 자세(grip=슬라이드0) + 평면화
   const axis=new THREE.Vector3().fromArray(mate.axis).normalize(); const pivot=new THREE.Vector3().fromArray(mate.pivot);
   const dv=new THREE.Vector3(dx,dy,dz); const q=new THREE.Quaternion().setFromAxisAngle(axis, d2r(dRoll));
   const sub=subtreeParts(mate.child); const inSub=nm=>sub.includes(nm);
@@ -682,8 +682,8 @@ renderer.domElement.addEventListener('pointerdown',e=>{
 });
 
 // ---- 저장/불러오기 ----
-$('save').onclick=async ()=>{ const wasMate=(mode==='mate'); if(wasMate){ mates.forEach(m=>m.angle=90); applyAngles(); parts.forEach(p=>worldRoot.attach(p.mesh)); }
-  const data={ parts: parts.map(p=>({name:p.name,pos:p.mesh.position.toArray().map(v=>+v.toFixed(2)),rot:[r2d(p.mesh.rotation.x),r2d(p.mesh.rotation.y),r2d(p.mesh.rotation.z)].map(v=>+v.toFixed(1)),visible:p.mesh.visible})), mates: mates.map(m=>({parent:m.parent,child:m.child,type:m.type,pivot:m.pivot,axis:m.axis,angle:m.angle,min:m.min,max:m.max,offset:m.offset||[0,0,0],roll:m.roll||0,locked:!!m.locked,motor:m.motor})) };
+$('save').onclick=async ()=>{ const wasMate=(mode==='mate'); if(wasMate){ mates.forEach(m=>m.angle=(m.type==='grip')?0:90); applyAngles(); parts.forEach(p=>worldRoot.attach(p.mesh)); }   // grip 휴식=슬라이드0
+  const data={ parts: parts.map(p=>({name:p.name,pos:p.mesh.position.toArray().map(v=>+v.toFixed(2)),rot:[r2d(p.mesh.rotation.x),r2d(p.mesh.rotation.y),r2d(p.mesh.rotation.z)].map(v=>+v.toFixed(1)),visible:p.mesh.visible})), mates: mates.map(m=>({parent:m.parent,child:m.child,type:m.type,pivot:m.pivot,axis:m.axis,angle:m.angle,min:m.min,max:m.max,offset:m.offset||[0,0,0],roll:m.roll||0,locked:!!m.locked,motor:m.motor,gOpen:(m.gOpen!=null?m.gOpen:null),gClose:(m.gClose!=null?m.gClose:null)})) };
   if(wasMate) rebuild();
   const res=await (await fetch(SAVEU,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})).json(); $('status').textContent=res.ok?'저장됨 ✓':'실패'; setTimeout(()=>$('status').textContent='',2000); };
 $('load').onclick=()=>{ if(confirm('저장된 내용으로 다시 불러옵니다.\n현재 화면의 변경사항은 사라집니다. 계속할까요?')) location.reload(); };
