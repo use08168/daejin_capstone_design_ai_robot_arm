@@ -215,7 +215,7 @@
             <button class="ghost ikrot" data-ax="0" data-d="-1">RX−</button><button class="ghost ikrot" data-ax="0" data-d="1">RX＋</button>
             <button class="ghost ikrot" data-ax="1" data-d="-1">RY−</button><button class="ghost ikrot" data-ax="1" data-d="1">RY＋</button>
             <button class="ghost ikrot" data-ax="2" data-d="-1">RZ−</button><button class="ghost ikrot" data-ax="2" data-d="1">RZ＋</button></div>
-          <div class="row" style="margin-bottom:0"><button class="primary" id="ikSolve" style="flex:1">🤖 이 위치 잡기(IK)</button></div>
+          <div class="row" style="margin-bottom:0"><button class="primary" id="ikSolve" style="flex:1">🤖 이 위치 잡기(IK)</button><button class="ghost" id="ikRollOpt" title="접근축은 유지하고 손목 롤(J6 등)을 훑어 손가락이 물체를 양쪽에서 감싸는 자세로 잡기">🎯 닫힘 정렬(롤)</button></div>
           <div class="hintline" id="ikStat" style="margin:6px 0 0;">물체 프레임(좌표축)=고정. 수직/수평은 <b>그리퍼 접근방향(노란 화살표)</b>만 바꿈 → 로봇팔이 그 방향으로 접근. 물체는 집어 옮길 때만 이동.</div>
         </div>
 
@@ -1004,6 +1004,34 @@ function solveIK(){
   if(!g){ ikStat('⚠ 도달 어려움 — 이 위치/접근으로 충돌없는 자세 없음(위치·접근 변경).'); return; }
   executeGrasp(g.j, `위치 ${g.bP.toFixed(0)}mm·자세 ${g.bA.toFixed(0)}°`);
 }
+// 2단계: 닫힘 방향(롤·J6) 자동 정렬 — 접근축 유지, 롤만 훑어 손가락이 물체를 양쪽 감싸는 자세 탐색
+function _closingPerp(j){   // 주어진 6관절각에서 닫힘선(두 손가락 중심 연결)↔물체중심 수직거리
+  if(!vObj) return Infinity; const gm=gripMates(); if(gm.length<2) return Infinity;
+  const rm=revMates(), save=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle));
+  rm.forEach((m,i)=>{ if(i<6) m.angle=j[i]; }); applyAngles();
+  const cs=gm.map(m=>{ const pb=partByName(m.child); return pb&&pb.mesh?_fingerCenter(pb.mesh):null; }).filter(Boolean);
+  let perp=Infinity;
+  if(cs.length>=2){ const cc=cs[0].clone().add(cs[1]).multiplyScalar(0.5), d=cs[1].clone().sub(cs[0]);
+    if(d.length()>1e-3){ d.normalize(); const oc=vObj.position.clone().sub(cc); perp=oc.clone().addScaledVector(d,-oc.dot(d)).length(); } }
+  rm.forEach((m,i)=>{ if(i<6) m.angle=save[i]; }); applyAngles();   // 자세 복원(팔 안 움직임)
+  return perp;
+}
+function optimizeRoll(){
+  if(!graspDB||!graspDB.length){ ikStat('먼저 grasp_dataset.csv를 불러오세요.'); return; }
+  if(!vObj){ ikStat('먼저 가상 물체를 표시하세요(롤 정렬 기준).'); return; }
+  if(!graspHasQuat){ ikStat('⚠ 롤 정렬은 6DOF 데이터셋(qx..qw) 필요 — 파지 재스윕 후 사용.'); return; }
+  const tx=+$('ikX').value, ty=+$('ikY').value, tz=+$('ikZ').value;
+  const A=new THREE.Vector3(0,0,1).applyQuaternion(ikQuat).normalize();   // 현재 접근축 유지
+  let best=null, bestPerp=Infinity, nReach=0;
+  for(let deg=0; deg<360; deg+=15){
+    const q=new THREE.Quaternion().setFromAxisAngle(A, deg*Math.PI/180).multiply(ikQuat);   // 접근축 둘레 롤
+    const g=findGrasp(tx,ty,tz, q); if(!g) continue; nReach++;
+    const perp=_closingPerp(g.j); if(perp<bestPerp){ bestPerp=perp; best={q,g,deg}; } }
+  if(!best){ ikStat('⚠ 어떤 롤로도 도달 가능한 자세 없음 — 위치/접근 변경.'); return; }
+  ikQuat.copy(best.q); updateIkMark();
+  ikStat(`✓ 롤 정렬: ${nReach}개 도달 중 닫힘 중심오차 ${bestPerp.toFixed(0)}mm 최소 자세로 잡기…`);
+  executeGrasp(best.g.j, `롤정렬 Δ롤${best.deg}°·중심오차 ${bestPerp.toFixed(0)}mm`);
+}
 function snapApproach(kind){   // 그 위치 근처 '도달 가능한' 수직/수평 파지 자세로 목표 프레임을 스냅(고정 프리셋 X)
   if(!graspDB||!graspDB.length){ ikStat('먼저 grasp_dataset.csv를 불러오세요.'); return; }
   const tx=+$('ikX').value, ty=+$('ikY').value, tz=+$('ikZ').value;
@@ -1031,6 +1059,7 @@ if($('ikSolve')){
   $('ikCsvBtn').onclick=()=>$('ikCsv').click();
   $('ikCsv').addEventListener('change',e=>{ const f=e.target.files[0]; if(f) loadGraspCsv(f); e.target.value=''; });
   $('ikSolve').onclick=solveIK;
+  if($('ikRollOpt')) $('ikRollOpt').onclick=optimizeRoll;
   $('ikVision').onclick=()=>{ const s=localStorage.getItem('graspTargetXYZ'); if(!s){ ikStat('5페이지 「IK로」로 비전 좌표를 먼저 보내세요.'); return; }
     const p=s.split(',').map(Number); $('ikX').value=Math.round(p[0]); $('ikY').value=Math.round(p[1]); $('ikZ').value=Math.round(p[2]);
     ikStat(`📷 비전 좌표 (${p.map(v=>Math.round(v)).join(', ')}) 적용 — 마커 위치가 실제 물체와 맞는지 확인 후 수직/수평`); };
