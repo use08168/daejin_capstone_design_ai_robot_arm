@@ -1005,7 +1005,7 @@ async function loadGraspCsv(file){
 }
 // ── 경로계획(P4): 두 자세 사이 직선이 바닥/자기충돌하면 업라이트 경유로 우회 ──
 const IK_HOME=[90,90,90,90,90,90];
-let _ikQueue=null, _ikqi=0;
+let _ikMove=null;   // {pts:[from,..wps..,to], seg, t} — 동기 보간 실행 상태
 function _cfgCollides(){ const r=_collideOnce(); return (r.floor<0) || (isFinite(r.self) && r.self<0); }
 function pathClear(a,b){   // a→b 직선보간을 ~3°마다 충돌검사
   const rm=revMates(); const maxd=Math.max(0,...a.map((v,i)=>Math.abs(b[i]-v))); const steps=Math.max(8,Math.ceil(maxd/3));
@@ -1018,10 +1018,13 @@ function planPath(from,to){   // 충돌없는 경유점 리스트 반환(없으�
   for(const w of cands){ if(pathClear(from,w) && pathClear(w,to)) return [w,to]; }
   return null;
 }
-function ikDriveQueue(){   // 경유점 큐를 순서대로 따라감(현 경유점 도달 시 다음으로)
-  if(!_ikQueue) return; const rm=revMates();
-  const reached=rm.slice(0,6).every((m,i)=>Math.abs((m.angle==null?90:m.angle)-(m._tgt==null?90:m._tgt))<0.9);
-  if(reached){ _ikqi++; if(_ikqi>=_ikQueue.length){ _ikQueue=null; return; } rm.forEach((m,i)=>{ if(i<6) m._tgt=_ikQueue[_ikqi][i]; }); }
+function ikDrive(){   // 계획 경로를 '동기 보간'으로 실행 → 모든 관절 동시 출발·도착 → 검사한 경로와 실제 이동 일치
+  if(!_ikMove) return; const rm=revMates(); const pts=_ikMove.pts, a=pts[_ikMove.seg], b=pts[_ikMove.seg+1];
+  const maxd=Math.max(1,...a.map((v,i)=>Math.abs(b[i]-v)));   // 최대 관절 변화에 속도 맞춤(동기)
+  _ikMove.t += 2.0/maxd; const t=Math.min(1,_ikMove.t);
+  rm.forEach((m,i)=>{ if(i<6){ m.angle=a[i]+(b[i]-a[i])*t; m._tgt=m.angle; } });   // _tgt=angle → rampCtrl 무력화
+  applyAngles();
+  if(t>=1){ _ikMove.seg++; _ikMove.t=0; if(_ikMove.seg>=pts.length-1) _ikMove=null; }
 }
 function solveIK(){
   if(!graspDB||!graspDB.length){ ikStat('먼저 grasp_dataset.csv를 불러오세요.'); return; }
@@ -1045,8 +1048,9 @@ function solveIK(){
   const rm=revMates(); const from=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle)), to=best.j.slice(0,6);
   const path=planPath(from,to);
   rm.forEach((m,i)=>{ if(i<6) m.angle=from[i]; }); applyAngles();   // 계획 중 흐트러진 자세 복원
-  if(!path){ ikStat(`✓ 자세는 있으나(위치 ${bP.toFixed(0)}mm) 충돌없는 경로를 못 찾음 — 다른 접근/위치 필요`); _ikQueue=null; return; }
-  _ikQueue=path; _ikqi=0; rm.forEach((m,i)=>{ if(i<6) m._tgt=path[0][i]; });   // 경유점 순서대로 이동
+  if(!path){ ikStat(`✓ 자세는 있으나(위치 ${bP.toFixed(0)}mm) 충돌없는 경로를 못 찾음 — 다른 접근/위치 필요`); _ikMove=null; return; }
+  rm.forEach((m,i)=>{ if(i<6) m._tgt=from[i]; });           // 시작 글리치 방지(rampCtrl 무력화)
+  _ikMove={pts:[from,...path], seg:0, t:0};                 // 동기 보간으로 실행
   ikStat(`✓ 잡기 — 위치 ${bP.toFixed(0)}mm·자세 ${bA.toFixed(0)}° · 경로 ${path.length}구간${path.length>1?'(업라이트 경유, 바닥회피)':''}`);
 }
 function snapApproach(kind){   // 그 위치 근처 '도달 가능한' 수직/수평 파지 자세로 목표 프레임을 스냅(고정 프리셋 X)
@@ -1098,6 +1102,6 @@ function updateJointAxis(){
   jAxisTriad.visible=true; jAxisTriad.position.copy(_jaP); jAxisTriad.quaternion.copy(_basisQuat(_jaAx));   // z(파랑)=회전축
   const L=240; _jaGeo.setFromPoints([_jaP.clone().addScaledVector(_jaAx,-L), _jaP.clone().addScaledVector(_jaAx,L)]); jAxisLine.visible=true;
 }
-(function loop(){ requestAnimationFrame(loop); orbit.update(); updateLockLines(); rampCtrl(); ikDriveQueue(); updateCollision(); updateTCP(); updateIkMark(); updateJointAxis(); renderer.render(scene,camera); })();
+(function loop(){ requestAnimationFrame(loop); orbit.update(); updateLockLines(); rampCtrl(); ikDrive(); updateCollision(); updateTCP(); updateIkMark(); updateJointAxis(); renderer.render(scene,camera); })();
 </script>
 {% endblock %}
