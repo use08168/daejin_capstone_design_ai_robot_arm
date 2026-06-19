@@ -304,7 +304,7 @@ Promise.all([fetch(LIST).then(r=>r.json()),fetch(LOADU).then(r=>r.json())]).then
     geo.computeVertexNormals(); const m=new THREE.Mesh(geo,mat.clone()); m.userData.part=name;
     const c=cfg[name]; if(c){ m.position.fromArray(c.pos); m.rotation.set(d2r(c.rot[0]),d2r(c.rot[1]),d2r(c.rot[2])); m.visible=c.visible!==false; }
     worldRoot.add(m); parts.push({name,mesh:m}); addRow(name);
-    if(++done===list.files.length){ $('ploading').style.display='none'; $('pcount').textContent=parts.length; renderMates(); if(EMBED) enterEmbed(); }
+    if(++done===list.files.length){ $('ploading').style.display='none'; $('pcount').textContent=parts.length; renderMates(); if(EMBED) enterEmbed(); else if('{{ view }}'==='sim'){ setMode('ctrl'); }   /* 4페이지: 로드 후 제어모드 자동 진입(리깅 활성 → IK·파지 작동) */ }
   }); });
 });
 
@@ -1026,7 +1026,7 @@ if($('visScan')){ $('visScan').onclick=visScan;
   let _vt=null; $('visAuto').onchange=()=>{ clearInterval(_vt); if($('visAuto').checked){ visScan(); _vt=setInterval(visScan,1000); } }; }
 
 // 4페이지(시뮬레이터)는 제어 모드 고정(조립·결합 탭 숨김) — 파지 작업이 제어 패널에서 이뤄짐
-if('{{ view }}'==='sim'){ const c=$('mCtrl'); if(c) setTimeout(()=>c.click(), 50); if($('visScan')) visScan(); }
+if('{{ view }}'==='sim' && $('visScan')) visScan();   // 4페이지 제어모드 진입은 모델 로드 콜백에서 처리
 
 (function loop(){ requestAnimationFrame(loop); orbit.update(); updateLockLines(); rampCtrl(); ikDrive(); updateCollision(); updateTCP(); updateIkMark(); updateJointAxis(); renderer.render(scene,camera); })();
 </script>
