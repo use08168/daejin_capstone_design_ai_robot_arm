@@ -457,6 +457,27 @@ def _ang_to_us(ch, ang):
 # exec_joint가 갱신 → 미러가 localStorage가 아닌 '서버 진실'을 따름(드리프트 방지).
 _JOINT_STATE = {f"J{i}": 90.0 for i in range(1, 7)}
 
+# ============ 로봇팔 작동 속도 — 단일 설정(모든 경로 공통, 한 곳에서 제어) ============
+# 관절·그리퍼·각 페이지 램프가 전부 이 값을 사용 → 속도 일관. /arm/config/ 로 조회·변경.
+ARM_CFG = {"deg_per_s": 30.0, "grip_us_per_s": 700.0}
+_RAMP_DT = 0.02   # 램프 갱신 주기(초) — 50Hz
+
+
+def _ramp(ch, a, target, deg=True):
+    """채널 ch을 a→target까지 공통 속도로 안전 램프. deg=True 관절(°→펄스), False 그리퍼(µs).
+    반환 (성공, 멈춘값). 전압강하 방지를 위해 작은 단계로 점진 전송."""
+    import time
+    from . import arduino_bridge
+    inc = max(0.1, (ARM_CFG["deg_per_s"] if deg else ARM_CFG["grip_us_per_s"]) * _RAMP_DT)
+    while abs(a - target) > inc:
+        a += inc if target >= a else -inc
+        us = _ang_to_us(ch, a) if deg else round(a)
+        if not arduino_bridge.send_pulse(ch, us).get("ok"):
+            return False, a
+        time.sleep(_RAMP_DT)
+    arduino_bridge.send_pulse(ch, _ang_to_us(ch, target) if deg else round(target))
+    return True, target
+
 
 @csrf_exempt
 def arm_exec_joint(request):
@@ -477,18 +498,11 @@ def arm_exec_joint(request):
     except (TypeError, ValueError):
         return JsonResponse({"ok": False, "error": "각도 오류"})
     prev = _JOINT_STATE.get(joint, 90.0)
-    a = prev                                          # 서버 보유 현재각에서 램프 시작(진실 일원화)
     _JOINT_STATE[joint] = target                      # 낙관적 갱신 → 미러가 즉시 병행 이동
-    step = 2.0 if target >= a else -2.0
-    while abs(a - target) > 2.0:                      # ~2°씩 점진 이동
-        a += step
-        r = arduino_bridge.send_pulse(ch, _ang_to_us(ch, a))
-        if not r.get("ok"):
-            _JOINT_STATE[joint] = prev                # 실패 시 되돌림
-            return JsonResponse({"ok": False, "error": "전송 실패(연결 끊김?)", "disconnected": True})
-        time.sleep(0.04)
-    arduino_bridge.send_pulse(ch, _ang_to_us(ch, target))
-    _JOINT_STATE[joint] = target
+    ok, a = _ramp(ch, prev, target, deg=True)         # 공통 속도 램프
+    _JOINT_STATE[joint] = target if ok else a
+    if not ok:
+        return JsonResponse({"ok": False, "error": "전송 실패(연결 끊김?)", "disconnected": True})
     return JsonResponse({"ok": True, "joint": joint, "channel": ch, "angle": target})
 
 
@@ -496,6 +510,20 @@ def arm_exec_joint(request):
 def arm_joints(request):
     """현재 관절각(서버 보유) → 3D 미러가 폴링해 실제 팔을 따라감."""
     return JsonResponse({"ok": True, "joints": _JOINT_STATE})
+
+
+@csrf_exempt
+def arm_config(request):
+    """로봇팔 작동 속도(모든 경로 공통). GET 조회 / POST {deg_per_s, grip_us_per_s} 변경.
+    모든 페이지·서버 램프가 이 값을 사용 → 한 곳에서 속도 제어."""
+    import json
+    if request.method == "POST":
+        d = json.loads(request.body or "{}")
+        if "deg_per_s" in d:
+            ARM_CFG["deg_per_s"] = max(2.0, min(120.0, float(d["deg_per_s"])))
+        if "grip_us_per_s" in d:
+            ARM_CFG["grip_us_per_s"] = max(100.0, min(3000.0, float(d["grip_us_per_s"])))
+    return JsonResponse({"ok": True, **ARM_CFG})
 
 
 @csrf_exempt
@@ -549,15 +577,11 @@ def arm_gripper(request):
         return JsonResponse({"ok": False, "error": "action 은 open|close"})
     if not arduino_bridge.is_connected():
         return JsonResponse({"ok": False, "error": "실물 미연결 — 4페이지에서 연결하세요."})
-    target = GRIP_US[action]; a = _grip_us[0]
-    step = 30 if target >= a else -30
-    while abs(a - target) > 30:
-        a += step
-        r = arduino_bridge.send_pulse(GRIP_CH, a)
-        if not r.get("ok"):
-            return JsonResponse({"ok": False, "error": "전송 실패(연결 끊김?)", "disconnected": True})
-        time.sleep(0.045)
-    arduino_bridge.send_pulse(GRIP_CH, target); _grip_us[0] = target
+    target = GRIP_US[action]
+    ok, a = _ramp(GRIP_CH, _grip_us[0], target, deg=False)   # 공통 속도 램프(µs)
+    _grip_us[0] = target if ok else a
+    if not ok:
+        return JsonResponse({"ok": False, "error": "전송 실패(연결 끊김?)", "disconnected": True})
     return JsonResponse({"ok": True, "action": action, "us": target})
 
 
@@ -592,18 +616,9 @@ def _move_joint_to(joint, target):
     if ch is None or ch == GRIP_CH:
         return {"ok": False, "error": f"관절 아님: {joint}"}
     target = max(0.0, min(180.0, float(target)))
-    a = _JOINT_STATE.get(joint, 90.0)
-    step = 2.0 if target >= a else -2.0
-    while abs(a - target) > 2.0:
-        a += step
-        r = arduino_bridge.send_pulse(ch, _ang_to_us(ch, a))
-        if not r.get("ok"):
-            _JOINT_STATE[joint] = a
-            return {"ok": False, "error": "전송 실패(연결 끊김?)", "disconnected": True}
-        time.sleep(0.04)
-    arduino_bridge.send_pulse(ch, _ang_to_us(ch, target))
-    _JOINT_STATE[joint] = target
-    return {"ok": True}
+    ok, a = _ramp(ch, _JOINT_STATE.get(joint, 90.0), target, deg=True)   # 공통 속도 램프
+    _JOINT_STATE[joint] = target if ok else a
+    return {"ok": True} if ok else {"ok": False, "error": "전송 실패(연결 끊김?)", "disconnected": True}
 
 
 def _grip_to(action):
@@ -612,16 +627,9 @@ def _grip_to(action):
     from . import arduino_bridge
     if action not in GRIP_US:
         return {"ok": False, "error": "grip 오류"}
-    target = GRIP_US[action]; a = _grip_us[0]
-    step = 30 if target >= a else -30
-    while abs(a - target) > 30:
-        a += step
-        r = arduino_bridge.send_pulse(GRIP_CH, a)
-        if not r.get("ok"):
-            return {"ok": False, "error": "전송 실패(연결 끊김?)", "disconnected": True}
-        time.sleep(0.045)
-    arduino_bridge.send_pulse(GRIP_CH, target); _grip_us[0] = target
-    return {"ok": True}
+    ok, a = _ramp(GRIP_CH, _grip_us[0], GRIP_US[action], deg=False)   # 공통 속도 램프(µs)
+    _grip_us[0] = GRIP_US[action] if ok else a
+    return {"ok": True} if ok else {"ok": False, "error": "전송 실패(연결 끊김?)", "disconnected": True}
 
 
 def _move_pose(joints):

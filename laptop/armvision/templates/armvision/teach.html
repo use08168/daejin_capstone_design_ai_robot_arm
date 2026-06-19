@@ -112,13 +112,14 @@ async function syncFromServer(){
       $('s_'+j).value=Math.round(v); $('n_'+j).value=Math.round(v); });
   }catch(e){}
 }
-const STEP=3;   // °/tick (≈ 60°/s)
+let jogStep=1.35;   // °/tick (45ms 주기) — 서버 공통 속도(deg_per_s×0.045)에서 가져옴
+fetch('/arm/config/').then(r=>r.json()).then(c=>{ if(c&&c.deg_per_s) jogStep=c.deg_per_s*0.045; }).catch(()=>{});
 setInterval(async ()=>{
   if(paused||sending) return;
   for(const j of JOINTS){
     if(Math.abs(target[j]-cur[j])>=0.6){
       const diff=target[j]-cur[j];
-      cur[j]+=Math.sign(diff)*Math.min(Math.abs(diff),STEP);
+      cur[j]+=Math.sign(diff)*Math.min(Math.abs(diff),jogStep);
       const ang=Math.round(cur[j]*10)/10;
       sending=true;
       try{ const r=await post(U.setang,{joint:j,angle:ang});

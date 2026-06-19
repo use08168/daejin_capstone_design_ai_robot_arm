@@ -150,7 +150,7 @@
           <button class="ghost" id="btnHome" style="width:100%; margin-bottom:8px;">🏠 실물이 홈(90°)에 있음 — 기준 설정</button>
           <button id="btnSync" style="width:100%; margin-bottom:8px;">🔌 연동 OFF</button>
           <div class="row"><button class="ghost" id="btnAlign" style="flex:1">실물을 3D에 맞추기 (정렬)</button><button class="danger" id="btnEstop">■ 정지</button></div>
-          <div class="row" style="margin-bottom:0"><span class="muted" style="width:38px">속도</span><input id="ctrlSpeed" type="number" value="10" step="1" min="1" style="width:56px"><span class="muted">°/s (60°≈6초)</span></div>
+          <div class="row" style="margin-bottom:0"><span class="muted" style="width:38px">속도</span><input id="ctrlSpeed" type="number" value="30" step="1" min="1" style="width:56px"><span class="muted">°/s · 전 페이지·실물 공통(여기서 제어)</span></div>
         </div>
         <div class="sect">관절 (<span id="jcount">0</span>) — 슬라이더로 회전</div>
         <div id="ctrlJoints"></div>
@@ -535,7 +535,7 @@ function loadCmd(m){ try{ const o=JSON.parse(localStorage.getItem(CMD_KEY)||'{}'
 function mirrorTargets(){ return fetch('/arm/joints/').then(r=>r.json()).then(d=>{ const jo=(d&&d.joints)||{};   // 서버 진실(실물 관절각) 폴링
     revMates().forEach((m,i)=>{ const v=jo['J'+(i+1)]; m._mt=(typeof v==='number'?v:90); }); }).catch(()=>{}); }
 function mirrorRamp(){ let moved=false; revMates().forEach(m=>{ if(m._mt==null)return; let a=(m.angle==null?90:m.angle); const d=m._mt-a;
-  if(Math.abs(d)>0.05){ a+=Math.sign(d)*Math.min(Math.abs(d),2); m.angle=a; moved=true; } }); if(moved) applyAngles(); }
+  if(Math.abs(d)>0.05){ a+=Math.sign(d)*Math.min(Math.abs(d),ctrlSpeed*0.04); m.angle=a; moved=true; } }); if(moved) applyAngles(); }
 function enterEmbed(){ document.body.classList.add('embed'); try{ rebuild(); }catch(e){}
   revMates().forEach(m=>m.angle=90); applyAngles();                        // 기본 홈(90°)에서 시작
   mirrorTargets().then(()=>{ revMates().forEach(m=>m.angle=(m._mt==null?90:m._mt)); applyAngles(); });   // 서버 현재자세로 즉시 스냅
@@ -600,6 +600,9 @@ $('btnAlign').onclick=()=>{ if(!connected){ alert('먼저 아두이노를 연결
   armAlign(); $('connStat').textContent='정렬 중… (홈에서 천천히 이동)'; $('connStat').style.color='var(--c-ok)'; };
 $('btnEstop').onclick=()=>{ seqAbort=true; setSync(false); revMates().forEach(m=>m._tgt=(m.angle==null?90:m.angle)); $('connStat').textContent='정지 — 연동 꺼짐(서보는 현재 위치 유지)'; $('connStat').style.color='var(--warn)'; };
 $('ctrlSpeed').addEventListener('input',()=>{ ctrlSpeed=Math.max(1,+$('ctrlSpeed').value||10); });
+// 이 속도 입력이 '모든 페이지·실물 공통' 마스터 컨트롤 — 서버 설정에 반영
+$('ctrlSpeed').addEventListener('change',()=>{ fetch('/arm/config/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({deg_per_s:ctrlSpeed})}).catch(()=>{}); });
+fetch('/arm/config/').then(r=>r.json()).then(c=>{ if(c&&c.deg_per_s){ ctrlSpeed=c.deg_per_s; const e=$('ctrlSpeed'); if(e)e.value=Math.round(c.deg_per_s); } }).catch(()=>{});   // 로드 시 공통 속도 가져오기
 setInterval(()=>{ if(mode==='ctrl'){ refreshConn(); saveCmd(); } }, 2500);   // 끊김 자동 감지 + 명령각 저장
 
 // ---- 콜드스타트 / 작업공간 수집 (단계 ⑥) ----
@@ -1018,10 +1021,12 @@ function planPath(from,to){   // 충돌없는 경유점 리스트 반환(없으�
   for(const w of cands){ if(pathClear(from,w) && pathClear(w,to)) return [w,to]; }
   return null;
 }
-function ikDrive(){   // 계획 경로를 '동기 보간'으로 실행 → 모든 관절 동시 출발·도착 → 검사한 경로와 실제 이동 일치
-  if(!_ikMove) return; const rm=revMates(); const pts=_ikMove.pts, a=pts[_ikMove.seg], b=pts[_ikMove.seg+1];
+let _ikT=null;
+function ikDrive(){   // 계획 경로를 '동기 보간'으로 실행(공통 속도 ctrlSpeed) → 검사한 경로와 실제 이동 일치
+  if(!_ikMove){ _ikT=null; return; } const rm=revMates(); const pts=_ikMove.pts, a=pts[_ikMove.seg], b=pts[_ikMove.seg+1];
+  const now=performance.now(); const dt=_ikT?Math.min(0.1,(now-_ikT)/1000):0; _ikT=now;
   const maxd=Math.max(1,...a.map((v,i)=>Math.abs(b[i]-v)));   // 최대 관절 변화에 속도 맞춤(동기)
-  _ikMove.t += 2.0/maxd; const t=Math.min(1,_ikMove.t);
+  _ikMove.t += (ctrlSpeed*dt)/maxd; const t=Math.min(1,_ikMove.t);   // 공통 속도(ctrlSpeed °/s)
   rm.forEach((m,i)=>{ if(i<6){ m.angle=a[i]+(b[i]-a[i])*t; m._tgt=m.angle; } });   // _tgt=angle → rampCtrl 무력화
   applyAngles();
   if(t>=1){ _ikMove.seg++; _ikMove.t=0; if(_ikMove.seg>=pts.length-1) _ikMove=null; }
