@@ -1193,26 +1193,33 @@ function _fingerNearest(mesh,invObj,type,R,H){   // 손가락 메시 정점 중 
     lv.copy(v).applyMatrix4(invObj); const d=_objSDF(lv,type,R,H); if(d<bd){ bd=d; bw=v.clone(); } }
   return bw?{d:bd, world:bw}:null;
 }
+function _fingerCenter(mesh){ mesh.updateMatrixWorld(true); const g=mesh.geometry; if(!g.boundingBox) g.computeBoundingBox();
+  return g.boundingBox.getCenter(new THREE.Vector3()).applyMatrix4(mesh.matrixWorld); }   // 손가락 중심(월드)
 function evalGraspContact(){
   clearContactMarks(); const el=$('voContact'); if(!el) return;
   if(!vObj){ el.textContent=''; return; }
   const gm=gripMates(); if(gm.length<2){ el.textContent='그리퍼 손가락 2개 필요(결합에서 grip 설정)'; el.style.color='#fa6'; return; }
   const type=$('voType').value, R=Math.max(3,+$('voR').value||25), H=Math.max(5,+$('voH').value||80);
   vObj.updateMatrixWorld(true); const invObj=new THREE.Matrix4().copy(vObj.matrixWorld).invert(), center=vObj.position.clone();
-  const res=gm.map(m=>{ const pb=partByName(m.child), mesh=pb&&pb.mesh; return mesh?_fingerNearest(mesh,invObj,type,R,H):null; }).filter(Boolean);
+  const res=gm.map(m=>{ const pb=partByName(m.child), mesh=pb&&pb.mesh; if(!mesh)return null; const nr=_fingerNearest(mesh,invObj,type,R,H); return nr?{...nr, center:_fingerCenter(mesh)}:null; }).filter(Boolean);
   if(res.length<2){ el.textContent='손가락 메시를 찾지 못함'; el.style.color='#fa6'; return; }
   res.sort((a,b)=>a.d-b.d); const a=res[0], b=res[1];
   const touch=x=>x.d<=CONTACT_TOL, pen=x=>x.d<-PEN_TOL;
-  const va=a.world.clone().sub(center).setY(0), vb=b.world.clone().sub(center).setY(0);   // 수평면 방위(antipodal)
-  const opp=(va.lengthSq()>1 && vb.lengthSq()>1) ? va.normalize().dot(vb.normalize())<-0.2 : true;
+  // 닫힘축 = 두 손가락 중심을 잇는 선. 이 선이 물체 중심을 지나면 정렬(=양쪽 straddle 가능). J6(롤)이 이 방향을 좌우.
+  const cc=a.center.clone().add(b.center).multiplyScalar(0.5), cdir=b.center.clone().sub(a.center); const span=cdir.length(); if(span>1e-3)cdir.normalize();
+  const oc=center.clone().sub(cc), along=oc.dot(cdir), perp=oc.clone().addScaledVector(cdir,-along).length();
+  const aligned = perp <= Math.max(6, R*0.5);   // 닫힘선↔물체중심 수직거리
   let txt,col,mk;
   if(pen(a)||pen(b)){ txt=`⚠ 관통 — 손가락이 물체를 ${Math.round(Math.max(-a.d,-b.d))}mm 파고듦`; col='#f66'; mk=0xff5555; }
-  else if(touch(a)&&touch(b)&&opp){ txt=`✅ 유효 파지 — 양쪽 접촉 (간격 ${a.d.toFixed(1)}·${b.d.toFixed(1)}mm)`; col='#6f6'; mk=0x44ff66; }
-  else if(touch(a)&&touch(b)){ txt=`⚠ 같은쪽 접촉 — antipodal 아님 (간격 ${a.d.toFixed(1)}·${b.d.toFixed(1)}mm)`; col='#fa6'; mk=0xffaa44; }
+  else if(touch(a)&&touch(b)&&aligned){ txt=`✅ 유효 파지 — 양쪽 접촉·정렬 (간격 ${a.d.toFixed(1)}·${b.d.toFixed(1)}mm)`; col='#6f6'; mk=0x44ff66; }
+  else if(touch(a)&&touch(b)){ txt=`⚠ 닫힘 방향 어긋남 — J6(롤) 조정 필요 (중심오차 ${perp.toFixed(0)}mm)`; col='#fa6'; mk=0xffaa44; }
   else if(touch(a)||touch(b)){ txt=`⚠ 헛잡음 — 한쪽만 접촉 (간격 ${a.d.toFixed(1)}·${b.d.toFixed(1)}mm)`; col='#fa6'; mk=0xffaa44; }
   else { txt=`미접촉 — 더 닫으세요 (간격 ${a.d.toFixed(1)}·${b.d.toFixed(1)}mm)`; col='#9cf'; mk=0x3399ff; }
   el.textContent=txt; el.style.color=col;
   [a,b].forEach(x=>{ const s=new THREE.Mesh(new THREE.SphereGeometry(4,10,8), new THREE.MeshBasicMaterial({color:mk,depthTest:false})); s.position.copy(x.world); s.renderOrder=999; _contactGroup.add(s); });
+  if(span>1e-3){ const L=span/2+R+12, lc=aligned?0x44ff66:0xff9933;   // 닫힘축 시각화(초록=정렬·주황=어긋남)
+    const lg=new THREE.BufferGeometry().setFromPoints([cc.clone().addScaledVector(cdir,-L), cc.clone().addScaledVector(cdir,L)]);
+    const ln=new THREE.Line(lg, new THREE.LineBasicMaterial({color:lc,depthTest:false,transparent:true,opacity:0.9})); ln.renderOrder=998; _contactGroup.add(ln); }
 }
 
 // ===== 비전: 감지 물체 3D 좌표(로봇 기준) — 4페이지 시뮬레이터 =====
