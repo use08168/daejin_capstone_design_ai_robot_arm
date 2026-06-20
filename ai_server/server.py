@@ -83,14 +83,24 @@ def handle_qa(images, text):
 
 
 def handle_command(images, text, detections_json):
-    det = f"\n노트북 탐지: {detections_json}" if detections_json else ""
-    txt = ("로봇팔 작업공간 사진(좌/우)이다. 로봇팔·전선·배경 제외하고 집을 수 있는 물체 파악.\n" if images else "")
-    txt += (f'사용자 명령: "{text}"{det}\n\n'
-            "명령을 동작 시퀀스(DSL)로 변환하라. 직접 관절 명령(예: J1을 180도)은 set_joint, "
-            "물체 집기는 vision으로 grounding. 대상 물체가 없으면 ask_user로 역질문.\n"
-            f"사용 가능한 op(이 외 금지):\n{OPS_DOC}\n"
-            'set_joint는 {"op":"set_joint","joint":"J1","angle":180}. target은 짧은 식별명(예: red_can). '
-            'offset은 [x,y,z]mm 배열. 오직 JSON 하나: {"reasoning":"...","actions":[...]}')
+    """잡기 오케스트레이터 — 조작 명령을 pick/place 시퀀스로 계획.
+    '무엇을·어디로'만 결정하고, '어떻게 잡을지'(수직/수평·자세)는 노트북 MLP 런타임이 담당."""
+    det = f"\n노트북 YOLO 탐지: {detections_json}" if detections_json else ""
+    seen = ("로봇팔 작업공간 사진(좌/우)이다. 로봇팔·받침대·전선·전원·배경은 무시하고, 집을 수 있는 물체만 식별하라.\n" if images else "")
+    txt = (seen +
+           f'사용자 명령: "{text}"{det}\n\n'
+           "너는 로봇팔의 '잡기 오케스트레이터'다. 조작 명령을 pick/place 시퀀스로 계획하라.\n"
+           "규칙:\n"
+           "1) 물체를 옮기는 명령 = pick(집을 물체) → place(놓을 곳). 반드시 한 쌍으로(잡으면 놓기).\n"
+           "2) target 은 장면에 실제로 보이는 물체의 짧은 식별명(예: red_cup, book). "
+           "명령의 대상 물체가 사진에 안 보이면 DSL 대신 ask_user로 되물어라.\n"
+           "3) '어떻게 잡을지'(수직/수평·손목 자세)는 노트북이 결정한다 → approach 는 보통 생략(auto).\n"
+           "4) place 는 놓을 물체/장소 id(그 위에 놓기) 또는 to:[x,y,z](mm). 미세조정은 offset:[x,y,z].\n"
+           "5) 직접 관절 제어만 요구하면(예: J1을 180도) set_joint.\n"
+           f"사용 가능한 op(이 외 금지):\n{OPS_DOC}\n"
+           '예) {"reasoning":"빨간 컵을 책 위로","actions":[{"op":"pick","target":"red_cup"},{"op":"place","target":"book","offset":[0,0,40]}]}\n'
+           '예) {"reasoning":"대상 안 보임","actions":[{"op":"ask_user","question":"노란 공이 안 보여요. 어디 있나요?"}]}\n'
+           '오직 JSON 하나만 출력: {"reasoning":"...","actions":[...]}')
     c = [{"type": "image", "image": im} for im in images] + [{"type": "text", "text": txt}]
     raw = _gen(c)
     obj, perr = extract_json(raw)
