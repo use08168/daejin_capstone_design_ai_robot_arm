@@ -236,7 +236,7 @@
             높이<input id="voH" type="number" value="80" step="5" min="5" style="width:48px"><span class="muted">mm</span></div>
           <div class="row" style="margin-bottom:6px"><button class="primary" id="voShow" style="flex:1">표시 / 갱신(IK 목표에)</button><button class="ghost" id="voHide">숨김</button></div>
           <div class="row" style="margin-bottom:6px"><button id="voBest" style="flex:1;background:#7a3db5" title="물체 근처 도달 가능한 모든 자세를 훑어 실제 닫힘 품질(정렬·양쪽접촉·대칭)이 최고인 자세로 잡기">🔬 최적 파지 탐색 (수천 자세 평가)</button></div>
-          <div class="row" style="margin-bottom:0"><button id="voAI" style="flex:1;background:#1a7f4b" title="학습한 MLP로 수직/수평 파지가능 즉시 판정 → 추천 접근으로 검색·실행">🧠 AI 파지 (MLP 판정→실행)</button></div>
+          <div class="row" style="margin-bottom:0"><button id="voAI" style="flex:1;background:#1a7f4b" title="학습한 MLP로 수직/수평 파지가능 즉시 판정 → 추천 접근으로 검색·실행">🧠 AI 파지</button><select id="voAIap" title="접근 강제(자동=MLP 결정)" style="width:78px"><option value="auto">자동</option><option value="vert">수직 강제</option><option value="horz">수평 강제</option></select></div>
           <div class="hintline" id="voStat" style="margin:6px 0 0;">물체를 IK 목표 위치에 표시 → 그리퍼 개폐 시 접촉 검증(아래). 🔬는 도달 자세를 훑어 닫힘 품질 최고로 잡기.</div>
           <div style="margin:8px 0 0; border-top:1px solid var(--c-line); padding-top:8px;">
             <div class="row" style="margin-bottom:4px;justify-content:space-between"><b style="font-size:12px">파지 접촉 검증 (C)</b><button class="ghost" id="voCheck" style="padding:2px 8px;font-size:12px">🤝 검사</button></div>
@@ -1083,7 +1083,7 @@ function _jawEval(pos, quat, R, H, O){   // TCP 월드포즈(pos,quat) 기준 ja
   const fit=(2*R<=gjaw.w), slack=Math.max(2, gjaw.w/2-R);
   const valid=fit && Math.abs(lx)<=slack && (lz>=-gjaw.d/2-3 && lz<=gjaw.d/2+3) && Math.abs(ly)<=gjaw.h/2+R;
   const depthFromBase=Math.max(0, lz+gjaw.d/2);            // 0=가장 깊음(베이스·안전) … d=손끝(얕음)
-  return {cost: valid?(Math.abs(lx)+0.3*depthFromBase):999, perp:Math.abs(lx), secure:depthFromBase, gA:lz, gB:ly, reach:valid};
+  return {cost: valid?(Math.abs(lx)+0.5*depthFromBase):999, perp:Math.abs(lx), secure:depthFromBase, gA:lz, gB:ly, reach:valid};   // 깊게(중심에 가깝게) 잡는 자세 선호 강화
 }
 function _graspQuality(j, type,R,H, invObj, O){   // 관절각 j를 적용해 TCP 구한 뒤 jaw 판정(국소 정밀화용, 느림)
   if(gripMates().length<2) return null;
@@ -1411,16 +1411,18 @@ async function aiGrasp(){
   let res; try{ res=await (await fetch('/grasp/predict/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({x:O.x,y:O.y,z:O.z,type,R,H})})).json(); }
   catch(e){ ikStat('AI 파지 실패: 서버 응답 없음'); return; }
   if(!res.ok){ ikStat('AI 파지 실패: '+(res.error||'?')); return; }
-  const pct=v=>Math.round(v*100), pick=res.approach==='vert'?'수직':'수평';
-  if(!res.graspable){ ikStat(`🧠 잡기 어려움 — 수직 ${pct(res.vert)}% · 수평 ${pct(res.horz)}% (둘 다 낮음). 위치·크기 변경.`); return; }
-  ikStat(`🧠 수직 ${pct(res.vert)}% · 수평 ${pct(res.horz)}% → ${pick} 접근으로 정밀 자세 검색…`);
-  if(!graspDB||!graspDB.length){ ikStat(`🧠 판정 OK(${pick} ${pct(Math.max(res.vert,res.horz))}%) — 정밀 자세 실행은 grasp_dataset.csv 로드 필요.`); return; }
+  const pct=v=>Math.round(v*100);
+  const ov=($('voAIap')&&$('voAIap').value)||'auto';   // 접근 강제(자동=MLP 결정)
+  const ap=(ov==='auto')?res.approach:ov, apP=(ap==='vert')?res.vert:res.horz, pick=ap==='vert'?'수직':'수평';
+  if(ov==='auto' && !res.graspable){ ikStat(`🧠 잡기 어려움 — 수직 ${pct(res.vert)}% · 수평 ${pct(res.horz)}% (둘 다 낮음). 위치·크기 변경.`); return; }
+  ikStat(`🧠 수직 ${pct(res.vert)}% · 수평 ${pct(res.horz)}% → ${pick}${ov==='auto'?'':'(강제)'} 정밀 자세 검색…`);
+  if(!graspDB||!graspDB.length){ ikStat(`🧠 판정 OK(${pick} ${pct(apP)}%) — 정밀 자세 실행은 grasp_dataset.csv 로드 필요.`); return; }
   const invObj=new THREE.Matrix4().makeTranslation(-O.x,-O.y,-O.z);
-  const best=_searchObjGrasp(O, type,R,H, invObj, res.approach);
-  if(!best || !best.reach){ ikStat(`🧠 ${pick} 가능 판정이나 정밀 jaw 자세 검색 실패 — jaw 보정/위치 확인.`); return; }
+  const best=_searchObjGrasp(O, type,R,H, invObj, ap);
+  if(!best || !best.reach){ ikStat(`🧠 ${pick} 자세 검색 실패 — ${ov==='auto'?'jaw 보정/위치 확인.':'이 위치엔 '+pick+' 자세가 DB에 없음(다른 접근/DB 보강).'}`); return; }
   const refined=_refineWrist(best.j, type,R,H, O, invObj);   // 손목(J4~J6) 미세조정 → roll/정렬 최적화
-  ikStat(`🧠 AI 파지: ${pick}(${pct(Math.max(res.vert,res.horz))}%) 손목 정밀화 자세로 잡기…`);
-  executeGrasp(refined, `AI ${pick} ${pct(Math.max(res.vert,res.horz))}%`);
+  ikStat(`🧠 AI 파지: ${pick}${ov==='auto'?'':'(강제)'} ${pct(apP)}% 손목 정밀화 자세로 잡기…`);
+  executeGrasp(refined, `AI ${pick} ${pct(apP)}%`);
 }
 
 // ===== C: 손가락-물체 접촉 검출 (파지 검증) =====
