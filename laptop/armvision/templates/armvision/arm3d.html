@@ -1411,6 +1411,41 @@ function seqStepDone(st){
     ikStat(`✓ ${st.label} → 그리퍼 ${st.grip==='open'?'열기':'닫기'}`); }
   setTimeout(seqNext, st.grip?700:120);   // 그리퍼 동작 시간 여유
 }
+// ===== (b) standoff → 직선 접근 두 단계 집기 =====
+function _poseErr(j, tPos, tQuat){   // 관절 j의 TCP가 목표 포즈에서 얼마나 벗어났나(위치mm + 자세도)
+  const rm=revMates(); rm.forEach((m,i)=>{ if(i<6) m.angle=j[i]; }); applyAngles(); rigRoot.updateMatrixWorld(true);
+  const t=_tcpPose(); if(!t||!t.ok) return 1e6;
+  let dot=Math.abs((t.quat||_frameQuat(t)).dot(tQuat)); dot=Math.min(1,dot);
+  return t.pos.distanceTo(tPos) + (2*Math.acos(dot)*180/Math.PI)*1.5;
+}
+function _ikToPose(j0, tPos, tQuat, iters){   // j0에서 출발해 목표 TCP 포즈로 국소 IK(연속성 유지 → 직선접근)
+  const rm=revMates(), sv=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle));
+  let best=j0.slice(), bc=_poseErr(best, tPos, tQuat), step=10;
+  for(let it=0; it<(iters||50); it++){ let imp=false;
+    for(let k=0;k<6;k++) for(const d of [step,-step]){ const c=best.slice(); c[k]=Math.max(0,Math.min(180,c[k]+d));
+      const e=_poseErr(c, tPos, tQuat); if(e<bc-0.05){ best=c; bc=e; imp=true; } }
+    if(!imp){ step*=0.5; if(step<0.5) break; } }
+  rm.forEach((m,i)=>{ if(i<6) m.angle=sv[i]; }); applyAngles();
+  return {j:best, err:bc};
+}
+function executeGraspTwoStage(Gj, label){   // G(파지자세)에서 standoff 역산 → 직선 접근·파지·들기
+  const rm=revMates(), sv=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle));
+  rm.forEach((m,i)=>{ if(i<6) m.angle=Gj[i]; }); applyAngles(); rigRoot.updateMatrixWorld(true);
+  const t=_tcpPose();
+  if(!t||!t.ok){ rm.forEach((m,i)=>{ if(i<6) m.angle=sv[i]; }); applyAngles(); executeGrasp(Gj, label); return; }
+  const q=(t.quat||_frameQuat(t)).clone(), gpos=t.pos.clone();
+  const A=new THREE.Vector3(0,0,1).applyQuaternion(q).normalize();   // 접근축(그리퍼 z)
+  rm.forEach((m,i)=>{ if(i<6) m.angle=sv[i]; }); applyAngles();
+  const pre=_ikToPose(Gj, gpos.clone().addScaledVector(A,-GRASP_STANDOFF), q);   // 접근축 뒤 standoff (연속)
+  if(pre.err>80){ executeGrasp(Gj, label+' (직접 — standoff 도달 불가)'); return; }
+  const lift=_ikToPose(Gj, gpos.clone().add(new THREE.Vector3(0,GRASP_LIFT,0)), q);
+  const steps=[
+    {joints:pre.j, grip:'open',  label:'① 프리그래스프(정렬·standoff)'},
+    {joints:Gj,    grip:'close', label:'② 직선 접근·파지'},
+  ];
+  if(lift && lift.err<60) steps.push({joints:lift.j, grip:null, label:'③ 들기'});
+  graspSeq={steps, i:-1}; seqNext();
+}
 if($('voShow')){
   $('voShow').onclick=()=>{ showVObj(); clearCands(); evalGraspContact(); };
   $('voHide').onclick=()=>{ if(vObj){ scene.remove(vObj); vObj.geometry.dispose(); vObj.material.dispose(); vObj=null; } clearCands(); clearContactMarks(); $('voStat').textContent='숨김'; if($('voContact')){ $('voContact').textContent=''; } };
@@ -1457,7 +1492,7 @@ async function aiGrasp(){
   if(!best || !best.reach){ ikStat(`🧠 ${pick} 자세 검색 실패 — ${ov==='auto'?'jaw 보정/위치 확인.':'이 위치엔 '+pick+' 자세가 DB에 없음(다른 접근/DB 보강).'}`); return; }
   const refined=_refineWrist(best.j, type,R,H, O, invObj);   // 손목(J4~J6) 미세조정 → roll/정렬 최적화
   ikStat(`🧠 AI 파지: ${pick}${ov==='auto'?'':'(강제)'} 손목 정밀화 자세로 잡기… (${info})`);
-  executeGrasp(refined, `AI ${pick}`);
+  executeGraspTwoStage(refined, `AI ${pick}`);
 }
 // ===== 물체-그리퍼 몸체 충돌 검사 (손가락 제외) =====
 function _gripperHitsObject(invObj, type, R, H){
@@ -1506,7 +1541,7 @@ function optimizeGraspForObject(){
     if(rq && rq.cost<best.cost) best=rq;
     const tag=best.collide?'⚠ 충돌 포함(충돌없는 자세 없음)':'✅ 충돌없음';
     ikStat(`🎯 최적: ${tag} · 중심오차 ${best.perp.toFixed(0)}mm·깊이 ${best.secure.toFixed(0)}mm (${N}개중 유효 ${nValid}·충돌없음 ${nFree})`);
-    executeGrasp(best.j, `최적 ${tag}`);
+    executeGraspTwoStage(best.j, `최적 ${tag}`);
   }
   chunk();
 }
