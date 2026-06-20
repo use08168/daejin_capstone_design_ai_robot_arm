@@ -1439,6 +1439,7 @@ function _tcpOfJoints(j){   // 관절 j의 TCP 포즈(팔 복원). {pos,q} 또�
   rm.forEach((m,i)=>{ if(i<6) m.angle=sv[i]; }); applyAngles(); return r;
 }
 function executeGraspTwoStage(Gj, label, approach, O){   // 이상 방향 정렬(가능한 만큼) → standoff → 직선 접근·파지·들기
+  const Gorig=Gj.slice(), cur0=revMates().slice(0,6).map(m=>(m.angle==null?90:m.angle));   // 폴백용 원본 G + 현재 자세
   let g=_tcpOfJoints(Gj); if(!g){ executeGrasp(Gj, label); return; }
   let tilt=null;
   if(approach && O){   // 이상 자세: 수직=정아래·노란면 수평 / 수평=수평으로 중심 향함·손가락 수직
@@ -1456,7 +1457,8 @@ function executeGraspTwoStage(Gj, label, approach, O){   // 이상 방향 정렬
   }
   const A=new THREE.Vector3(0,0,1).applyQuaternion(g.q).normalize();   // 실제 도달 접근축으로 standoff/접근
   const pre=_ikToPose(Gj, g.pos.clone().addScaledVector(A,-GRASP_STANDOFF), g.q);
-  if(pre.err>80){ executeGrasp(Gj, label+' (직접 — standoff 도달 불가)'); return; }
+  const pathOK=pathClear(pre.j, Gj); revMates().forEach((m,i)=>{ if(i<6)m.angle=cur0[i]; }); applyAngles();   // 직선 접근 가능?(검사 후 자세 복원)
+  if(pre.err>80 || !pathOK){ executeGrasp(Gorig, label+' (직접접근 — 직선경로 불가)'); return; }   // 막히면 원본 G로 직접(P2처럼)
   const lift=_ikToPose(Gj, g.pos.clone().add(new THREE.Vector3(0,GRASP_LIFT,0)), g.q);
   const tl = (tilt!=null) ? ` · 기울기 ${tilt.toFixed(0)}°${tilt>15?'(팔 구조 한계)':''}` : '';
   const steps=[
@@ -1499,6 +1501,7 @@ function approachMap(){
   for(const s of graspDB){ if(s.tx<BB.x0)BB.x0=s.tx; if(s.tx>BB.x1)BB.x1=s.tx; if(s.tz<BB.z0)BB.z0=s.tz; if(s.tz>BB.z1)BB.z1=s.tz; }
   const cells=[]; for(let x=BB.x0;x<=BB.x1;x+=STEP)for(let z=BB.z0;z<=BB.z1;z+=STEP)cells.push([x,z]);
   const rm=revMates(), saveJ=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle));
+  const amRows=[['obj_x','obj_z','R','H','vert_ok','vert_tilt','horz_ok','horz_tilt'].join(',')];   // 맵 저장용
   let phase=(_tcpGrid&&_tcpGridFor===graspDB)?'map':'tcp', ti=0, i=0, nv=0, nh=0;
   if(phase==='tcp') _tcpGrid=null; _precomputeGripperBody();
   function chunk(){
@@ -1509,14 +1512,18 @@ function approachMap(){
     const end=Math.min(i+30, cells.length);
     for(; i<end; i++){ const O=new THREE.Vector3(cells[i][0], oY, cells[i][1]);
       const tv=_idealGraspTilt(O,type,R,H,'vert'), th=_idealGraspTilt(O,type,R,H,'horz');
-      const v=(tv!=null&&tv<TILT), h=(th!=null&&th<TILT); if(!v&&!h)continue; if(v)nv++; if(h)nh++;
+      const v=(tv!=null&&tv<TILT), h=(th!=null&&th<TILT);
+      amRows.push([cells[i][0].toFixed(1),cells[i][1].toFixed(1),R.toFixed(1),H.toFixed(1),v?1:0,(tv!=null?tv.toFixed(1):''),h?1:0,(th!=null?th.toFixed(1):'')].join(','));
+      if(!v&&!h)continue; if(v)nv++; if(h)nh++;
       const col=(v&&h)?0x15b5b0:(v?0x2266ff:0x2ca02c);
       const s=new THREE.Mesh(new THREE.SphereGeometry(7,8,6), new THREE.MeshBasicMaterial({color:col,depthTest:false,transparent:true,opacity:0.85}));
       s.position.copy(O); s.renderOrder=995; _amGroup.add(s);
     }
     rm.forEach((m,k)=>{ if(k<6)m.angle=saveJ[k]; }); applyAngles();
     ikStat(`🗺 접근맵 ${i}/${cells.length} · 수직 ${nv}·수평 ${nh} (파랑수직·초록수평·청록둘다, R${R}H${H}, 기울기<${TILT}°)`);
-    if(i<cells.length){ setTimeout(chunk,0); } else { _amRun=false; ikStat(`🗺 완료: 수직가능 ${nv}·수평가능 ${nh} 구역 (R${R}·H${H}). 다시 누르면 지움.`); }
+    if(i<cells.length){ setTimeout(chunk,0); } else { _amRun=false;
+      const blob=new Blob([amRows.join('\n')],{type:'text/csv'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='approach_map.csv'; a.click(); URL.revokeObjectURL(a.href);   // 맵 저장
+      ikStat(`🗺 완료: 수직가능 ${nv}·수평가능 ${nh} 구역 (R${R}·H${H}) → approach_map.csv 저장. 다시 누르면 지움.`); }
   }
   chunk();
 }
