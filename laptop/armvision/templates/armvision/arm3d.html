@@ -1356,7 +1356,25 @@ if($('voShow')){
   if($('voCheck')) $('voCheck').onclick=evalGraspContact;
   if($('voAI')) $('voAI').onclick=aiGrasp;
 }
-// 🧠 AI 파지: 학습한 MLP로 수직/수평 파지가능 판정 → 추천 접근으로 jaw 검색 → 실행
+// 손목(J4·J5·J6) 국소 최적화 — roll 포함 wrist를 미세조정해 jaw 정렬(cost) 최소화. 충돌 시 원본 복귀.
+// 근거: 6-DOF 파지 샘플링의 'roll 각도' 최적화(approach-based/antipodal). DB 밀도 한계를 국소 hill-climb로 보완.
+function _refineWrist(j0, type,R,H, O, invObj){
+  let best=j0.slice(), bq=_graspQuality(best,type,R,H,invObj,O); if(!bq||!bq.reach) return j0;
+  let step=12;
+  for(let it=0; it<24; it++){ let imp=false;
+    for(const k of [3,4,5]) for(const d of [step,-step]){       // J4,J5,J6
+      const c=best.slice(); c[k]=Math.max(0,Math.min(180,c[k]+d)); const q=_graspQuality(c,type,R,H,invObj,O);
+      if(q && q.reach && q.cost < bq.cost-0.05){ best=c; bq=q; imp=true; }
+    }
+    if(!imp){ step*=0.5; if(step<1.5) break; }
+  }
+  const rm=revMates(), sv=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle));   // 충돌 검증
+  rm.forEach((m,i)=>{ if(i<6)m.angle=best[i]; }); applyAngles(); rigRoot.updateMatrixWorld(true);
+  const bad=_cfgCollides();
+  rm.forEach((m,i)=>{ if(i<6)m.angle=sv[i]; }); applyAngles();
+  return bad ? j0 : best;
+}
+// 🧠 AI 파지: 학습한 MLP로 수직/수평 파지가능 판정 → 추천 접근으로 jaw 검색 → 손목 정밀화 → 실행
 async function aiGrasp(){
   if(!vObj){ ikStat('먼저 가상 물체를 표시하세요.'); return; }
   const O=vObj.position.clone(), R=Math.max(3,+$('voR').value||25), H=Math.max(5,+$('voH').value||80), type=_typeId($('voType').value);
@@ -1371,8 +1389,9 @@ async function aiGrasp(){
   const invObj=new THREE.Matrix4().makeTranslation(-O.x,-O.y,-O.z);
   const best=_searchObjGrasp(O, type,R,H, invObj, res.approach);
   if(!best || !best.reach){ ikStat(`🧠 ${pick} 가능 판정이나 정밀 jaw 자세 검색 실패 — jaw 보정/위치 확인.`); return; }
-  ikStat(`🧠 AI 파지: ${pick}(${pct(Math.max(res.vert,res.horz))}%) 자세로 잡기…`);
-  executeGrasp(best.j, `AI ${pick} ${pct(Math.max(res.vert,res.horz))}%`);
+  const refined=_refineWrist(best.j, type,R,H, O, invObj);   // 손목(J4~J6) 미세조정 → roll/정렬 최적화
+  ikStat(`🧠 AI 파지: ${pick}(${pct(Math.max(res.vert,res.horz))}%) 손목 정밀화 자세로 잡기…`);
+  executeGrasp(refined, `AI ${pick} ${pct(Math.max(res.vert,res.horz))}%`);
 }
 
 // ===== C: 손가락-물체 접촉 검출 (파지 검증) =====
