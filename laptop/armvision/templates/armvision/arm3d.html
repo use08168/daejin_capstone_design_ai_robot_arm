@@ -221,17 +221,15 @@
 
         <div class="card sim-card" style="margin-top:10px;">
           <div class="ttl">가상 물체 (파지 대상)</div>
-          <div class="hintline">프리미티브 물체를 IK 목표 위치에 놓고 파지 대상으로 삼습니다. 다음 단계에서 표면 접촉점 파지 후보를 자동 생성합니다.</div>
+          <div class="hintline">프리미티브 물체를 IK 목표 위치에 놓고 파지 대상으로 삼습니다. 그리퍼 개폐 시 손가락-물체 접촉을 검증(C)합니다.</div>
           <div class="row" style="margin-bottom:6px"><span class="muted" style="width:38px">종류</span>
             <select id="voType" style="flex:1"><option value="cyl">원기둥</option><option value="sph">구</option><option value="box">박스</option><option value="cup">컵(열린 원기둥)</option></select></div>
           <div class="row" style="margin-bottom:6px"><span class="muted" style="width:38px">크기</span>
             반경<input id="voR" type="number" value="25" step="2" min="3" style="width:48px">
             높이<input id="voH" type="number" value="80" step="5" min="5" style="width:48px"><span class="muted">mm</span></div>
           <div class="row" style="margin-bottom:6px"><button class="primary" id="voShow" style="flex:1">표시 / 갱신(IK 목표에)</button><button class="ghost" id="voHide">숨김</button></div>
-          <div class="row" style="margin-bottom:6px"><span class="muted" style="width:38px">벌림</span><input id="voGrip" type="number" value="80" step="5" min="10" style="width:48px"><span class="muted">mm</span><span style="flex:1"></span><button class="ghost" id="voCands">🎯 파지 후보 생성</button></div>
-          <div class="row" style="margin-bottom:6px"><button class="primary" id="voAuto" style="flex:1">🤖 자동 잡기 (도달가능 최적 후보)</button></div>
           <div class="row" style="margin-bottom:0"><button id="voBest" style="flex:1;background:#7a3db5" title="물체 근처 도달 가능한 모든 자세를 훑어 실제 닫힘 품질(정렬·양쪽접촉·대칭)이 최고인 자세로 잡기">🔬 최적 파지 탐색 (수천 자세 평가)</button></div>
-          <div class="hintline" id="voStat" style="margin:6px 0 0;">물체 표면 antipodal 후보 자동 생성(수직=파랑·수평=초록 접근화살표). 그리퍼 벌림보다 좁은 부위만.</div>
+          <div class="hintline" id="voStat" style="margin:6px 0 0;">물체를 IK 목표 위치에 표시 → 그리퍼 개폐 시 접촉 검증(아래). 🔬는 도달 자세를 훑어 닫힘 품질 최고로 잡기.</div>
           <div style="margin:8px 0 0; border-top:1px solid var(--c-line); padding-top:8px;">
             <div class="row" style="margin-bottom:4px;justify-content:space-between"><b style="font-size:12px">파지 접촉 검증 (C)</b><button class="ghost" id="voCheck" style="padding:2px 8px;font-size:12px">🤝 검사</button></div>
             <div id="voContact" style="font-size:13px;font-weight:600;color:#9cf;min-height:16px">그리퍼를 닫으면 손가락-물체 접촉을 실시간 판정합니다(✅양쪽·⚠️헛잡음/관통).</div>
@@ -240,7 +238,7 @@
 
         <div class="card sim-card" style="margin-top:10px;">
           <div class="ttl">파지 학습 데이터 생성 (L1 · 1단계)</div>
-          <div class="hintline">가상 물체를 워크스페이스 곳곳에 두고 접근×롤을 훑어 <b>접촉검출(C)로 파지 성공/품질을 자동 라벨</b> → CSV. C-space 스윕과 동일 방식. 6DOF 데이터셋 로드 필요.</div>
+          <div class="hintline">물체마다 <b>수직·수평 접근을 둘 다 시도</b>해 접촉검출(C)로 각각 성공/품질 자동 라벨 → 물체당 2행 CSV. 형상·바닥에 따라 어느 접근이 되는지를 모델이 학습. 6DOF 데이터셋 로드 필요.</div>
           <div class="row" style="margin-bottom:6px"><span class="muted" style="width:48px">물체수</span><input id="glN" type="number" value="800" step="100" min="50" style="width:64px">
             <span class="muted" style="width:40px;text-align:right">반경</span><input id="glRmin" type="number" value="15" step="2" min="3" style="width:44px"><span class="muted">~</span><input id="glRmax" type="number" value="30" step="2" min="3" style="width:44px"><span class="muted">mm</span></div>
           <div class="row" style="margin-bottom:6px"><button class="primary" id="glRun" style="flex:1">▶ 데이터 생성 시작</button><button class="ghost" id="glStop">■ 중지</button><button class="ghost" id="glSave">💾 CSV</button></div>
@@ -1086,9 +1084,12 @@ function findBestGrasp(){
 // ===== L1 파지 학습 · 1단계: 데이터 생성 (접촉검출 C로 자동 라벨) =====
 function glStat(m){ const e=$('glStat'); if(e) e.textContent=m; }
 function _typeId(t){ return t==='cyl'?0:t==='sph'?1:t==='box'?2:3; }
-function _searchObjGrasp(O, type,R,H, invObj){   // 물체 근처 도달자세를 품질평가 → 최적(동기). null=후보없음
+function _searchObjGrasp(O, type,R,H, invObj, approach){   // 물체 근처 도달자세를 품질평가 → 최적(동기). approach='vert'|'horz'|undefined(전체). null=후보없음
   const NEAR=Math.max(60,R+50), N2=NEAR*NEAR; let cand=[];
-  for(const s of graspDB){ const dx=s.tx-O.x,dy=s.ty-O.y,dz=s.tz-O.z, d2=dx*dx+dy*dy+dz*dz; if(d2<=N2) cand.push({s,d2}); }
+  for(const s of graspDB){
+    if(approach==='vert' && !(s.ay<-0.6)) continue;            // 수직=접근축 아래
+    if(approach==='horz' && !(Math.abs(s.ay)<0.4)) continue;   // 수평=접근축 옆
+    const dx=s.tx-O.x,dy=s.ty-O.y,dz=s.tz-O.z, d2=dx*dx+dy*dy+dz*dz; if(d2<=N2) cand.push({s,d2}); }
   if(!cand.length) return null;
   cand.sort((a,b)=>a.d2-b.d2); if(cand.length>120) cand.length=120;   // 가까운 120자세만(시간 제한)
   let best=null;
@@ -1118,23 +1119,25 @@ function genGraspLearnData(){
       else O=new THREE.Vector3(BB.x0+Math.random()*(BB.x1-BB.x0), BB.y0+Math.random()*(BB.y1-BB.y0), BB.z0+Math.random()*(BB.z1-BB.z0));   // 40% 전역(음성+경계)
       const R=Rmin+Math.random()*(Rmax-Rmin), H=Math.max(40, R*3), invObj=_M.makeTranslation(-O.x,-O.y,-O.z).clone();
       if(vObj){ vObj.position.copy(O); vObj.updateMatrixWorld(true); }
-      const best=_searchObjGrasp(O, type,R,H, invObj);
-      const succ=(best && best.reach && best.perp<Math.max(8,R*0.6))?1:0;
-      _glRows.push([O.x,O.y,O.z, _typeId(type), R, H, succ,
-        best?best.perp:'', best?best.gA:'', best?best.gB:'',
-        best?best.app[0]:'', best?best.app[1]:'', best?best.app[2]:'',
-        ...(best?best.j.slice(0,6):['','','','','',''])]);
+      for(const ap of ['vert','horz']){            // 물체마다 수직·수평 둘 다 시도·라벨 → 접근 선택 학습용
+        const best=_searchObjGrasp(O, type,R,H, invObj, ap);
+        const succ=(best && best.reach && best.perp<Math.max(8,R*0.6))?1:0;
+        _glRows.push([O.x,O.y,O.z, _typeId(type), R, H, (ap==='vert'?0:1), succ,
+          best?best.perp:'', best?best.gA:'', best?best.gB:'',
+          best?best.app[0]:'', best?best.app[1]:'', best?best.app[2]:'',
+          ...(best?best.j.slice(0,6):['','','','','',''])]);
+      }
     }
     rm.forEach((m,k)=>{ if(k<6) m.angle=saveJ[k]; }); applyAngles();   // 자세 복원(팔 안 움직임)
-    const np=_glRows.reduce((a,r)=>a+(r[6]===1?1:0),0);
-    glStat(`생성 ${i}/${N} — 성공 ${np} (${(100*np/Math.max(1,i)).toFixed(0)}%)`);
-    if(i<N){ setTimeout(chunk,0); } else { _glRun=false; glStat(`✓ 완료 ${_glRows.length}개 (성공 ${np}) — 💾 CSV 저장`); }
+    const nv=_glRows.reduce((a,r)=>a+(r[6]===0&&r[7]===1?1:0),0), nh=_glRows.reduce((a,r)=>a+(r[6]===1&&r[7]===1?1:0),0);
+    glStat(`물체 ${i}/${N} · 행 ${_glRows.length} — 수직가능 ${nv} · 수평가능 ${nh}`);
+    if(i<N){ setTimeout(chunk,0); } else { _glRun=false; glStat(`✓ 완료 물체 ${i} · 행 ${_glRows.length} (수직 ${nv}·수평 ${nh} 가능) — 💾 CSV 저장`); }
   }
   chunk();
 }
 function saveGraspLearnCsv(){
   if(!_glRows.length){ glStat('데이터 없음 — 먼저 생성하세요.'); return; }
-  const hdr=['obj_x','obj_y','obj_z','type','R','H','success','perp','gapA','gapB','app_x','app_y','app_z','J1','J2','J3','J4','J5','J6'];
+  const hdr=['obj_x','obj_y','obj_z','type','R','H','approach','success','perp','gapA','gapB','app_x','app_y','app_z','J1','J2','J3','J4','J5','J6'];
   const body=_glRows.map(r=>r.map(v=>typeof v==='number'?+v.toFixed(2):v).join(',')).join('\n');
   const blob=new Blob([hdr.join(',')+'\n'+body],{type:'text/csv'}); const a=document.createElement('a');
   a.href=URL.createObjectURL(blob); a.download='grasp_learn.csv'; a.click(); URL.revokeObjectURL(a.href);
@@ -1304,8 +1307,6 @@ function seqStepDone(st){
 if($('voShow')){
   $('voShow').onclick=()=>{ showVObj(); clearCands(); evalGraspContact(); };
   $('voHide').onclick=()=>{ if(vObj){ scene.remove(vObj); vObj.geometry.dispose(); vObj.material.dispose(); vObj=null; } clearCands(); clearContactMarks(); $('voStat').textContent='숨김'; if($('voContact')){ $('voContact').textContent=''; } };
-  $('voCands').onclick=genGraspCandidates;
-  if($('voAuto')) $('voAuto').onclick=autoGrasp;
   if($('voBest')) $('voBest').onclick=findBestGrasp;
   if($('voCheck')) $('voCheck').onclick=evalGraspContact;
 }
