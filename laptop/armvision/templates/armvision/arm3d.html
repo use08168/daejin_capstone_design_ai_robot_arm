@@ -951,7 +951,7 @@ async function sweepGrasp(){
   if(_sweeping) return; if(mode!=='ctrl'){ alert('제어 모드에서 실행하세요.'); return; }
   const rm=revMates(); if(rm.length<6){ alert('관절(J1~J6)이 부족합니다.'); return; }
   if(!tcpManual && !confirm('TCP가 자동추정 상태입니다. 그리퍼 중심을 먼저 확정하는 게 좋습니다. 그래도 진행할까요?')) return;
-  const N=Math.max(1000,Math.min(300000,+$('grN').value||30000)), allj=[0,1,2,3,4,5];
+  const N=Math.max(1000,Math.min(1000000,+$('grN').value||30000)), allj=[0,1,2,3,4,5];   // 최대 100만
   if(!confirm(`파지 스윕: ${N}개 샘플(J1~J6 무작위). 각 자세의 TCP포즈+충돌을 기록합니다. 진행할까요?`)) return;
   _sweeping=true; collMark.visible=selfMark.visible=tcpMark.visible=tcpAxes.visible=false;
   const saved=rm.map(m=>m.angle), stat=$('grStat'), rows=[GR_HDR];
