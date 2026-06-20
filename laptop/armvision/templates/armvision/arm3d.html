@@ -239,6 +239,7 @@
           <div class="row" style="margin-bottom:6px"><button id="voAI" style="flex:1;background:#1a7f4b" title="학습한 MLP로 수직/수평 파지가능 즉시 판정 → 추천 접근으로 검색·실행">🧠 AI 파지</button><select id="voAIap" title="접근 강제(자동=MLP 결정)" style="width:78px"><option value="auto">자동</option><option value="vert">수직 강제</option><option value="horz">수평 강제</option></select></div>
           <div class="row" style="margin-bottom:6px"><button id="voOpt" style="flex:1;background:#b5803d" title="물체 고정, 근처 자세를 전수 평가해 물체가 jaw에 쏙 들어간·충돌 없는 최적 자세를 찾아 실행(접근=위 선택)">🎯 최적 자세 찾기 (충돌검사)</button></div>
           <div class="row" style="margin-bottom:6px"><button id="voMap" style="flex:1;background:#3a5a7a" title="이 물체 크기로 워크스페이스를 훑어 수직/수평 접근이 가능한(기울기 작은) 구역을 색으로 표시">🗺 접근 구역 맵 (수직/수평)</button></div>
+          <div class="row" style="margin-bottom:6px"><button id="voReach" style="flex:1;background:#2e6b4f" title="파지 DB로 잡을 수 있는 범위(초록)와, 든 물체를 놓을 수 있는 범위(청록)를 바닥 체스판에 표시. 다시 누르면 지움">🟢 도달 범위 (잡기·놓기)</button></div>
           <div class="row" style="margin-bottom:0"><span class="muted" style="width:38px">놓기</span>X<input id="plX" type="number" value="-150" step="10" style="width:46px">Y<input id="plY" type="number" value="15" step="5" style="width:42px">Z<input id="plZ" type="number" value="200" step="10" style="width:46px"><button id="voPlace" style="flex:1;background:#7a5a3d" title="든 물체를 들어올려 운반→하강→놓기. Y=물체 중심 높이(바닥+H/2)">📥 여기 놓기</button></div>
           <div class="hintline" id="plStat" style="margin:4px 0 0;color:#9cf">📥 놓기 좌표를 시뮬에 표시합니다 (초록=도달 가능 · 빨강=불가).</div>
           <div class="hintline" id="voStat" style="margin:6px 0 0;">물체를 IK 목표 위치에 표시 → 그리퍼 개폐 시 접촉 검증(아래). 🔬는 도달 자세를 훑어 닫힘 품질 최고로 잡기.</div>
@@ -311,7 +312,8 @@ tc.addEventListener('objectChange',()=>{ updPartInputs();
   dragP=selPart.position.clone(); dragQ=selPart.quaternion.clone();
 });
 scene.add(new THREE.HemisphereLight(0xffffff,0x222233,0.8)); const dl=new THREE.DirectionalLight(0xffffff,0.8); dl.position.set(300,600,400); scene.add(dl);
-scene.add(new THREE.GridHelper(600,24,0x333333,0x1f1f1f)); scene.add(new THREE.AxesHelper(40));
+const GRID_SIZE=1000, GRID_DIV=40;   // 바닥 체스판(±500mm · 25mm칸)
+scene.add(new THREE.GridHelper(GRID_SIZE,GRID_DIV,0x333333,0x1f1f1f)); scene.add(new THREE.AxesHelper(40));
 const worldRoot=new THREE.Group(); scene.add(worldRoot);   // 부품 평면 보관
 const rigRoot=new THREE.Group(); scene.add(rigRoot);
 // ---- 고정(잠금) 연결 표시 ----
@@ -1601,6 +1603,43 @@ function approachMap(){
   }
   chunk();
 }
+// ===== 도달 범위: 파지 DB footprint(잡기 가능) + 놓기 자세 도달성(_bestPlaceQ, 대칭)을 바닥 체스판에 표시 =====
+const _reachGroup=new THREE.Group(); scene.add(_reachGroup);
+function _clearReach(){ while(_reachGroup.children.length){ const c=_reachGroup.children[0]; _reachGroup.remove(c); if(c.geometry)c.geometry.dispose(); if(c.material)c.material.dispose(); } }
+let _reachRun=false;
+function reachRanges(){
+  if(_reachRun){ _reachRun=false; return; }                              // 실행 중 → 중지
+  if(_reachGroup.children.length){ _clearReach(); ikStat('🟢 도달 범위 지움'); return; }   // 결과 있으면 → 지움
+  if(!graspDB||!graspDB.length){ ikStat('grasp_dataset.csv 로드 필요(파지 IK 카드).'); return; }
+  const floorY=(+(($('glFloor')&&$('glFloor').value))||0), H=Math.max(5,+$('voH').value||30), py=floorY+H/2;
+  const CELL=50, EXT=GRID_SIZE/2, ZERO=new THREE.Vector3();
+  const set=new Set(); const key=(ix,iz)=>ix+'|'+iz;                     // 파지 footprint: DB의 (tx,tz)를 셀로
+  for(const s of graspDB){ const ix=Math.round(s.tx/CELL), iz=Math.round(s.tz/CELL);
+    if(Math.abs(ix*CELL)<=EXT && Math.abs(iz*CELL)<=EXT) set.add(key(ix,iz)); }
+  const cells=[...set].map(k=>k.split('|').map(Number));
+  const cur=revMates().slice(0,6).map(m=>(m.angle==null?90:m.angle)), off=_held?_held.localPos:ZERO;
+  const g=_tcpOfJoints(cur); if(!g){ ikStat('TCP 오류 — 먼저 TCP 확정'); return; }
+  let qBase=g.q.clone(); const zc=new THREE.Vector3(0,0,1).applyQuaternion(qBase);   // 놓기 자세(자이로 레벨) 1회 계산
+  if(Math.abs(zc.y)<0.7){ const z=new THREE.Vector3(zc.x,0,zc.z);
+    if(z.lengthSq()>1e-4){ z.normalize(); const up=new THREE.Vector3(0,1,0), x=new THREE.Vector3().crossVectors(up,z).normalize(), y=new THREE.Vector3().crossVectors(z,x).normalize();
+      qBase=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x,y,z)); } }
+  _clearReach(); _reachRun=true; let i=0, ng=0, np=0;
+  function chunk(){
+    if(!_reachRun){ ikStat(`🟢 도달 범위 중지 (${i}/${cells.length})`); return; }
+    const end=Math.min(i+40, cells.length);
+    for(; i<end; i++){ const x=cells[i][0]*CELL, z=cells[i][1]*CELL; ng++;
+      const sel=_bestPlaceQ(cur, new THREE.Vector3(x,py,z), qBase, off, 4), place=(sel.posErr<=40); if(place) np++;   // 대칭(면 뒤집기) 포함 놓기 도달성
+      const col=place?0x15b5b0:0x2ecc71;                                 // 청록=잡기+놓기 / 초록=잡기만
+      const t=new THREE.Mesh(new THREE.PlaneGeometry(CELL*0.88,CELL*0.88), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:place?0.34:0.16,side:THREE.DoubleSide,depthTest:false}));
+      t.rotation.x=-Math.PI/2; t.position.set(x, floorY+0.4, z); t.renderOrder=994; _reachGroup.add(t);
+    }
+    revMates().forEach((m,k)=>{ if(k<6)m.angle=cur[k]; }); applyAngles();
+    ikStat(`🟢 도달 범위 ${i}/${cells.length} · 잡기 ${ng}칸·놓기 ${np}칸`);
+    if(i<cells.length){ setTimeout(chunk,0); } else { _reachRun=false;
+      ikStat(`🟢 도달 범위: 잡기 ${ng}칸(초록)·놓기 ${np}칸(청록${_held?'':' · 빈손 추정'}). 다시 누르면 지움.`); }
+  }
+  chunk();
+}
 if($('voShow')){
   $('voShow').onclick=()=>{ showVObj(); clearCands(); evalGraspContact(); };
   $('voHide').onclick=()=>{ if(vObj){ scene.remove(vObj); vObj.geometry.dispose(); vObj.material.dispose(); vObj=null; } clearCands(); clearContactMarks(); $('voStat').textContent='숨김'; if($('voContact')){ $('voContact').textContent=''; } };
@@ -1609,6 +1648,7 @@ if($('voShow')){
   if($('voAI')) $('voAI').onclick=aiGrasp;
   if($('voOpt')) $('voOpt').onclick=optimizeGraspForObject;
   if($('voMap')) $('voMap').onclick=approachMap;
+  if($('voReach')) $('voReach').onclick=reachRanges;
   if($('voPlace')) $('voPlace').onclick=executePlace;
 }
 // ===== 놓기 목표 시각화: (plX,plY,plZ)를 시뮬에 표시 + 도달 가능 여부 색 =====
