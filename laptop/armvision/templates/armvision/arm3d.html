@@ -239,9 +239,9 @@
         <div class="card sim-card" style="margin-top:10px;">
           <div class="ttl">파지 학습 데이터 생성 (L1 · 1단계)</div>
           <div class="hintline">물체마다 <b>수직·수평 접근을 둘 다 시도</b>해 접촉검출(C)로 각각 성공/품질 자동 라벨 → 물체당 2행 CSV. 형상·바닥에 따라 어느 접근이 되는지를 모델이 학습. 6DOF 데이터셋 로드 필요.</div>
-          <div class="row" style="margin-bottom:6px"><span class="muted" style="width:48px">물체수</span><input id="glN" type="number" value="1500" step="100" min="50" style="width:64px">
-            <span class="muted" style="width:40px;text-align:right">반경</span><input id="glRmin" type="number" value="12" step="2" min="3" style="width:44px"><span class="muted">~</span><input id="glRmax" type="number" value="32" step="2" min="3" style="width:44px"><span class="muted">mm</span></div>
-          <div class="row" style="margin-bottom:6px"><span class="muted" style="width:48px">높이</span><input id="glHmin" type="number" value="15" step="5" min="5" style="width:64px"><span class="muted" style="width:40px;text-align:right">~</span><input id="glHmax" type="number" value="90" step="5" min="10" style="width:44px"><span class="muted">mm (납작~키큰)</span></div>
+          <div class="row" style="margin-bottom:6px"><span class="muted" style="width:48px">물체수</span><input id="glN" type="number" value="2000" step="100" min="50" style="width:64px">
+            <span class="muted" style="width:48px;text-align:right">그리퍼벌림</span><input id="glGrip" type="number" value="80" step="5" min="10" style="width:50px"><span class="muted">mm (2R&gt;벌림=불가)</span></div>
+          <div class="row" style="margin-bottom:6px"><span class="muted" style="width:48px">반경</span><input id="glRmin" type="number" value="8" step="2" min="3" style="width:50px"><span class="muted">~</span><input id="glRmax" type="number" value="40" step="2" min="3" style="width:50px"><span class="muted">mm</span><span style="flex:1"></span><span class="muted">높이</span><input id="glHmin" type="number" value="10" step="5" min="5" style="width:50px"><span class="muted">~</span><input id="glHmax" type="number" value="120" step="5" min="10" style="width:50px"></div>
           <div class="row" style="margin-bottom:6px"><button class="primary" id="glRun" style="flex:1">▶ 데이터 생성 시작</button><button class="ghost" id="glStop">■ 중지</button><button class="ghost" id="glSave">💾 CSV</button></div>
           <div class="hintline" id="glStat" style="margin:0;">대기 — 물체 종류는 현재 선택(위 가상물체)을 사용. 시작하면 물체를 옮겨가며 라벨링합니다.</div>
         </div>
@@ -1103,8 +1103,8 @@ function genGraspLearnData(){
   if(!graspDB||!graspDB.length){ glStat('먼저 6DOF grasp_dataset.csv를 불러오세요(파지 IK 카드).'); return; }
   if(!graspHasQuat){ glStat('⚠ 6DOF 데이터셋(qx..qw) 필요 — 파지 재스윕 후 사용.'); return; }
   if(gripMates().length<2){ glStat('그리퍼 손가락 2개(grip 결합) 필요.'); return; }
-  const N=Math.max(50,+$('glN').value||1500), Rmin=Math.max(3,+$('glRmin').value||12), Rmax=Math.max(Rmin,+$('glRmax').value||32),
-        Hmin=Math.max(5,+$('glHmin').value||15), Hmax=Math.max(Hmin,+$('glHmax').value||90), type=$('voType').value;
+  const N=Math.max(50,+$('glN').value||2000), Rmin=Math.max(3,+$('glRmin').value||8), Rmax=Math.max(Rmin,+$('glRmax').value||40),
+        Hmin=Math.max(5,+$('glHmin').value||10), Hmax=Math.max(Hmin,+$('glHmax').value||120), maxW=Math.max(10,+$('glGrip').value||80), type=$('voType').value;
   _glRows=[]; _glRun=true; let i=0;
   const rm=revMates(), saveJ=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle));
   const _M=new THREE.Matrix4();
@@ -1121,9 +1121,10 @@ function genGraspLearnData(){
       else O=new THREE.Vector3(BB.x0+Math.random()*(BB.x1-BB.x0), BB.y0+Math.random()*(BB.y1-BB.y0), BB.z0+Math.random()*(BB.z1-BB.z0));   // 40% 전역(음성+경계)
       const R=Rmin+Math.random()*(Rmax-Rmin), H=Hmin+Math.random()*(Hmax-Hmin), invObj=_M.makeTranslation(-O.x,-O.y,-O.z).clone();   // 높이 독립(납작~키큰)
       if(vObj){ vObj.position.copy(O); vObj.updateMatrixWorld(true); }
+      const tooBig=(2*R > maxW);                   // 그리퍼 벌림보다 넓으면 물리적으로 못 잡음(자동 실패)
       for(const ap of ['vert','horz']){            // 물체마다 수직·수평 둘 다 시도·라벨 → 접근 선택 학습용
-        const best=_searchObjGrasp(O, type,R,H, invObj, ap);
-        const succ=(best && best.reach && best.perp<Math.max(8,R*0.6))?1:0;
+        const best=tooBig ? null : _searchObjGrasp(O, type,R,H, invObj, ap);
+        const succ=(best && best.reach && best.perp<12)?1:0;   // 고정 정렬 임계(크기 비례 X)
         _glRows.push([O.x,O.y,O.z, _typeId(type), R, H, (ap==='vert'?0:1), succ,
           best?best.perp:'', best?best.gA:'', best?best.gB:'',
           best?best.app[0]:'', best?best.app[1]:'', best?best.app[2]:'',
