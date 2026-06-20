@@ -245,7 +245,7 @@
 
         <div class="card sim-card" style="margin-top:10px;">
           <div class="ttl">파지 학습 데이터 생성 (L1 · 1단계)</div>
-          <div class="hintline"><b>물체를 바닥에 놓고</b>(중심 y=바닥+높이/2) 수직·수평 둘 다 시도, 접촉검출(C)로 자동 라벨 → 물체당 2행. 납작=낮음→수평은 바닥충돌→수직 필요. 2R&gt;벌림=불가. 6DOF 데이터셋 필요.</div>
+          <div class="hintline"><b>물체를 바닥에 놓고</b>(중심 y=바닥+높이/2) 수직·수평 둘 다 시도 → <b>가상 jaw 안에 들어오면 파지(끝으로도 OK), 베이스 가까울수록 안전</b> 자동 라벨(물체당 2행). ⚠ 위 '가상 파지 면'을 실제 그리퍼에 맞게 먼저 조절·저장하세요. 6DOF 데이터셋 필요.</div>
           <div class="row" style="margin-bottom:6px"><span class="muted" style="width:48px">물체수</span><input id="glN" type="number" value="2000" step="100" min="50" style="width:60px">
             <span class="muted">벌림</span><input id="glGrip" type="number" value="50" step="5" min="10" style="width:46px"><span class="muted">바닥y</span><input id="glFloor" type="number" value="0" step="10" style="width:50px"><span class="muted">mm (물체=바닥에 놓임)</span></div>
           <div class="row" style="margin-bottom:6px"><span class="muted" style="width:48px">반경</span><input id="glRmin" type="number" value="5" step="1" min="3" style="width:50px"><span class="muted">~</span><input id="glRmax" type="number" value="35" step="1" min="3" style="width:50px"><span class="muted">mm</span><span style="flex:1"></span><span class="muted">높이</span><input id="glHmin" type="number" value="10" step="5" min="5" style="width:50px"><span class="muted">~</span><input id="glHmax" type="number" value="120" step="5" min="10" style="width:50px"></div>
@@ -1074,23 +1074,27 @@ function optimizeRoll(){
   executeGrasp(best.g.j, `롤정렬 Δ롤${best.deg}°·중심오차 ${bestPerp.toFixed(0)}mm`);
 }
 // 최적 파지 탐색 — 물체 근처 도달 가능 자세를 모두 평가, 실제 닫힘 품질이 최고인 자세 선택
-function _graspQuality(j, type,R,H, invObj, O){   // 열림 상태에서 양손가락-물체 정렬·대칭·도달 → cost(낮을수록 좋음)
-  const rm=revMates(), gm=gripMates(); if(gm.length<2) return null;
-  const saveJ=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle)), saveG=gm.map(m=>m.angle);
-  rm.forEach((m,i)=>{ if(i<6) m.angle=j[i]; }); gm.forEach(m=>{ if(m.gOpen!=null) m.angle=m.gOpen; }); applyAngles(); rigRoot.updateMatrixWorld(true);   // 열림 + 월드행렬 강제갱신(동기루프)
-  let out=null;
-  const res=gm.map(m=>{ const pb=partByName(m.child), mesh=pb&&pb.mesh; if(!mesh)return null; const nr=_fingerNearest(mesh,invObj,type,R,H); return nr?{d:nr.d, w:nr.world, c:_fingerCenter(mesh)}:null; }).filter(Boolean);
-  if(res.length>=2){ res.sort((a,b)=>a.d-b.d); const a=res[0], b=res[1];
-    // ① 유효성: 실제 접촉점 선(끝으로 잡아도 OK). ② 안전도: 중심점 선(중심에 가깝게 깊게 잡을수록 작음)
-    const ccC=a.w.clone().add(b.w).multiplyScalar(0.5), dC=b.w.clone().sub(a.w); if(dC.length()>1e-3)dC.normalize();
-    const perpC=(()=>{ const oc=O.clone().sub(ccC); return oc.clone().addScaledVector(dC,-oc.dot(dC)).length(); })();   // 접촉점 정렬(유효)
-    const ccM=a.c.clone().add(b.c).multiplyScalar(0.5), dM=b.c.clone().sub(a.c); if(dM.length()>1e-3)dM.normalize();
-    const perpM=(()=>{ const oc=O.clone().sub(ccM); return oc.clone().addScaledVector(dM,-oc.dot(dM)).length(); })();   // 중심점 정렬(깊이=안전도, 작을수록 깊음)
-    const travel=Math.abs((gm[0].gClose==null?40:gm[0].gClose)-(gm[0].gOpen==null?0:gm[0].gOpen));   // 닫힘 행정(mm)
-    const reach=(a.d<=travel+R)&&(b.d<=travel+R);                       // 양손가락이 닫으면 물체에 닿을 수 있나
-    const cost = perpC + 0.3*perpM + 0.5*Math.abs(a.d-b.d) + (reach?0:300);   // 유효(접촉) + 깊이(안전) + 대칭 + 도달
-    out={cost, perp:perpC, secure:perpM, gA:a.d, gB:b.d, reach, j:j.slice()}; }
-  rm.forEach((m,i)=>{ if(i<6) m.angle=saveJ[i]; }); gm.forEach((m,i)=>{ m.angle=saveG[i]; }); applyAngles();   // 복원(팔 안 움직임)
+const _ONE3=new THREE.Vector3(1,1,1), _gjInv=new THREE.Matrix4();
+function _graspQuality(j, type,R,H, invObj, O){   // 가상 jaw 기반: 물체가 jaw 박스 안에 잡히나 + 깊이(안전). cost 낮을수록 좋음
+  if(gripMates().length<2) return null;
+  const rm=revMates(), save=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle));
+  rm.forEach((m,i)=>{ if(i<6) m.angle=j[i]; }); applyAngles(); rigRoot.updateMatrixWorld(true);
+  const t=_tcpPose(); let out=null;
+  if(t&&t.ok){
+    const q=t.quat||_frameQuat(t);
+    _gjInv.compose(t.pos, q, _ONE3).invert();
+    const lo=O.clone().applyMatrix4(_gjInv);                  // 물체중심 → jaw(TCP) 로컬
+    const lx=lo.x-gjaw.cx, ly=lo.y-gjaw.cy, lz=lo.z-gjaw.cz;  // jaw 중심 기준
+    const fit=(2*R<=gjaw.w), slack=Math.max(2, gjaw.w/2-R);   // 벌림 안에 들어옴
+    const centered=Math.abs(lx)<=slack;                        // 닫힘축(x) 중심에 위치
+    const inDepth=(lz>=-gjaw.d/2-3 && lz<=gjaw.d/2+3);         // jaw 깊이 안(베이스~손끝)
+    const inHeight=Math.abs(ly)<=gjaw.h/2+R;                   // jaw 높이 안
+    const valid=fit&&centered&&inDepth&&inHeight;
+    const depthFromBase=Math.max(0, lz+gjaw.d/2);              // 0=가장 깊음(베이스·안전) … d=손끝(얕음)
+    const cost=valid ? (Math.abs(lx)+0.3*depthFromBase) : 999; // 중심 가깝고 깊게 잡을수록 우선
+    out={cost, perp:Math.abs(lx), secure:depthFromBase, gA:lz, gB:ly, reach:valid, j:j.slice()};
+  }
+  rm.forEach((m,i)=>{ if(i<6) m.angle=save[i]; }); applyAngles();   // 복원(팔 안 움직임)
   return out;
 }
 let _bestSearching=false;
