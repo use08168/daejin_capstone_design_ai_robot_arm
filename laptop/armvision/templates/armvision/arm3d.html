@@ -1433,10 +1433,11 @@ function executePlace(){
   const py=($('plY')&&$('plY').value!=='')?+$('plY').value:(floorY+H/2);   // 놓을 높이(물체 중심)
   const cur=revMates().slice(0,6).map(m=>(m.angle==null?90:m.angle));
   if(!vObj){ ikStat('TCP/물체 오류'); return; }
-  const plan=_planPlace(cur, px, py, pz, _held.localPos, 4);   // 마커와 동일 계획(자이로·대칭·운반높이 적응)
-  if(!plan || !plan.ok){ ikStat(`✗ 놓을 위치 도달 불가 (오차 ${(plan?plan.maxErr:999).toFixed(0)}mm) — 접근맵 가능구역으로`); return; }
-  const jA=plan.jA, jB=plan.jB, jC=plan.jC;
-  if(plan.clr<60) ikStat(`📥 놓기 진행 — 운반높이 낮춤(${plan.clr}mm, 경로 좁음)`);
+  const spot=_findPlaceSpot(cur, px, py, pz, _held.localPos, true);   // 요청 지점 불가 시 Y 고정·XZ 최근접 가능 지점
+  if(!spot){ ikStat(`✗ 놓을 수 있는 지점 없음(반경 250mm 내 충돌없는 경로 없음) — 접근맵 가능구역으로`); return; }
+  const jA=spot.plan.jA, jB=spot.plan.jB, jC=spot.plan.jC;
+  if(spot.dist>0) ikStat(`📥 요청 위치 도달 불가 → 최근접 가능 지점에 놓기 (${spot.dist.toFixed(0)}mm 이동: X${spot.x.toFixed(0)}·Z${spot.z.toFixed(0)}, Y 고정)`);
+  else if(spot.plan.clr<60) ikStat(`📥 놓기 진행 — 운반높이 낮춤(${spot.plan.clr}mm, 경로 좁음)`);
   graspSeq={steps:[
     {joints:jA.j, grip:null,   label:'① 들어올림'},
     {joints:jB.j, grip:null,   label:'② 운반(목표 위)'},
@@ -1509,6 +1510,24 @@ function _planPlace(cur, px, py, pz, localPos, ow){
     if(maxErr<=40) break;
   }
   return bestPlan;
+}
+// 놓을 지점 탐색: 요청 (px,pz)가 불가하면 Y(py) 고정한 채 XZ 평면에서 가장 가까운 가능 지점. {plan,x,z,dist} 또는 null
+function _findPlaceSpot(cur, px, py, pz, off, checkPath){
+  const _restore=()=>{ const rm=revMates(); rm.forEach((m,i)=>{ if(i<6)m.angle=cur[i]; }); applyAngles(); };   // pathClear가 자세를 흩뜨림 → 복원
+  const ok=(p)=> p && p.ok && (!checkPath || (pathClear(p.jA.j,p.jB.j) && pathClear(p.jB.j,p.jC.j)));   // 도달 + (하강·운반 경로 충돌없음)
+  let result=null; const exact=_planPlace(cur, px, py, pz, off, 4);
+  if(ok(exact)){ result={plan:exact, x:px, z:pz, dist:0}; }
+  else {
+    const RAD = checkPath ? [25,50,75,100,130,165,205,250] : [50,100,160,220];   // 실행=촘촘 / 마커=성김
+    const ANG = checkPath ? 8 : 6;
+    for(const r of RAD){ let bestA=null;
+      for(let a=0;a<ANG;a++){ const th=a/ANG*2*Math.PI, x=px+r*Math.cos(th), z=pz+r*Math.sin(th);   // Y 고정 — 공중 낙하 방지
+        const p=_planPlace(cur, x, py, z, off, 4);
+        if(ok(p) && (!bestA || p.maxErr<bestA.plan.maxErr)) bestA={plan:p, x, z, dist:r}; }
+      if(bestA){ result=bestA; break; }   // 가장 가까운 반경에서 가능 지점 발견
+    }
+  }
+  _restore(); return result;
 }
 function executeGraspTwoStage(Gj, label, approach, O){   // 이상 방향 정렬(가능한 만큼) → standoff → 직선 접근·파지·들기
   const Gorig=Gj.slice(), cur0=revMates().slice(0,6).map(m=>(m.angle==null?90:m.angle));   // 폴백용 원본 G + 현재 자세
@@ -1668,15 +1687,27 @@ function updatePlaceMarker(){
   if(!$('plX')) return; _clearPl();
   const px=+$('plX').value, pz=+$('plZ').value, H=Math.max(5,+$('voH').value||30), floorY=(+(($('glFloor')&&$('glFloor').value))||0);
   const py=($('plY')&&$('plY').value!=='')?+$('plY').value:(floorY+H/2);
-  const {reach,perr}=_placeReach(px,py,pz), col=reach?0x2ecc71:0xe74c3c;   // 초록=가능, 빨강=불가
-  const ring=new THREE.Mesh(new THREE.RingGeometry(13,19,28), new THREE.MeshBasicMaterial({color:col,side:THREE.DoubleSide,transparent:true,opacity:0.85,depthTest:false}));
-  ring.rotation.x=-Math.PI/2; ring.position.set(px,floorY+0.6,pz); ring.renderOrder=996; _plGroup.add(ring);
-  const stem=new THREE.Mesh(new THREE.CylinderGeometry(1.3,1.3,Math.max(1,py-floorY),6), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.5,depthTest:false}));
-  stem.position.set(px,(floorY+py)/2,pz); stem.renderOrder=996; _plGroup.add(stem);
-  const dot=new THREE.Mesh(new THREE.SphereGeometry(8,12,10), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.9,depthTest:false}));
-  dot.position.set(px,py,pz); dot.renderOrder=997; _plGroup.add(dot);
-  if($('plStat')) $('plStat').textContent = (reach?'🟢 놓기 지점 도달 가능':'🔴 놓기 지점 도달 불가 — 위치 옮기기')
-    + ` (오차 ${perr.toFixed(0)}mm, X${px}·Y${py}·Z${pz})` + (_held?'':' · 빈손: 위치만 추정');
+  const {reach,perr}=_placeReach(px,py,pz);
+  const _mk=(x,z,col,op)=>{   // 바닥 링+기둥+구 마커
+    const ring=new THREE.Mesh(new THREE.RingGeometry(13,19,28), new THREE.MeshBasicMaterial({color:col,side:THREE.DoubleSide,transparent:true,opacity:op,depthTest:false}));
+    ring.rotation.x=-Math.PI/2; ring.position.set(x,floorY+0.6,z); ring.renderOrder=996; _plGroup.add(ring);
+    const stem=new THREE.Mesh(new THREE.CylinderGeometry(1.3,1.3,Math.max(1,py-floorY),6), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:op*0.6,depthTest:false}));
+    stem.position.set(x,(floorY+py)/2,z); stem.renderOrder=996; _plGroup.add(stem);
+    const dot=new THREE.Mesh(new THREE.SphereGeometry(8,12,10), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:op,depthTest:false}));
+    dot.position.set(x,py,z); dot.renderOrder=997; _plGroup.add(dot);
+  };
+  if(reach){ _mk(px,pz,0x2ecc71,0.9);   // 초록=요청 지점 그대로 가능
+    if($('plStat')) $('plStat').textContent=`🟢 놓기 지점 도달 가능 (오차 ${perr.toFixed(0)}mm, X${px}·Y${py}·Z${pz})`+(_held?'':' · 빈손: 위치만 추정');
+  } else {                              // 요청 불가 → 최근접 가능 지점(주황) 표시 + 요청(빨강 점선 링)
+    const cur=revMates().slice(0,6).map(m=>(m.angle==null?90:m.angle)), off=_held?_held.localPos:new THREE.Vector3();
+    const spot=_findPlaceSpot(cur, px, py, pz, off, false);   // 마커=가벼운 탐색(경로검사 생략)
+    _mk(px,pz,0xe74c3c,0.45);           // 요청 지점(빨강, 흐리게)
+    if(spot && spot.dist>0){ _mk(spot.x,spot.z,0xf39c12,0.9);   // 실제 놓을 곳(주황)
+      const pts=[new THREE.Vector3(px,py,pz), new THREE.Vector3(spot.x,py,spot.z)];   // 연결선
+      const ln=new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({color:0xf39c12,transparent:true,opacity:0.7,depthTest:false})); ln.renderOrder=996; _plGroup.add(ln);
+      if($('plStat')) $('plStat').textContent=`🟠 요청 위치 도달 불가 → 최근접 가능 지점에 놓음 (${spot.dist.toFixed(0)}mm 이동, Y 고정)`;
+    } else if($('plStat')) $('plStat').textContent=`🔴 놓기 불가 (오차 ${perr.toFixed(0)}mm) — 도달 범위(🟢) 안으로`;
+  }
 }
 ['plX','plY','plZ'].forEach(id=>{ const el=$(id); if(el) el.addEventListener('input', updatePlaceMarker); });
 const _gf=$('glFloor'); if(_gf) _gf.addEventListener('input', updatePlaceMarker);
