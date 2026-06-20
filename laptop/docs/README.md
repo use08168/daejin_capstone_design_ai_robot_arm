@@ -24,8 +24,10 @@
 | [13_grasp_learning_mlp.md](13_grasp_learning_mlp.md) | **파지 학습 MLP** — 참고 토대·입력 데이터·학습 원리·결과값(분류 92.7%·접근선택 86.8%)·용도·손목(J6)roll 최적화·**참고문헌**(6-DOF 파지 생성) |
 | [14_setup_procedure.md](14_setup_procedure.md) | 환경 구성 / 실행 절차 |
 | [15_aruco_markers.md](15_aruco_markers.md) | ArUco / ChArUco 마커 명세 |
+| [16_grasp_place_runtime.md](16_grasp_place_runtime.md) | **파지·놓기 실행 런타임** — 두 단계 집기(standoff→직선)·충돌인식·AI 파지·최적자세·접근맵/구조한계·**놓기 프로세스**·**J6 자이로 수평유지** |
+| [17_design_journey.md](17_design_journey.md) | **설계 여정(고민 기록)** — 학습 방식 선택·데이터 신뢰성 싸움·학습 한계 vs 구조 한계·두 단계 접근·놓기/자이로 결정 로그 |
 
-> **현황:** ① YOLO-World 탐지 + 객체 id, ② ChArUco 스테레오 캘리브레이션(~0.5px, 588mm) + 삼각측량 3D(30mm를 0.32mm 오차로 복원) — 실측 검증. ③ STL 3D 시뮬레이터로 6관절 조립·리깅 완료 → 관절 슬라이더가 3D+실물 서보 동시 구동(연동 ON/OFF). ④ 디지털 트윈 안전검증(C-space 충돌지도·신경망 99.5%·능동학습)·콜드스타트 자가보정. ⑤ **파지 파이프라인**(FK 샘플링 파지 DB 10만·6DOF IK·capability map) + **그리퍼 정밀 개폐**(평행집게 슬라이드·J7 제어). **다음: 손가락-물체 접촉 검증 → AI 서버 연동.**
+> **현황:** ① YOLO-World 탐지 + 객체 id, ② ChArUco 스테레오 캘리브레이션(~0.5px, 588mm) + 삼각측량 3D(30mm를 0.32mm 오차로 복원) — 실측 검증. ③ STL 3D 시뮬레이터로 6관절 조립·리깅 완료 → 관절 슬라이더가 3D+실물 서보 동시 구동(연동 ON/OFF). ④ 디지털 트윈 안전검증(C-space 충돌지도·신경망 99.5%·능동학습)·콜드스타트 자가보정. ⑤ **파지 파이프라인**(FK 샘플링 파지 DB 100만·6DOF IK·capability map) + **그리퍼 정밀 개폐**(평행집게 슬라이드·J7 제어). ⑥ **파지 학습 MLP**(접근 조건부·충돌인식 데이터) + **집기/놓기 실행 런타임**(두 단계 집기·자이로 놓기). **다음: AI 서버(Gemma) 연동 — pick/place DSL.**
 
 ---
 
