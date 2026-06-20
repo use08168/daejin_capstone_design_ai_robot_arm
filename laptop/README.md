@@ -57,5 +57,5 @@ python manage.py runserver             # http://127.0.0.1:8000/  (실물 연동 
 | [8_arm3d_simulator.md](docs/8_arm3d_simulator.md) | **STL 3D 시뮬레이터 + 실물 연동** (모델링·조립·제어) |
 | [3_coordinate_3d_pipeline.md](docs/3_coordinate_3d_pipeline.md) | ChArUco 캘리브레이션 + 삼각측량 3D |
 | [2_object_detection_model.md](docs/2_object_detection_model.md) | YOLO-World 선정 근거 |
-| [13_aruco_markers.md](docs/13_aruco_markers.md) | 로봇 마커 스킴 |
-| [12_setup_procedure.md](docs/12_setup_procedure.md) | 초기 셋업 6단계 절차 |
+| [15_aruco_markers.md](docs/15_aruco_markers.md) | 로봇 마커 스킴 |
+| [14_setup_procedure.md](docs/14_setup_procedure.md) | 초기 셋업 6단계 절차 |

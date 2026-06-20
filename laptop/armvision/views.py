@@ -69,10 +69,15 @@ def setup(request):
 
 
 def control(request):
-    """3페이지 — 자연어 제어(AI 서버 연동) + 웹캠/로봇팔 자세 미러."""
+    """6페이지 — 자연어 제어(AI 서버 연동) + 웹캠/로봇팔 자세 미러."""
     cam_left, cam_right = _cams()
     return render(request, "armvision/control.html",
                   {"cam_left": cam_left, "cam_right": cam_right})
+
+
+def mlp(request):
+    """5페이지 — MLP 파지 학습 콘솔(학습 과정 시각화)."""
+    return render(request, "armvision/mlp.html", {})
 
 
 from django.views.decorators.clickjacking import xframe_options_sameorigin
@@ -142,6 +147,181 @@ def arm_connect(request):
 def arm_disconnect(request):
     from . import arduino_bridge
     return JsonResponse(arduino_bridge.disconnect())
+
+
+_GRASP_MODEL = None
+
+
+def _load_grasp_model():
+    """학습된 파지 MLP(grasp_model.joblib)를 1회 로드·캐시."""
+    global _GRASP_MODEL
+    if _GRASP_MODEL is None:
+        import joblib
+        path = os.path.join(os.path.dirname(__file__), "..", "calibration", "grasp_model.joblib")
+        _GRASP_MODEL = joblib.load(path)
+    return _GRASP_MODEL
+
+
+@csrf_exempt
+def grasp_predict(request):
+    """물체(x,y,z,type,R,H) → MLP로 수직/수평 파지가능 확률 + 추천 접근 + 회귀 초기 관절각.
+    런타임 'AI 파지': 비전/시뮬 물체를 즉시 판정 → 가능하면 접근 정해 검색·실행."""
+    import json
+    try:
+        d = json.loads(request.body.decode("utf-8"))
+        x, y, z = float(d["x"]), float(d["y"]), float(d["z"])
+        typ = float(d.get("type", 0)); R = float(d["R"]); H = float(d["H"])
+        m = _load_grasp_model()
+        clf, sc = m["clf"], m["clf_scaler"]
+
+        def feat(ap):
+            return sc.transform([[x, y, z, typ, R, H, ap]])
+
+        pv = float(clf.predict_proba(feat(0))[0, 1])
+        ph = float(clf.predict_proba(feat(1))[0, 1])
+        out = {"ok": True, "vert": round(pv, 3), "horz": round(ph, 3)}
+        # 품질 회귀가 있으면 품질로 접근 결정(잘 잡히는 쪽), 없으면 가능성으로
+        qreg = m.get("qreg")
+        if qreg is not None:
+            qv = float(qreg.predict(feat(0))[0]); qh = float(qreg.predict(feat(1))[0])
+            out["qvert"] = round(qv, 3); out["qhorz"] = round(qh, 3)
+            out["approach"] = "vert" if qv >= qh else "horz"
+            out["graspable"] = bool(max(qv, qh) >= 0.25)   # 품질 임계
+        else:
+            out["approach"] = "vert" if pv >= ph else "horz"
+            out["graspable"] = bool(max(pv, ph) >= 0.5)
+        approach = out["approach"]
+        reg, rsc = m.get("reg"), m.get("reg_scaler")
+        if reg is not None:
+            ap = 0 if approach == "vert" else 1
+            j = reg.predict(rsc.transform([[x, y, z, typ, R, H, ap]]))[0]
+            out["joints"] = [round(float(v), 1) for v in j]
+        return JsonResponse(out)
+    except FileNotFoundError:
+        return JsonResponse({"ok": False, "error": "grasp_model.joblib 없음 — grasp_learn.py로 먼저 학습하세요."})
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)})
+
+
+_TRAIN = {"running": False, "epoch": 0, "epochs": 0, "loss": [], "val": [],
+          "done": False, "metrics": None, "error": None, "msg": "대기"}
+_FEATS = ["obj_x", "obj_y", "obj_z", "type", "R", "H", "approach"]
+
+
+@csrf_exempt
+def grasp_train_start(request):
+    """MLP 파지 분류기 학습을 백그라운드로 시작(epoch별 손실·검증정확도 보고)."""
+    import json
+    import threading
+    global _TRAIN
+    if _TRAIN.get("running"):
+        return JsonResponse({"ok": False, "error": "이미 학습 중입니다."})
+    try:
+        d = json.loads(request.body.decode("utf-8"))
+        csv_path = (d.get("csv") or "").strip().strip('"')
+        sample = int(d.get("sample", 200000)); epochs = int(d.get("epochs", 60))
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)})
+    _TRAIN = {"running": True, "epoch": 0, "epochs": epochs, "loss": [], "val": [],
+              "done": False, "metrics": None, "error": None, "msg": "데이터 로드 중…"}
+    threading.Thread(target=_train_worker, args=(csv_path, sample, epochs), daemon=True).start()
+    return JsonResponse({"ok": True})
+
+
+def grasp_train_status(request):
+    return JsonResponse(_TRAIN)
+
+
+def _train_worker(csv_path, sample, epochs):
+    global _TRAIN, _GRASP_MODEL
+    try:
+        import numpy as np
+        import joblib
+        from sklearn.neural_network import MLPClassifier
+        from sklearn.preprocessing import StandardScaler
+        from sklearn.model_selection import train_test_split
+        from sklearn.metrics import accuracy_score
+        try:
+            import pandas as pd
+        except ImportError:
+            _TRAIN["error"] = "pandas가 필요합니다 (pip install pandas)"; _TRAIN["running"] = False; return
+        if not os.path.isfile(csv_path):
+            _TRAIN["error"] = f"CSV 없음: {csv_path}"; _TRAIN["running"] = False; return
+
+        df = pd.read_csv(csv_path)
+        if "approach" not in df.columns:
+            _TRAIN["error"] = "구형 CSV(approach 열 없음)"; _TRAIN["running"] = False; return
+        if len(df) > sample:
+            df = df.sample(sample, random_state=0)
+        X = df[_FEATS].to_numpy(dtype=float)
+        y = df["success"].to_numpy(dtype=int)
+        ap = X[:, 6].astype(int)
+        q = df["quality"].to_numpy(dtype=float) if "quality" in df.columns else None
+        _TRAIN["msg"] = f"{len(X):,}행 · 학습 준비"
+
+        if q is not None:
+            Xtr, Xte, ytr, yte, _, ate, qtr, qte = train_test_split(X, y, ap, q, test_size=0.2, random_state=0, stratify=y)
+        else:
+            Xtr, Xte, ytr, yte, _, ate = train_test_split(X, y, ap, test_size=0.2, random_state=0, stratify=y)
+        sc = StandardScaler().fit(Xtr)
+        Xtr_s, Xte_s = sc.transform(Xtr), sc.transform(Xte)
+        clf = MLPClassifier(hidden_layer_sizes=(64, 64), max_iter=1, warm_start=True, random_state=0)
+        classes = np.array([0, 1])
+        best_va, patience, PATIENCE = 0.0, 0, 8   # early stopping(과적합 방지): 검증 8 epoch 정체 시 중단
+        for e in range(epochs):
+            if not _TRAIN["running"]:
+                break
+            clf.partial_fit(Xtr_s, ytr, classes=classes)
+            va = float(accuracy_score(yte, clf.predict(Xte_s)))
+            _TRAIN["epoch"] = e + 1
+            _TRAIN["loss"].append(round(float(clf.loss_), 4))
+            _TRAIN["val"].append(round(va, 4))
+            _TRAIN["msg"] = f"학습 중 epoch {e+1}/{epochs} · loss {clf.loss_:.3f} · 검증 {va*100:.1f}%"
+            if va > best_va + 0.0005:
+                best_va, patience = va, 0
+            else:
+                patience += 1
+                if patience >= PATIENCE:
+                    _TRAIN["msg"] += " — early stop(정체)"
+                    break
+
+        pred = clf.predict(Xte_s)
+        acc = float(accuracy_score(yte, pred))
+        per = {}
+        for a, nm in [(0, "vert"), (1, "horz")]:
+            m = ate == a
+            if m.any():
+                per[nm] = round(float(accuracy_score(yte[m], pred[m])), 3)
+
+        # 품질 회귀: (물체+접근) → 파지 품질 점수(0~1, 접근정렬+중심+깊이). quality 열 있을 때만.
+        qreg = None; qmae = None
+        if q is not None and _TRAIN["running"]:
+            _TRAIN["msg"] = "품질 모델 학습 중…"
+            from sklearn.neural_network import MLPRegressor
+            from sklearn.metrics import mean_absolute_error
+            qreg = MLPRegressor(hidden_layer_sizes=(64, 64), max_iter=300, random_state=0)
+            qreg.fit(Xtr_s, qtr)
+            qmae = round(float(mean_absolute_error(qte, qreg.predict(Xte_s))), 3)
+
+        # 모델 저장(기존 자세회귀기 보존, 분류기·품질회귀·스케일러 교체)
+        mp = os.path.join(os.path.dirname(__file__), "..", "calibration", "grasp_model.joblib")
+        out = {"clf": clf, "clf_scaler": sc, "qreg": qreg, "reg": None, "reg_scaler": None,
+               "feats": _FEATS, "jcols": ["J1", "J2", "J3", "J4", "J5", "J6"]}
+        try:
+            old = joblib.load(mp); out["reg"] = old.get("reg"); out["reg_scaler"] = old.get("reg_scaler")
+        except Exception:
+            pass
+        joblib.dump(out, mp)
+        _GRASP_MODEL = None  # /grasp/predict 캐시 무효화 → 새 모델 로드
+
+        _TRAIN["metrics"] = {"acc": round(acc, 3), "per": per, "rows": int(len(X)),
+                             "pos": int(y.sum()), "epochs": _TRAIN["epoch"], "qmae": qmae}
+        _TRAIN["done"] = True
+        _TRAIN["msg"] = f"완료 — 정확도 {acc*100:.1f}%" + (f" · 품질 MAE {qmae}" if qmae is not None else "")
+    except Exception as ex:
+        _TRAIN["error"] = str(ex)
+    finally:
+        _TRAIN["running"] = False
 
 
 @csrf_exempt

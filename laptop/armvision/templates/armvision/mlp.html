@@ -1,0 +1,140 @@
+{% extends "armvision/base.html" %}
+{% block title %}5 · MLP 학습{% endblock %}
+
+{% block style %}
+  .mlp-wrap { max-width: 1100px; }
+  .mlp-grid { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+  @media (max-width: 900px){ .mlp-grid { grid-template-columns: 1fr; } }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .panel h3 { margin:0 0 10px; font-size:15px; color:#9cf; }
+  .ctrls { display:flex; flex-wrap:wrap; gap:10px; align-items:end; margin:14px 0; }
+  .ctrls label { font-size:12px; color:var(--muted); display:flex; flex-direction:column; gap:3px; }
+  .ctrls input { background:#111; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:6px 8px; }
+  .bigbtn { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:10px 20px; font-size:15px; cursor:pointer; }
+  .bigbtn:disabled { background:#333; color:#777; cursor:not-allowed; }
+  .prog { height:8px; background:#222; border-radius:5px; overflow:hidden; margin:8px 0; }
+  .prog > div { height:100%; width:0; background:linear-gradient(90deg,var(--accent),var(--ok)); transition:width .3s; }
+  .metrics { display:flex; gap:12px; flex-wrap:wrap; margin-top:10px; }
+  .metric { background:#111; border:1px solid var(--line); border-radius:8px; padding:10px 14px; min-width:96px; }
+  .metric .v { font-size:24px; font-weight:700; color:var(--ok); font-variant-numeric:tabular-nums; }
+  .metric .k { font-size:11px; color:var(--muted); margin-top:2px; }
+  #statusLine { font-size:13px; color:#bcd; min-height:18px; margin-top:4px; }
+  /* 신경망 엣지 애니메이션 */
+  #netSvg .edge { stroke:#2a4; stroke-opacity:.18; stroke-width:1; }
+  #netSvg.live .edge { animation: flow 1.1s linear infinite; }
+  @keyframes flow { 0%{stroke-opacity:.12} 50%{stroke-opacity:.65} 100%{stroke-opacity:.12} }
+  #netSvg .node { fill:#1c2330; stroke:#3a6; stroke-width:1.5; }
+  #netSvg.live .node { animation: glow 1.4s ease-in-out infinite; }
+  @keyframes glow { 0%,100%{fill:#1c2330} 50%{fill:#23402f} }
+  #netSvg .llabel { fill:var(--muted); font-size:11px; text-anchor:middle; }
+  .hint { color:var(--muted); font-size:13px; line-height:1.6; }
+{% endblock %}
+
+{% block content %}
+<div class="mlp-wrap">
+  <h1>5 · MLP 파지 학습</h1>
+  <p class="hint">시뮬이 자동 라벨한 <b>grasp_learn.csv</b>로 <b>물체+접근 → 파지가능</b> 분류기(MLP)를 학습합니다.
+    아래는 학습 과정을 실시간으로 — 손실이 내려가고 검증 정확도가 오르는 걸 — 시각화합니다. (자세한 원리: laptop/docs/13_grasp_learning_mlp.md)</p>
+
+  <div class="ctrls">
+    <label style="flex:1; min-width:320px;">학습 CSV 경로(서버)
+      <input id="csvPath" type="text" value="C:\Users\use08\Downloads\grasp_learn (1).csv">
+    </label>
+    <label>샘플 수<input id="sampleN" type="number" value="200000" step="50000" min="5000" style="width:110px"></label>
+    <label>epochs<input id="epochs" type="number" value="60" step="10" min="5" style="width:80px"></label>
+    <button class="bigbtn" id="trainBtn">🚀 학습 시작</button>
+  </div>
+  <div class="prog"><div id="progBar"></div></div>
+  <div id="statusLine">대기 — CSV 경로 확인 후 [학습 시작].</div>
+
+  <div class="mlp-grid" style="margin-top:14px;">
+    <div class="panel">
+      <h3>신경망 구조 (입력 7 → 64 → 64 → 출력)</h3>
+      <svg id="netSvg" viewBox="0 0 460 280" style="width:100%; height:auto;"></svg>
+    </div>
+    <div class="panel">
+      <h3>학습 곡선 (손실 ↓ · 검증 정확도 ↑)</h3>
+      <canvas id="lossCanvas" width="460" height="260" style="width:100%; height:auto;"></canvas>
+      <div style="display:flex;gap:16px;font-size:12px;margin-top:6px">
+        <span style="color:#f66">● 손실(loss)</span><span style="color:#6f6">● 검증 정확도</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:14px;">
+    <h3>결과</h3>
+    <div class="metrics" id="metrics">
+      <div class="metric"><div class="v" id="mAcc">—</div><div class="k">테스트 정확도</div></div>
+      <div class="metric"><div class="v" id="mVert">—</div><div class="k">수직 정확도</div></div>
+      <div class="metric"><div class="v" id="mHorz">—</div><div class="k">수평 정확도</div></div>
+      <div class="metric"><div class="v" id="mQ">—</div><div class="k">품질 MAE(낮을수록↑)</div></div>
+      <div class="metric"><div class="v" id="mRows">—</div><div class="k">학습 행수</div></div>
+    </div>
+    <p class="hint" style="margin-top:10px;">학습 완료 시 <code>grasp_model.joblib</code>이 갱신됩니다(기존 회귀기 보존). → 4페이지 <b>🧠 AI 파지</b>가 새 모델을 사용합니다.
+      데이터 생성·capability map은 4페이지(3D 시뮬레이터)에서 합니다.</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+const $=id=>document.getElementById(id);
+// ---- 신경망 구조도 생성 ----
+(function buildNet(){
+  const svg=$('netSvg'), layers=[7,8,8,1], labels=['입력 7','은닉 64','은닉 64','출력'];
+  const W=460,H=280, padX=60, padY=24, cols=layers.length, gapX=(W-2*padX)/(cols-1);
+  const pos=layers.map((n,li)=>{ const x=padX+li*gapX, gy=(H-2*padY)/Math.max(1,n-1);
+    return Array.from({length:n},(_,i)=>({x, y: n===1? H/2 : padY+i*gy})); });
+  let s='';
+  for(let li=0; li<cols-1; li++) for(const a of pos[li]) for(const b of pos[li+1])
+    s+=`<line class="edge" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`;
+  pos.forEach((col,li)=>{ col.forEach(p=> s+=`<circle class="node" cx="${p.x}" cy="${p.y}" r="7"/>`);
+    s+=`<text class="llabel" x="${col[0].x}" y="${H-6}">${labels[li]}</text>`; });
+  svg.innerHTML=s;
+})();
+// ---- 손실/정확도 곡선 ----
+function drawCurve(loss, val){
+  const c=$('lossCanvas'), x=c.getContext('2d'), W=c.width, H=c.height, pad=30;
+  x.clearRect(0,0,W,H); x.strokeStyle='#333'; x.lineWidth=1;
+  x.beginPath(); x.moveTo(pad,8); x.lineTo(pad,H-pad); x.lineTo(W-8,H-pad); x.stroke();
+  if(!loss.length) return;
+  const n=loss.length, lmax=Math.max(...loss,0.01), gx=i=>pad+(W-pad-8)*(n<2?0:i/(n-1));
+  const line=(arr,max,col)=>{ x.strokeStyle=col; x.lineWidth=2; x.beginPath();
+    arr.forEach((v,i)=>{ const yy=8+(H-pad-8)*(1-v/max); i?x.lineTo(gx(i),yy):x.moveTo(gx(i),yy); }); x.stroke(); };
+  line(loss, lmax, '#f66');     // 손실(자기 최대값 기준)
+  line(val, 1, '#6f6');         // 검증 정확도(0~1)
+  x.fillStyle='#777'; x.font='10px sans-serif';
+  x.fillText('1.0', 4, 12); x.fillText('0', 12, H-pad+3); x.fillText('epoch', W-40, H-pad+16);
+}
+// ---- 학습 시작/폴링 ----
+let polling=null;
+async function startTrain(){
+  const csv=$('csvPath').value, sample=+$('sampleN').value||200000, epochs=+$('epochs').value||60;
+  $('trainBtn').disabled=true; $('statusLine').textContent='학습 시작 요청…';
+  let r; try{ r=await (await fetch('/grasp/train/start/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({csv,sample,epochs})})).json(); }
+  catch(e){ $('statusLine').textContent='서버 응답 없음 (서버 재시작 필요?)'; $('trainBtn').disabled=false; return; }
+  if(!r.ok){ $('statusLine').textContent='시작 실패: '+(r.error||'?'); $('trainBtn').disabled=false; return; }
+  $('netSvg').classList.add('live');
+  polling=setInterval(poll, 500); poll();
+}
+async function poll(){
+  let s; try{ s=await (await fetch('/grasp/train/status/')).json(); }catch(e){ return; }
+  $('statusLine').textContent=s.error?('⚠ '+s.error):s.msg;
+  const p=s.epochs? Math.round(100*s.epoch/s.epochs):0; $('progBar').style.width=p+'%';
+  drawCurve(s.loss||[], s.val||[]);
+  if(s.error || (!s.running && (s.done||s.error))){
+    clearInterval(polling); polling=null; $('trainBtn').disabled=false; $('netSvg').classList.remove('live');
+    if(s.done && s.metrics){ const m=s.metrics;
+      $('mAcc').textContent=(m.acc*100).toFixed(1)+'%';
+      $('mVert').textContent=m.per&&m.per.vert!=null?(m.per.vert*100).toFixed(1)+'%':'—';
+      $('mHorz').textContent=m.per&&m.per.horz!=null?(m.per.horz*100).toFixed(1)+'%':'—';
+      $('mQ').textContent=m.qmae!=null?m.qmae:'—';
+      $('mRows').textContent=(m.rows||0).toLocaleString();
+    }
+  }
+}
+$('trainBtn').onclick=startTrain;
+// 새로고침 시 진행 중이던 학습 상태 복구
+poll();
+</script>
+{% endblock %}

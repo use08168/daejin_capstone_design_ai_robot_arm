@@ -29,7 +29,7 @@
 4. **로봇 배치 & 베이스 마커** — 골격(마커 부착 후 구현)
 5. **카메라→로봇 변환 T** — 골격
 6. **관절 위치 & 작업공간** — 골격
-- 절차 상세: [12_setup_procedure.md](12_setup_procedure.md), 파이프라인: [3_coordinate_3d_pipeline.md](3_coordinate_3d_pipeline.md)
+- 절차 상세: [14_setup_procedure.md](14_setup_procedure.md), 파이프라인: [3_coordinate_3d_pipeline.md](3_coordinate_3d_pipeline.md)
 
 ### 3 · 자연어 제어  `/control/`
 - 한국어 명령으로 로봇팔 구동하는 화면. **현재 골격(채팅 UI)만.**
@@ -85,6 +85,6 @@
 - ✅ **카메라 선택**(1페이지): 좌/우 카메라를 노트북 장치에서 선택·저장.
 
 **예정**
-- **단계 ⑤⑥**: 베이스/추적 ArUco 마커로 카메라→로봇 변환 T, 관절 추적([13_aruco_markers.md](13_aruco_markers.md)).
+- **단계 ⑤⑥**: 베이스/추적 ArUco 마커로 카메라→로봇 변환 T, 관절 추적([15_aruco_markers.md](15_aruco_markers.md)).
 - **3페이지 통합**: AI 서버(Whisper·Gemma) → gRPC + DSL 실행기 → 4페이지 연동 경로로 구동.
 - **이진 프로토콜**: 현재 ASCII `u ch us` → CommandPacket+CRC([../../docs/4_serial_protocol.md](../../docs/4_serial_protocol.md)).
