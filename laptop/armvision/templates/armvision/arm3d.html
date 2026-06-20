@@ -1438,6 +1438,9 @@ function executePlace(){
     {joints:pSt.j, grip:null,   label:'③ 후퇴'},
   ], i:-1}; seqNext();
 }
+function _directGrasp(Gj, label){   // 폴백: G로 직접 이동 + 닫기 + 부착(시퀀스 1스텝)
+  graspSeq={steps:[{joints:Gj.slice(0,6), grip:'close', label:label||'직접 접근·파지'}], i:-1}; seqNext();
+}
 // ===== (b) standoff → 직선 접근 두 단계 집기 =====
 function _poseErr(j, tPos, tQuat){   // 관절 j의 TCP가 목표 포즈에서 얼마나 벗어났나(위치mm + 자세도)
   const rm=revMates(); rm.forEach((m,i)=>{ if(i<6) m.angle=j[i]; }); applyAngles(); rigRoot.updateMatrixWorld(true);
@@ -1466,7 +1469,7 @@ function _tcpOfJoints(j){   // 관절 j의 TCP 포즈(팔 복원). {pos,q} 또�
 }
 function executeGraspTwoStage(Gj, label, approach, O){   // 이상 방향 정렬(가능한 만큼) → standoff → 직선 접근·파지·들기
   const Gorig=Gj.slice(), cur0=revMates().slice(0,6).map(m=>(m.angle==null?90:m.angle));   // 폴백용 원본 G + 현재 자세
-  let g=_tcpOfJoints(Gj); if(!g){ executeGrasp(Gj, label); return; }
+  let g=_tcpOfJoints(Gj); if(!g){ _directGrasp(Gj, label); return; }
   let tilt=null;
   if(approach && O){   // 이상 자세: 수직=정아래·노란면 수평 / 수평=수평으로 중심 향함·손가락 수직
     const A0=new THREE.Vector3(0,0,1).applyQuaternion(g.q);
@@ -1484,7 +1487,7 @@ function executeGraspTwoStage(Gj, label, approach, O){   // 이상 방향 정렬
   const A=new THREE.Vector3(0,0,1).applyQuaternion(g.q).normalize();   // 실제 도달 접근축으로 standoff/접근
   const pre=_ikToPose(Gj, g.pos.clone().addScaledVector(A,-GRASP_STANDOFF), g.q);
   const pathOK=pathClear(pre.j, Gj); revMates().forEach((m,i)=>{ if(i<6)m.angle=cur0[i]; }); applyAngles();   // 직선 접근 가능?(검사 후 자세 복원)
-  if(pre.err>80 || !pathOK){ executeGrasp(Gorig, label+' (직접접근 — 직선경로 불가)'); return; }   // 막히면 원본 G로 직접(P2처럼)
+  if(pre.err>80 || !pathOK){ _directGrasp(Gorig, label+' (직접접근 — 직선경로 불가)'); return; }   // 막히면 원본 G로 직접(닫기+부착 포함)
   const lift=_ikToPose(Gj, g.pos.clone().add(new THREE.Vector3(0,GRASP_LIFT,0)), g.q);
   const tl = (tilt!=null) ? ` · 기울기 ${tilt.toFixed(0)}°${tilt>15?'(팔 구조 한계)':''}` : '';
   const steps=[
