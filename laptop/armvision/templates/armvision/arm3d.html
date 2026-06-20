@@ -240,6 +240,7 @@
           <div class="row" style="margin-bottom:6px"><button id="voOpt" style="flex:1;background:#b5803d" title="물체 고정, 근처 자세를 전수 평가해 물체가 jaw에 쏙 들어간·충돌 없는 최적 자세를 찾아 실행(접근=위 선택)">🎯 최적 자세 찾기 (충돌검사)</button></div>
           <div class="row" style="margin-bottom:6px"><button id="voMap" style="flex:1;background:#3a5a7a" title="이 물체 크기로 워크스페이스를 훑어 수직/수평 접근이 가능한(기울기 작은) 구역을 색으로 표시">🗺 접근 구역 맵 (수직/수평)</button></div>
           <div class="row" style="margin-bottom:0"><span class="muted" style="width:38px">놓기</span>X<input id="plX" type="number" value="-150" step="10" style="width:46px">Y<input id="plY" type="number" value="15" step="5" style="width:42px">Z<input id="plZ" type="number" value="200" step="10" style="width:46px"><button id="voPlace" style="flex:1;background:#7a5a3d" title="든 물체를 들어올려 운반→하강→놓기. Y=물체 중심 높이(바닥+H/2)">📥 여기 놓기</button></div>
+          <div class="hintline" id="plStat" style="margin:4px 0 0;color:#9cf">📥 놓기 좌표를 시뮬에 표시합니다 (초록=도달 가능 · 빨강=불가).</div>
           <div class="hintline" id="voStat" style="margin:6px 0 0;">물체를 IK 목표 위치에 표시 → 그리퍼 개폐 시 접촉 검증(아래). 🔬는 도달 자세를 훑어 닫힘 품질 최고로 잡기.</div>
           <div style="margin:8px 0 0; border-top:1px solid var(--c-line); padding-top:8px;">
             <div class="row" style="margin-bottom:4px;justify-content:space-between"><b style="font-size:12px">파지 접촉 검증 (C)</b><button class="ghost" id="voCheck" style="padding:2px 8px;font-size:12px">🤝 검사</button></div>
@@ -1418,8 +1419,9 @@ function seqStepDone(st){
 let _held=null;   // {localPos: 물체 위치(TCP 로컬)}
 function _heldM(t){ return new THREE.Matrix4().compose(t.pos, t.quat||_frameQuat(t), _ONE3); }
 function _attachObj(){ if(!vObj) return; const t=_tcpPose(); if(!t||!t.ok) return;
-  _held={localPos: vObj.position.clone().applyMatrix4(_heldM(t).clone().invert())}; }   // 부착 시점 오프셋(TCP 로컬)
-function _detachObj(){ _held=null; }
+  _held={localPos: vObj.position.clone().applyMatrix4(_heldM(t).clone().invert())};   // 부착 시점 오프셋(TCP 로컬)
+  if(typeof updatePlaceMarker==='function') updatePlaceMarker(); }
+function _detachObj(){ _held=null; if(typeof updatePlaceMarker==='function') updatePlaceMarker(); }
 function _updateHeld(t){ if(_held && vObj && t && t.ok){ vObj.position.copy(_held.localPos).applyMatrix4(_heldM(t)); vObj.updateMatrixWorld(true);
   if($('ikX')){ $('ikX').value=Math.round(vObj.position.x); $('ikY').value=Math.round(vObj.position.y); $('ikZ').value=Math.round(vObj.position.z); } } }   // IK 목표가 든 물체 따라감
 // 📥 놓기: 든 물체를 (plX, 바닥, plZ)에 — standoff → 직선 하강 → release → 후퇴
@@ -1580,6 +1582,41 @@ if($('voShow')){
   if($('voMap')) $('voMap').onclick=approachMap;
   if($('voPlace')) $('voPlace').onclick=executePlace;
 }
+// ===== 놓기 목표 시각화: (plX,plY,plZ)를 시뮬에 표시 + 도달 가능 여부 색 =====
+const _plGroup=new THREE.Group(); scene.add(_plGroup);
+function _clearPl(){ while(_plGroup.children.length){ const c=_plGroup.children[0]; _plGroup.remove(c); if(c.geometry)c.geometry.dispose(); if(c.material)c.material.dispose(); } }
+function _placeReach(px,py,pz){   // executePlace와 동일 기준으로 놓기 지점 도달 가능 여부(잡은 상태면 자이로 q·오프셋·ow=4 반영)
+  const cur=revMates().slice(0,6).map(m=>(m.angle==null?90:m.angle)), g=_tcpOfJoints(cur);
+  if(!g) return {reach:false, perr:999};
+  if(_held){
+    let q=g.q.clone(); const zc=new THREE.Vector3(0,0,1).applyQuaternion(q);
+    if(Math.abs(zc.y)<0.7){ const z=new THREE.Vector3(zc.x,0,zc.z);
+      if(z.lengthSq()>1e-4){ z.normalize(); const up=new THREE.Vector3(0,1,0), x=new THREE.Vector3().crossVectors(up,z).normalize(), y=new THREE.Vector3().crossVectors(z,x).normalize();
+        q=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x,y,z)); } }
+    const off=_held.localPos.clone().applyQuaternion(q);
+    const r=_ikToPose(cur, new THREE.Vector3(px,py,pz).sub(off), q, 90, 4);
+    return {reach:r.posErr<=40, perr:r.posErr};
+  }
+  const r=_ikToPose(cur, new THREE.Vector3(px,py,pz), g.q, 70, 0);   // 빈손: 위치 도달성만
+  return {reach:r.posErr<40, perr:r.posErr};
+}
+function updatePlaceMarker(){
+  if(!$('plX')) return; _clearPl();
+  const px=+$('plX').value, pz=+$('plZ').value, H=Math.max(5,+$('voH').value||30), floorY=(+(($('glFloor')&&$('glFloor').value))||0);
+  const py=($('plY')&&$('plY').value!=='')?+$('plY').value:(floorY+H/2);
+  const {reach,perr}=_placeReach(px,py,pz), col=reach?0x2ecc71:0xe74c3c;   // 초록=가능, 빨강=불가
+  const ring=new THREE.Mesh(new THREE.RingGeometry(13,19,28), new THREE.MeshBasicMaterial({color:col,side:THREE.DoubleSide,transparent:true,opacity:0.85,depthTest:false}));
+  ring.rotation.x=-Math.PI/2; ring.position.set(px,floorY+0.6,pz); ring.renderOrder=996; _plGroup.add(ring);
+  const stem=new THREE.Mesh(new THREE.CylinderGeometry(1.3,1.3,Math.max(1,py-floorY),6), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.5,depthTest:false}));
+  stem.position.set(px,(floorY+py)/2,pz); stem.renderOrder=996; _plGroup.add(stem);
+  const dot=new THREE.Mesh(new THREE.SphereGeometry(8,12,10), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.9,depthTest:false}));
+  dot.position.set(px,py,pz); dot.renderOrder=997; _plGroup.add(dot);
+  if($('plStat')) $('plStat').textContent = (reach?'🟢 놓기 지점 도달 가능':'🔴 놓기 지점 도달 불가 — 위치 옮기기')
+    + ` (오차 ${perr.toFixed(0)}mm, X${px}·Y${py}·Z${pz})` + (_held?'':' · 빈손: 위치만 추정');
+}
+['plX','plY','plZ'].forEach(id=>{ const el=$(id); if(el) el.addEventListener('input', updatePlaceMarker); });
+const _gf=$('glFloor'); if(_gf) _gf.addEventListener('input', updatePlaceMarker);
+updatePlaceMarker();
 // 손목(J4·J5·J6) 국소 최적화 — roll 포함 wrist를 미세조정해 jaw 정렬(cost) 최소화. 충돌 시 원본 복귀.
 // 근거: 6-DOF 파지 샘플링의 'roll 각도' 최적화(approach-based/antipodal). DB 밀도 한계를 국소 hill-climb로 보완.
 function _refineWrist(j0, type,R,H, O, invObj){
