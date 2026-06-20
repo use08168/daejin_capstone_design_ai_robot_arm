@@ -1105,12 +1105,17 @@ function genGraspLearnData(){
   _glRows=[]; _glRun=true; let i=0;
   const rm=revMates(), saveJ=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle));
   const _M=new THREE.Matrix4();
+  const BB={x0:1e9,x1:-1e9,y0:1e9,y1:-1e9,z0:1e9,z1:-1e9};   // 워크스페이스 경계(전역 음성 샘플용)
+  for(const s of graspDB){ if(s.tx<BB.x0)BB.x0=s.tx; if(s.tx>BB.x1)BB.x1=s.tx; if(s.ty<BB.y0)BB.y0=s.ty; if(s.ty>BB.y1)BB.y1=s.ty; if(s.tz<BB.z0)BB.z0=s.tz; if(s.tz>BB.z1)BB.z1=s.tz; }
+  const MG=40; BB.x0-=MG;BB.x1+=MG;BB.y0-=MG;BB.y1+=MG;BB.z0-=MG;BB.z1+=MG;
   function chunk(){
     if(!_glRun){ glStat(`중지 — ${_glRows.length}개 수집(💾 CSV로 저장 가능)`); return; }
     const end=Math.min(i+20, N);
     for(; i<end; i++){
-      const s=graspDB[(Math.random()*graspDB.length)|0];
-      const O=new THREE.Vector3(s.tx+(Math.random()*2-1)*15, s.ty+(Math.random()*2-1)*15, s.tz+(Math.random()*2-1)*15);
+      let O;
+      if(Math.random()<0.6){ const s=graspDB[(Math.random()*graspDB.length)|0];   // 60% 도달영역 근처(양성+경계, 지터 ±35)
+        O=new THREE.Vector3(s.tx+(Math.random()*2-1)*35, s.ty+(Math.random()*2-1)*35, s.tz+(Math.random()*2-1)*35); }
+      else O=new THREE.Vector3(BB.x0+Math.random()*(BB.x1-BB.x0), BB.y0+Math.random()*(BB.y1-BB.y0), BB.z0+Math.random()*(BB.z1-BB.z0));   // 40% 전역(음성+경계)
       const R=Rmin+Math.random()*(Rmax-Rmin), H=Math.max(40, R*3), invObj=_M.makeTranslation(-O.x,-O.y,-O.z).clone();
       if(vObj){ vObj.position.copy(O); vObj.updateMatrixWorld(true); }
       const best=_searchObjGrasp(O, type,R,H, invObj);
