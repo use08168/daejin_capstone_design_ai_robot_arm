@@ -1731,6 +1731,30 @@ function _refineWrist(j0, type,R,H, O, invObj){
   return bad ? j0 : best;
 }
 // 🧠 AI 파지: 학습한 MLP로 수직/수평 파지가능 판정 → 추천 접근으로 jaw 검색 → 손목 정밀화 → 실행
+// graspDB 없이 순수 IK로 파지 자세 생성(접근 수직/수평 + 접근축 180° 대칭). null=도달불가/충돌. (놓기와 통일)
+function _ikGraspPose(O, type, R, H, approach){
+  const cur=revMates().slice(0,6).map(m=>(m.angle==null?90:m.angle));
+  const invObj=new THREE.Matrix4().makeTranslation(-O.x,-O.y,-O.z);
+  let z, up;
+  if(approach==='vert'){ z=new THREE.Vector3(0,-1,0); up=new THREE.Vector3(O.x,0,O.z); if(up.lengthSq()<1e-3)up.set(1,0,0); }
+  else { z=new THREE.Vector3(O.x,0,O.z); if(z.lengthSq()<1e-3)z.set(1,0,0); up=new THREE.Vector3(0,1,0); }   // 수평: 접근축=베이스→물체 수평방향
+  z.normalize(); const x0=new THREE.Vector3().crossVectors(up,z); if(x0.lengthSq()<1e-6) return null;
+  x0.normalize(); const y0=new THREE.Vector3().crossVectors(z,x0).normalize();
+  const qi=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x0,y0,z));
+  let best=null;
+  for(const q of [qi, _flipQ(qi)]){                       // 대칭(면 뒤집기) 두 후보 중 J6 범위 내로 더 잘 닿는 자세
+    const tTCP=O.clone().sub(new THREE.Vector3(gjaw.cx,gjaw.cy,gjaw.cz).applyQuaternion(q));   // 물체가 jaw 중심에
+    const r=_ikToPose(cur, tTCP, q, 100, 4);
+    if(r.posErr>30) continue;
+    const rm=revMates(), sv=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle));   // 충돌 검사(그리퍼 몸체↔물체 + 팔 자기/바닥)
+    rm.forEach((m,i)=>{ if(i<6)m.angle=r.j[i]; }); applyAngles(); rigRoot.updateMatrixWorld(true);
+    const collide=_gripperHitsObject(invObj,type,R,H) || _cfgCollides();
+    rm.forEach((m,i)=>{ if(i<6)m.angle=sv[i]; }); applyAngles();
+    const score=r.posErr + r.angErr*0.3 + (collide?500:0);
+    if(!best || score<best.score) best={j:r.j, posErr:r.posErr, angErr:r.angErr, collide, score};
+  }
+  return (best && !best.collide) ? best : null;            // 도달 + 충돌없어야
+}
 async function aiGrasp(){
   if(!vObj){ ikStat('먼저 가상 물체를 표시하세요.'); return; }
   const O=vObj.position.clone(), R=Math.max(3,+$('voR').value||25), H=Math.max(5,+$('voH').value||80), type=_typeId($('voType').value);
@@ -1743,14 +1767,16 @@ async function aiGrasp(){
   const ov=($('voAIap')&&$('voAIap').value)||'auto';   // 접근 강제(자동=모델 결정)
   const ap=(ov==='auto')?res.approach:ov, pick=ap==='vert'?'수직':'수평';
   if(ov==='auto' && !res.graspable){ ikStat(`🧠 잡기 어려움 — ${info} (둘 다 낮음). 위치·크기 변경.`); return; }
-  ikStat(`🧠 ${info} → ${pick}${ov==='auto'?'':'(강제)'} 정밀 자세 검색…`);
-  if(!graspDB||!graspDB.length){ ikStat(`🧠 판정 OK(${pick}) — 정밀 자세 실행은 grasp_dataset.csv 로드 필요.`); return; }
+  ikStat(`🧠 ${info} → ${pick}${ov==='auto'?'':'(강제)'} 정밀 자세 IK…`);
   const invObj=new THREE.Matrix4().makeTranslation(-O.x,-O.y,-O.z);
-  const best=_searchObjGrasp(O, type,R,H, invObj, ap);
-  if(!best || !best.reach){ ikStat(`🧠 ${pick} 자세 검색 실패 — ${ov==='auto'?'jaw 보정/위치 확인.':'이 위치엔 '+pick+' 자세가 DB에 없음(다른 접근/DB 보강).'}`); return; }
-  const refined=_refineWrist(best.j, type,R,H, O, invObj);   // 손목(J4~J6) 미세조정 → roll/정렬 최적화
-  ikStat(`🧠 AI 파지: ${pick}${ov==='auto'?'':'(강제)'} 손목 정밀화 자세로 잡기… (${info})`);
-  executeGraspTwoStage(refined, `AI ${pick}`, ap, O);
+  let best=_ikGraspPose(O, type,R,H, ap);                       // DB 없이 순수 IK
+  if(!best && ov==='auto'){ const alt=(ap==='vert')?'horz':'vert'; best=_ikGraspPose(O,type,R,H,alt);   // 자동이면 반대 접근도 시도
+    if(best){ ap=alt; } }
+  if(!best){ ikStat(`🧠 ${pick} 파지 자세 IK 실패 — 도달 불가 또는 충돌(도달 범위🟢 안으로/접근 변경).`); return; }
+  const refined=_refineWrist(best.j, type,R,H, O, invObj);      // 손목(J4~J6) 미세조정 → roll/정렬 최적화
+  const fap=(ap==='vert')?'수직':'수평';
+  ikStat(`🧠 AI 파지: ${fap}${ov==='auto'?'':'(강제)'} 자세로 잡기… (${info})`);
+  executeGraspTwoStage(refined, `AI ${fap}`, ap, O);
 }
 // ===== 물체-그리퍼 몸체 충돌 검사 (손가락 제외) =====
 function _gripperHitsObject(invObj, type, R, H){
