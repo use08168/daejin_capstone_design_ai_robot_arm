@@ -239,7 +239,7 @@
           <div class="row" style="margin-bottom:6px"><button id="voAI" style="flex:1;background:#1a7f4b" title="학습한 MLP로 수직/수평 파지가능 즉시 판정 → 추천 접근으로 검색·실행">🧠 AI 파지</button><select id="voAIap" title="접근 강제(자동=MLP 결정)" style="width:78px"><option value="auto">자동</option><option value="vert">수직 강제</option><option value="horz">수평 강제</option></select></div>
           <div class="row" style="margin-bottom:6px"><button id="voOpt" style="flex:1;background:#b5803d" title="물체 고정, 근처 자세를 전수 평가해 물체가 jaw에 쏙 들어간·충돌 없는 최적 자세를 찾아 실행(접근=위 선택)">🎯 최적 자세 찾기 (충돌검사)</button></div>
           <div class="row" style="margin-bottom:6px"><button id="voMap" style="flex:1;background:#3a5a7a" title="이 물체 크기로 워크스페이스를 훑어 수직/수평 접근이 가능한(기울기 작은) 구역을 색으로 표시">🗺 접근 구역 맵 (수직/수평)</button></div>
-          <div class="row" style="margin-bottom:0"><span class="muted" style="width:38px">놓기</span>X<input id="plX" type="number" value="-150" step="10" style="width:54px">Z<input id="plZ" type="number" value="200" step="10" style="width:54px"><button id="voPlace" style="flex:1;background:#7a5a3d" title="든 물체를 이 위치(바닥)에 놓기: standoff→직선 하강→release→후퇴">📥 여기 놓기</button></div>
+          <div class="row" style="margin-bottom:0"><span class="muted" style="width:38px">놓기</span>X<input id="plX" type="number" value="-150" step="10" style="width:46px">Y<input id="plY" type="number" value="15" step="5" style="width:42px">Z<input id="plZ" type="number" value="200" step="10" style="width:46px"><button id="voPlace" style="flex:1;background:#7a5a3d" title="든 물체를 들어올려 운반→하강→놓기. Y=물체 중심 높이(바닥+H/2)">📥 여기 놓기</button></div>
           <div class="hintline" id="voStat" style="margin:6px 0 0;">물체를 IK 목표 위치에 표시 → 그리퍼 개폐 시 접촉 검증(아래). 🔬는 도달 자세를 훑어 닫힘 품질 최고로 잡기.</div>
           <div style="margin:8px 0 0; border-top:1px solid var(--c-line); padding-top:8px;">
             <div class="row" style="margin-bottom:4px;justify-content:space-between"><b style="font-size:12px">파지 접촉 검증 (C)</b><button class="ghost" id="voCheck" style="padding:2px 8px;font-size:12px">🤝 검사</button></div>
@@ -1420,26 +1420,35 @@ function _heldM(t){ return new THREE.Matrix4().compose(t.pos, t.quat||_frameQuat
 function _attachObj(){ if(!vObj) return; const t=_tcpPose(); if(!t||!t.ok) return;
   _held={localPos: vObj.position.clone().applyMatrix4(_heldM(t).clone().invert())}; }   // 부착 시점 오프셋(TCP 로컬)
 function _detachObj(){ _held=null; }
-function _updateHeld(t){ if(_held && vObj && t && t.ok){ vObj.position.copy(_held.localPos).applyMatrix4(_heldM(t)); vObj.updateMatrixWorld(true); } }
+function _updateHeld(t){ if(_held && vObj && t && t.ok){ vObj.position.copy(_held.localPos).applyMatrix4(_heldM(t)); vObj.updateMatrixWorld(true);
+  if($('ikX')){ $('ikX').value=Math.round(vObj.position.x); $('ikY').value=Math.round(vObj.position.y); $('ikZ').value=Math.round(vObj.position.z); } } }   // IK 목표가 든 물체 따라감
 // 📥 놓기: 든 물체를 (plX, 바닥, plZ)에 — standoff → 직선 하강 → release → 후퇴
 function executePlace(){
   if(!_held){ ikStat('든 물체가 없습니다 — 먼저 🧠 AI 파지로 잡으세요.'); return; }
   const px=+$('plX').value, pz=+$('plZ').value, H=Math.max(5,+$('voH').value||30), floorY=(+(($('glFloor')&&$('glFloor').value))||0);
-  const placeCenter=new THREE.Vector3(px, floorY+H/2, pz);          // 물체 중심 목표
+  const py=($('plY')&&$('plY').value!=='')?+$('plY').value:(floorY+H/2);   // 놓을 높이(물체 중심)
   const cur=revMates().slice(0,6).map(m=>(m.angle==null?90:m.angle)), g=_tcpOfJoints(cur);
-  if(!g){ ikStat('TCP 오류'); return; }
-  const q=g.q.clone(), placeTCP=placeCenter.clone().sub(_held.localPos.clone().applyQuaternion(q));   // 물체가 placeCenter에 오도록 TCP
-  const standoff=placeTCP.clone().add(new THREE.Vector3(0,GRASP_STANDOFF,0));
-  const pSt=_ikToPose(cur, standoff, q), pPl=_ikToPose(pSt.j, placeTCP, q);
-  if(pSt.posErr>40 || pPl.posErr>40){ ikStat(`✗ 놓을 위치 도달 불가 (오차 ${Math.max(pSt.posErr,pPl.posErr).toFixed(0)}mm) — 접근맵의 가능 구역으로`); return; }
+  if(!g||!vObj){ ikStat('TCP/물체 오류'); return; }
+  const q=g.q.clone(), offW=_held.localPos.clone().applyQuaternion(q);   // 물체→TCP 오프셋(월드, 든 자세 유지)
+  const tcpFor=(c)=>c.clone().sub(offW);                                  // 물체중심 → TCP
+  const objCur=vObj.position.clone(), transY=Math.max(objCur.y, py)+90;   // 운반 높이(현재·목표 중 높은 곳+여유) → 바닥 안 쓸게
+  const wpA=new THREE.Vector3(objCur.x, transY, objCur.z);                // ① 들어올림
+  const wpB=new THREE.Vector3(px, transY, pz);                            // ② 운반(목표 위)
+  const wpC=new THREE.Vector3(px, py, pz);                                // ③ 하강(놓기)
+  const jA=_ikToPose(cur, tcpFor(wpA), q), jB=_ikToPose(jA.j, tcpFor(wpB), q), jC=_ikToPose(jB.j, tcpFor(wpC), q);
+  if(jB.posErr>40 || jC.posErr>40){ ikStat(`✗ 놓을 위치 도달 불가 (오차 ${Math.max(jB.posErr,jC.posErr).toFixed(0)}mm) — 접근맵 가능구역으로`); return; }
   graspSeq={steps:[
-    {joints:pSt.j, grip:null,   label:'① 놓기 standoff(이동)'},
-    {joints:pPl.j, grip:'open', label:'② 직선 하강·놓기(release)'},
-    {joints:pSt.j, grip:null,   label:'③ 후퇴'},
+    {joints:jA.j, grip:null,   label:'① 들어올림'},
+    {joints:jB.j, grip:null,   label:'② 운반(목표 위)'},
+    {joints:jC.j, grip:'open', label:'③ 하강·놓기(release)'},
+    {joints:jB.j, grip:null,   label:'④ 후퇴'},
   ], i:-1}; seqNext();
 }
-function _directGrasp(Gj, label){   // 폴백: G로 직접 이동 + 닫기 + 부착(시퀀스 1스텝)
-  graspSeq={steps:[{joints:Gj.slice(0,6), grip:'close', label:label||'직접 접근·파지'}], i:-1}; seqNext();
+function _directGrasp(Gj, label){   // 폴백: G로 직접 이동 + 닫기 + 부착 + 들기
+  const steps=[{joints:Gj.slice(0,6), grip:'close', label:label||'직접 접근·파지'}];
+  const g=_tcpOfJoints(Gj);
+  if(g){ const lf=_ikToPose(Gj, g.pos.clone().add(new THREE.Vector3(0,GRASP_LIFT,0)), g.q); if(lf.err<60) steps.push({joints:lf.j, grip:null, label:'들기'}); }
+  graspSeq={steps, i:-1}; seqNext();
 }
 // ===== (b) standoff → 직선 접근 두 단계 집기 =====
 function _poseErr(j, tPos, tQuat){   // 관절 j의 TCP가 목표 포즈에서 얼마나 벗어났나(위치mm + 자세도)
