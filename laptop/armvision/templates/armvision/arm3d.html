@@ -1047,14 +1047,17 @@ function _graspQuality(j, type,R,H, invObj, O){   // 열림 상태에서 양손�
   const saveJ=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle)), saveG=gm.map(m=>m.angle);
   rm.forEach((m,i)=>{ if(i<6) m.angle=j[i]; }); gm.forEach(m=>{ if(m.gOpen!=null) m.angle=m.gOpen; }); applyAngles(); rigRoot.updateMatrixWorld(true);   // 열림 + 월드행렬 강제갱신(동기루프)
   let out=null;
-  const res=gm.map(m=>{ const pb=partByName(m.child), mesh=pb&&pb.mesh; if(!mesh)return null; const nr=_fingerNearest(mesh,invObj,type,R,H); return nr?{d:nr.d, c:_fingerCenter(mesh)}:null; }).filter(Boolean);
+  const res=gm.map(m=>{ const pb=partByName(m.child), mesh=pb&&pb.mesh; if(!mesh)return null; const nr=_fingerNearest(mesh,invObj,type,R,H); return nr?{d:nr.d, w:nr.world, c:_fingerCenter(mesh)}:null; }).filter(Boolean);
   if(res.length>=2){ res.sort((a,b)=>a.d-b.d); const a=res[0], b=res[1];
-    const cc=a.c.clone().add(b.c).multiplyScalar(0.5), d=b.c.clone().sub(a.c); const span=d.length(); if(span>1e-3)d.normalize();
-    const oc=O.clone().sub(cc), along=oc.dot(d), perp=oc.clone().addScaledVector(d,-along).length();
+    // ① 유효성: 실제 접촉점 선(끝으로 잡아도 OK). ② 안전도: 중심점 선(중심에 가깝게 깊게 잡을수록 작음)
+    const ccC=a.w.clone().add(b.w).multiplyScalar(0.5), dC=b.w.clone().sub(a.w); if(dC.length()>1e-3)dC.normalize();
+    const perpC=(()=>{ const oc=O.clone().sub(ccC); return oc.clone().addScaledVector(dC,-oc.dot(dC)).length(); })();   // 접촉점 정렬(유효)
+    const ccM=a.c.clone().add(b.c).multiplyScalar(0.5), dM=b.c.clone().sub(a.c); if(dM.length()>1e-3)dM.normalize();
+    const perpM=(()=>{ const oc=O.clone().sub(ccM); return oc.clone().addScaledVector(dM,-oc.dot(dM)).length(); })();   // 중심점 정렬(깊이=안전도, 작을수록 깊음)
     const travel=Math.abs((gm[0].gClose==null?40:gm[0].gClose)-(gm[0].gOpen==null?0:gm[0].gOpen));   // 닫힘 행정(mm)
     const reach=(a.d<=travel+R)&&(b.d<=travel+R);                       // 양손가락이 닫으면 물체에 닿을 수 있나
-    const cost = perp + 0.5*Math.abs(a.d-b.d) + 0.2*Math.abs(along) + (reach?0:300);   // 정렬+대칭+센터링+도달
-    out={cost, perp, gA:a.d, gB:b.d, reach, j:j.slice()}; }
+    const cost = perpC + 0.3*perpM + 0.5*Math.abs(a.d-b.d) + (reach?0:300);   // 유효(접촉) + 깊이(안전) + 대칭 + 도달
+    out={cost, perp:perpC, secure:perpM, gA:a.d, gB:b.d, reach, j:j.slice()}; }
   rm.forEach((m,i)=>{ if(i<6) m.angle=saveJ[i]; }); gm.forEach((m,i)=>{ m.angle=saveG[i]; }); applyAngles();   // 복원(팔 안 움직임)
   return out;
 }
@@ -1128,7 +1131,7 @@ function genGraspLearnData(){
         const best=tooBig ? null : _searchObjGrasp(O, type,R,H, invObj, ap);
         const succ=(best && best.reach && best.perp<12)?1:0;   // 고정 정렬 임계(크기 비례 X)
         _glRows.push([O.x,O.y,O.z, _typeId(type), R, H, (ap==='vert'?0:1), succ,
-          best?best.perp:'', best?best.gA:'', best?best.gB:'',
+          best?best.perp:'', best?best.secure:'', best?best.gA:'', best?best.gB:'',
           best?best.app[0]:'', best?best.app[1]:'', best?best.app[2]:'',
           ...(best?best.j.slice(0,6):['','','','','',''])]);
       }
@@ -1142,7 +1145,7 @@ function genGraspLearnData(){
 }
 function saveGraspLearnCsv(){
   if(!_glRows.length){ glStat('데이터 없음 — 먼저 생성하세요.'); return; }
-  const hdr=['obj_x','obj_y','obj_z','type','R','H','approach','success','perp','gapA','gapB','app_x','app_y','app_z','J1','J2','J3','J4','J5','J6'];
+  const hdr=['obj_x','obj_y','obj_z','type','R','H','approach','success','perp','secure','gapA','gapB','app_x','app_y','app_z','J1','J2','J3','J4','J5','J6'];
   const body=_glRows.map(r=>r.map(v=>typeof v==='number'?+v.toFixed(2):v).join(',')).join('\n');
   const blob=new Blob([hdr.join(',')+'\n'+body],{type:'text/csv'}); const a=document.createElement('a');
   a.href=URL.createObjectURL(blob); a.download='grasp_learn.csv'; a.click(); URL.revokeObjectURL(a.href);
@@ -1350,14 +1353,18 @@ function evalGraspContact(){
   if(res.length<2){ el.textContent='손가락 메시를 찾지 못함'; el.style.color='#fa6'; return; }
   res.sort((a,b)=>a.d-b.d); const a=res[0], b=res[1];
   const touch=x=>x.d<=CONTACT_TOL, pen=x=>x.d<-PEN_TOL;
-  // 닫힘축 = 두 손가락 중심을 잇는 선. 이 선이 물체 중심을 지나면 정렬(=양쪽 straddle 가능). J6(롤)이 이 방향을 좌우.
-  const cc=a.center.clone().add(b.center).multiplyScalar(0.5), cdir=b.center.clone().sub(a.center); const span=cdir.length(); if(span>1e-3)cdir.normalize();
-  const oc=center.clone().sub(cc), along=oc.dot(cdir), perp=oc.clone().addScaledVector(cdir,-along).length();
-  const aligned = perp <= Math.max(6, R*0.5);   // 닫힘선↔물체중심 수직거리
+  // 정렬축 = 두 손가락 '실제 접촉점'을 잇는 선(끝으로 잡아도 유효). 이 선이 물체 중심을 지나면 양쪽 straddle.
+  const cc=a.world.clone().add(b.world).multiplyScalar(0.5), cdir=b.world.clone().sub(a.world); const span=cdir.length(); if(span>1e-3)cdir.normalize();
+  const oc=center.clone().sub(cc), perp=oc.clone().addScaledVector(cdir,-oc.dot(cdir)).length();
+  // 안전도(깊이) = 손가락 '중심점' 선과의 거리. 작을수록 그리퍼 안쪽 깊이 잡음(안전), 클수록 끝으로 잡음(불안정).
+  const ccM=a.center.clone().add(b.center).multiplyScalar(0.5), dM=b.center.clone().sub(a.center); if(dM.length()>1e-3)dM.normalize();
+  const ocM=center.clone().sub(ccM), secure=ocM.clone().addScaledVector(dM,-ocM.dot(dM)).length();
+  const aligned=perp<=Math.max(6,R*0.5), deep=secure<=Math.max(12,R*0.8);   // 정렬 / 깊이
   let txt,col,mk;
   if(pen(a)||pen(b)){ txt=`⚠ 관통 — 손가락이 물체를 ${Math.round(Math.max(-a.d,-b.d))}mm 파고듦`; col='#f66'; mk=0xff5555; }
-  else if(touch(a)&&touch(b)&&aligned){ txt=`✅ 유효 파지 — 양쪽 접촉·정렬 (간격 ${a.d.toFixed(1)}·${b.d.toFixed(1)}mm)`; col='#6f6'; mk=0x44ff66; }
-  else if(touch(a)&&touch(b)){ txt=`⚠ 닫힘 방향 어긋남 — J6(롤) 조정 필요 (중심오차 ${perp.toFixed(0)}mm)`; col='#fa6'; mk=0xffaa44; }
+  else if(touch(a)&&touch(b)&&aligned&&deep){ txt=`✅ 유효·안전 파지 — 양쪽 접촉·깊게 (간격 ${a.d.toFixed(1)}·${b.d.toFixed(1)}mm)`; col='#6f6'; mk=0x44ff66; }
+  else if(touch(a)&&touch(b)&&aligned){ txt=`✅ 유효(끝으로 잡음) — 잡히지만 얕음 (깊이오차 ${secure.toFixed(0)}mm·중심 가까이가 안전)`; col='#cf6'; mk=0xbbee44; }
+  else if(touch(a)&&touch(b)){ txt=`⚠ 닫힘 방향 어긋남 — J6(롤) 조정 (정렬오차 ${perp.toFixed(0)}mm)`; col='#fa6'; mk=0xffaa44; }
   else if(touch(a)||touch(b)){ txt=`⚠ 헛잡음 — 한쪽만 접촉 (간격 ${a.d.toFixed(1)}·${b.d.toFixed(1)}mm)`; col='#fa6'; mk=0xffaa44; }
   else { txt=`미접촉 — 더 닫으세요 (간격 ${a.d.toFixed(1)}·${b.d.toFixed(1)}mm)`; col='#9cf'; mk=0x3399ff; }
   el.textContent=txt; el.style.color=col;
