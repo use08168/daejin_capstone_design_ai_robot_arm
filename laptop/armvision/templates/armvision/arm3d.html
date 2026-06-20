@@ -1139,16 +1139,43 @@ function _gridNear(O){   // O 근처 3×3×3 셀의 후보 자세
   for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++)for(let dz=-1;dz<=1;dz++){ const a=_tcpGrid.get((cx+dx)+'|'+(cy+dy)+'|'+(cz+dz)); if(a)for(const s of a)out.push(s); }
   return out;
 }
+// 그리퍼 몸체(손가락 제외)를 TCP-로컬로 1회 사전계산 → 충돌검사를 관절 재적용 없이 빠르게(대량 생성용)
+let _gripBodyLocal=null; const _gjM=new THREE.Matrix4(), _bv=new THREE.Vector3();
+function _precomputeGripperBody(){
+  const {grip}=_chainInfo(), fingers=new Set(gripMates().map(m=>m.child));
+  const t=_tcpPose(); if(!t||!t.ok){ _gripBodyLocal=null; return; }
+  const inv=new THREE.Matrix4().compose(t.pos, t.quat||_frameQuat(t), _ONE3).invert();   // 월드→TCP로컬
+  const pts=[], v=new THREE.Vector3();
+  for(const nm of grip){ if(fingers.has(nm))continue; const p=partByName(nm); if(!p||!p.mesh.visible)continue;
+    const mesh=p.mesh; mesh.updateMatrixWorld(true); const pos=mesh.geometry.attributes.position; if(!pos)continue;
+    const stride=Math.max(1,Math.floor(pos.count/40));
+    for(let i=0;i<pos.count;i+=stride){ v.fromBufferAttribute(pos,i).applyMatrix4(mesh.matrixWorld).applyMatrix4(inv); pts.push(v.clone()); } }
+  _gripBodyLocal=pts.length?pts:null;
+}
+function _bodyHitsObject(pos, quat, type, R, H, O){   // TCP 포즈에서 몸체가 물체에 침투하나(빠름, 관절 X)
+  if(!_gripBodyLocal) return false; _gjM.compose(pos, quat, _ONE3);
+  for(const lp of _gripBodyLocal){ _bv.copy(lp).applyMatrix4(_gjM); _bv.x-=O.x; _bv.y-=O.y; _bv.z-=O.z;   // 물체-로컬(축정렬)
+    if(_objSDF(_bv, type, R, H) < -3) return true; }
+  return false;
+}
 function _searchObjGrasp(O, type,R,H, invObj, approach){   // 물체 근처 도달자세 jaw평가 → 최적. null=후보없음
   const NEAR=Math.max(60,R+50), N2=NEAR*NEAR; let best=null;
   if(_tcpGrid && _tcpGridFor===graspDB){                       // 빠른 경로: 사전계산 TCP + 격자
+    let cand=[];
     for(const s of _gridNear(O)){ if(!s._tp) continue;
       if(approach==='vert' && !(s.ay<-0.6)) continue;
       if(approach==='horz' && !(Math.abs(s.ay)<0.4)) continue;
       const dx=s._tp.pos.x-O.x,dy=s._tp.pos.y-O.y,dz=s._tp.pos.z-O.z; if(dx*dx+dy*dy+dz*dz>N2) continue;
-      const Q=_jawEval(s._tp.pos, s._tp.quat, R, H, O); if(Q.reach && (!best||Q.cost<best.cost)) best={...Q, app:[s.ax,s.ay,s.az], j:s.j};
+      const Q=_jawEval(s._tp.pos, s._tp.quat, R, H, O); if(Q.reach) cand.push({s,Q}); }
+    if(!cand.length) return null;
+    cand.sort((a,b)=>a.Q.cost-b.Q.cost);                       // 품질순 → 충돌없는 최선 반환
+    let fb=null;
+    for(let k=0;k<Math.min(40,cand.length);k++){ const c=cand[k];
+      const hit=_bodyHitsObject(c.s._tp.pos, c.s._tp.quat, type, R, H, O);
+      if(!fb) fb={...c.Q, app:[c.s.ax,c.s.ay,c.s.az], j:c.s.j, collide:true};
+      if(!hit) return {...c.Q, app:[c.s.ax,c.s.ay,c.s.az], j:c.s.j, collide:false};
     }
-    return best;
+    return fb;                                                 // 충돌없는 자세 없음 → 최선(충돌) 반환
   }
   let cand=[];                                                // 느린 경로(격자 없을 때): 관절 적용
   for(const s of graspDB){
@@ -1171,6 +1198,7 @@ function genGraspLearnData(){
         floorY=(+$('glFloor').value||0), type=$('voType').value;
   _glRows=[]; _glRun=true; let i=0, ti=0, phase=(_tcpGrid&&_tcpGridFor===graspDB)?'gen':'tcp';
   if(phase==='tcp') _tcpGrid=null;   // 새 DB면 격자 새로 빌드(stale 방지)
+  _precomputeGripperBody();          // 그리퍼 몸체(TCP-로컬) 1회 계산 → 충돌검사용
   const rm=revMates(), saveJ=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle));
   const _M=new THREE.Matrix4();
   const BB={x0:1e9,x1:-1e9,y0:1e9,y1:-1e9,z0:1e9,z1:-1e9};   // 워크스페이스 경계(전역 음성 샘플용)
@@ -1196,7 +1224,7 @@ function genGraspLearnData(){
       const tooBig=(2*R > maxW);                   // 그리퍼 벌림보다 넓으면 물리적으로 못 잡음(자동 실패)
       for(const ap of ['vert','horz']){            // 물체마다 수직·수평 둘 다 시도·라벨 → 접근 선택 학습용
         const best=tooBig ? null : _searchObjGrasp(O, type,R,H, invObj, ap);
-        const succ=(best && best.reach && best.perp<12)?1:0;   // 고정 정렬 임계(크기 비례 X)
+        const succ=(best && best.reach && best.perp<12 && !best.collide)?1:0;   // 정렬 + 물체-몸체 충돌없음
         let qual=0;                                            // 파지 품질 점수(0~1): 접근정렬 + 중심 + 깊이
         if(succ){ const align=(ap==='vert')?Math.max(0,-best.app[1]):(1-Math.min(1,Math.abs(best.app[1])));   // 수직=정아래(-y)에 가까울수록·수평=수평면(y0)에 가까울수록
           const ps=1-Math.min(1,best.perp/12), ds=1-Math.min(1,best.secure/Math.max(1,gjaw.d));               // 중심 정렬·깊이
