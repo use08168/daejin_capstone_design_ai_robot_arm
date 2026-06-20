@@ -236,7 +236,8 @@
             높이<input id="voH" type="number" value="80" step="5" min="5" style="width:48px"><span class="muted">mm</span></div>
           <div class="row" style="margin-bottom:6px"><button class="primary" id="voShow" style="flex:1">표시 / 갱신(IK 목표에)</button><button class="ghost" id="voHide">숨김</button></div>
           <div class="row" style="margin-bottom:6px"><button id="voBest" style="flex:1;background:#7a3db5" title="물체 근처 도달 가능한 모든 자세를 훑어 실제 닫힘 품질(정렬·양쪽접촉·대칭)이 최고인 자세로 잡기">🔬 최적 파지 탐색 (수천 자세 평가)</button></div>
-          <div class="row" style="margin-bottom:0"><button id="voAI" style="flex:1;background:#1a7f4b" title="학습한 MLP로 수직/수평 파지가능 즉시 판정 → 추천 접근으로 검색·실행">🧠 AI 파지</button><select id="voAIap" title="접근 강제(자동=MLP 결정)" style="width:78px"><option value="auto">자동</option><option value="vert">수직 강제</option><option value="horz">수평 강제</option></select></div>
+          <div class="row" style="margin-bottom:6px"><button id="voAI" style="flex:1;background:#1a7f4b" title="학습한 MLP로 수직/수평 파지가능 즉시 판정 → 추천 접근으로 검색·실행">🧠 AI 파지</button><select id="voAIap" title="접근 강제(자동=MLP 결정)" style="width:78px"><option value="auto">자동</option><option value="vert">수직 강제</option><option value="horz">수평 강제</option></select></div>
+          <div class="row" style="margin-bottom:0"><button id="voOpt" style="flex:1;background:#b5803d" title="물체 고정, 근처 자세를 전수 평가해 물체가 jaw에 쏙 들어간·충돌 없는 최적 자세를 찾아 실행(접근=위 선택)">🎯 최적 자세 찾기 (충돌검사)</button></div>
           <div class="hintline" id="voStat" style="margin:6px 0 0;">물체를 IK 목표 위치에 표시 → 그리퍼 개폐 시 접촉 검증(아래). 🔬는 도달 자세를 훑어 닫힘 품질 최고로 잡기.</div>
           <div style="margin:8px 0 0; border-top:1px solid var(--c-line); padding-top:8px;">
             <div class="row" style="margin-bottom:4px;justify-content:space-between"><b style="font-size:12px">파지 접촉 검증 (C)</b><button class="ghost" id="voCheck" style="padding:2px 8px;font-size:12px">🤝 검사</button></div>
@@ -1388,6 +1389,7 @@ if($('voShow')){
   if($('voBest')) $('voBest').onclick=findBestGrasp;
   if($('voCheck')) $('voCheck').onclick=evalGraspContact;
   if($('voAI')) $('voAI').onclick=aiGrasp;
+  if($('voOpt')) $('voOpt').onclick=optimizeGraspForObject;
 }
 // 손목(J4·J5·J6) 국소 최적화 — roll 포함 wrist를 미세조정해 jaw 정렬(cost) 최소화. 충돌 시 원본 복귀.
 // 근거: 6-DOF 파지 샘플링의 'roll 각도' 최적화(approach-based/antipodal). DB 밀도 한계를 국소 hill-climb로 보완.
@@ -1428,6 +1430,57 @@ async function aiGrasp(){
   const refined=_refineWrist(best.j, type,R,H, O, invObj);   // 손목(J4~J6) 미세조정 → roll/정렬 최적화
   ikStat(`🧠 AI 파지: ${pick}${ov==='auto'?'':'(강제)'} 손목 정밀화 자세로 잡기… (${info})`);
   executeGrasp(refined, `AI ${pick}`);
+}
+// ===== 물체-그리퍼 몸체 충돌 검사 (손가락 제외) =====
+function _gripperHitsObject(invObj, type, R, H){
+  const {grip}=_chainInfo(); const fingers=new Set(gripMates().map(m=>m.child));
+  const v=new THREE.Vector3(), lv=new THREE.Vector3();
+  for(const nm of grip){ if(fingers.has(nm)) continue;                 // 손가락은 jaw 접촉 허용
+    const p=partByName(nm); if(!p||!p.mesh.visible) continue; const mesh=p.mesh; mesh.updateMatrixWorld(true);
+    const pos=mesh.geometry.attributes.position; if(!pos) continue; const stride=Math.max(1,Math.floor(pos.count/100));
+    for(let i=0;i<pos.count;i+=stride){ v.fromBufferAttribute(pos,i).applyMatrix4(mesh.matrixWorld); lv.copy(v).applyMatrix4(invObj);
+      if(_objSDF(lv,type,R,H) < -3) return true; }                     // 3mm 이상 침투 = 충돌
+  }
+  return false;
+}
+function _evalGraspFull(j, type,R,H, O, invObj){   // 관절 적용 → jaw 품질 + 물체-몸체 충돌. cost에 충돌 패널티.
+  const rm=revMates(), gm=gripMates(); const sj=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle)), sg=gm.map(m=>m.angle);
+  rm.forEach((m,i)=>{ if(i<6)m.angle=j[i]; }); gm.forEach(m=>{ if(m.gOpen!=null)m.angle=m.gOpen; }); applyAngles(); rigRoot.updateMatrixWorld(true);
+  const t=_tcpPose(); let out=null;
+  if(t&&t.ok){ const q=_jawEval(t.pos, t.quat||_frameQuat(t), R, H, O);
+    const collide=q.reach ? _gripperHitsObject(invObj,type,R,H) : false;
+    out={...q, collide, cost:(q.cost||999)+(collide?500:0), j:j.slice()}; }
+  rm.forEach((m,i)=>{ if(i<6)m.angle=sj[i]; }); gm.forEach((m,i)=>{ m.angle=sg[i]; }); applyAngles();
+  return out;
+}
+// 🎯 단일 물체 최적 자세 찾기 — 물체 고정, 근처 자세를 전수 평가(jaw 쏙 + 충돌없음 + 깊이) → 최적 실행
+let _optRun=false;
+function optimizeGraspForObject(){
+  if(_optRun) return;
+  if(!vObj){ ikStat('먼저 가상 물체를 표시하세요.'); return; }
+  if(!graspDB||!graspDB.length){ ikStat('grasp_dataset.csv 로드 필요.'); return; }
+  if(gripMates().length<2){ ikStat('그리퍼 손가락 2개(grip) 필요.'); return; }
+  const ov=($('voAIap')&&$('voAIap').value)||'auto';
+  const O=vObj.position.clone(), R=Math.max(3,+$('voR').value||25), H=Math.max(5,+$('voH').value||80), type=_typeId($('voType').value);
+  const invObj=new THREE.Matrix4().makeTranslation(-O.x,-O.y,-O.z), NEAR=Math.max(60,R+50), N2=NEAR*NEAR;
+  const cands=graspDB.filter(s=>{ if(ov==='vert'&&!(s.ay<-0.6))return false; if(ov==='horz'&&!(Math.abs(s.ay)<0.4))return false; const dx=s.tx-O.x,dy=s.ty-O.y,dz=s.tz-O.z; return dx*dx+dy*dy+dz*dz<=N2; });
+  if(!cands.length){ ikStat('물체 근처 도달 자세 없음 — 위치/DB 확인.'); return; }
+  _optRun=true; let i=0, best=null, nValid=0, nFree=0; const N=cands.length;
+  function chunk(){
+    const end=Math.min(i+120, N);
+    for(; i<end; i++){ const q=_evalGraspFull(cands[i].j, type,R,H, O, invObj); if(!q||!q.reach)continue; nValid++; if(!q.collide)nFree++;
+      if(!best || q.cost<best.cost) best=q; }
+    ikStat(`🎯 최적 자세 탐색 ${i}/${N} … 유효 ${nValid}·충돌없음 ${nFree}`);
+    if(i<N){ setTimeout(chunk,0); return; }
+    _optRun=false;
+    if(!best){ ikStat('유효 자세 없음 — jaw 보정/위치 확인.'); return; }
+    const rj=_refineWrist(best.j, type,R,H, O, invObj), rq=_evalGraspFull(rj, type,R,H, O, invObj);   // 손목 정밀화(충돌 재검)
+    if(rq && rq.cost<best.cost) best=rq;
+    const tag=best.collide?'⚠ 충돌 포함(충돌없는 자세 없음)':'✅ 충돌없음';
+    ikStat(`🎯 최적: ${tag} · 중심오차 ${best.perp.toFixed(0)}mm·깊이 ${best.secure.toFixed(0)}mm (${N}개중 유효 ${nValid}·충돌없음 ${nFree})`);
+    executeGrasp(best.j, `최적 ${tag}`);
+  }
+  chunk();
 }
 
 // ===== C: 손가락-물체 접촉 검출 (파지 검증) =====

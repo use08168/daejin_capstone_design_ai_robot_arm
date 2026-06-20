@@ -267,6 +267,7 @@ def _train_worker(csv_path, sample, epochs):
         Xtr_s, Xte_s = sc.transform(Xtr), sc.transform(Xte)
         clf = MLPClassifier(hidden_layer_sizes=(64, 64), max_iter=1, warm_start=True, random_state=0)
         classes = np.array([0, 1])
+        best_va, patience, PATIENCE = 0.0, 0, 8   # early stopping(과적합 방지): 검증 8 epoch 정체 시 중단
         for e in range(epochs):
             if not _TRAIN["running"]:
                 break
@@ -276,6 +277,13 @@ def _train_worker(csv_path, sample, epochs):
             _TRAIN["loss"].append(round(float(clf.loss_), 4))
             _TRAIN["val"].append(round(va, 4))
             _TRAIN["msg"] = f"학습 중 epoch {e+1}/{epochs} · loss {clf.loss_:.3f} · 검증 {va*100:.1f}%"
+            if va > best_va + 0.0005:
+                best_va, patience = va, 0
+            else:
+                patience += 1
+                if patience >= PATIENCE:
+                    _TRAIN["msg"] += " — early stop(정체)"
+                    break
 
         pred = clf.predict(Xte_s)
         acc = float(accuracy_score(yte, pred))
