@@ -1420,39 +1420,46 @@ function _poseErr(j, tPos, tQuat){   // 관절 j의 TCP가 목표 포즈에서 �
 }
 function _ikToPose(j0, tPos, tQuat, iters){   // j0에서 출발해 목표 TCP 포즈로 국소 IK(연속성 유지 → 직선접근)
   const rm=revMates(), sv=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle));
-  let best=j0.slice(), bc=_poseErr(best, tPos, tQuat), step=10;
-  for(let it=0; it<(iters||50); it++){ let imp=false;
+  let best=j0.slice(), bc=_poseErr(best, tPos, tQuat), step=12;
+  for(let it=0; it<(iters||80); it++){ let imp=false;
     for(let k=0;k<6;k++) for(const d of [step,-step]){ const c=best.slice(); c[k]=Math.max(0,Math.min(180,c[k]+d));
-      const e=_poseErr(c, tPos, tQuat); if(e<bc-0.05){ best=c; bc=e; imp=true; } }
-    if(!imp){ step*=0.5; if(step<0.5) break; } }
+      const e=_poseErr(c, tPos, tQuat); if(e<bc-0.03){ best=c; bc=e; imp=true; } }
+    if(!imp){ step*=0.5; if(step<0.4) break; } }
+  rm.forEach((m,i)=>{ if(i<6) m.angle=best[i]; }); applyAngles(); rigRoot.updateMatrixWorld(true);   // 최종 분리오차
+  const tf=_tcpPose(); let posErr=1e6, angErr=180;
+  if(tf&&tf.ok){ posErr=tf.pos.distanceTo(tPos); let dot=Math.abs((tf.quat||_frameQuat(tf)).dot(tQuat)); dot=Math.min(1,dot); angErr=2*Math.acos(dot)*180/Math.PI; }
   rm.forEach((m,i)=>{ if(i<6) m.angle=sv[i]; }); applyAngles();
-  return {j:best, err:bc};
+  return {j:best, err:bc, posErr, angErr};
 }
-function executeGraspTwoStage(Gj, label, approach, O){   // 이상 방향 정렬 → standoff → 직선 접근·파지·들기
+function _tcpOfJoints(j){   // 관절 j의 TCP 포즈(팔 복원). {pos,q} 또는 null
   const rm=revMates(), sv=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle));
-  rm.forEach((m,i)=>{ if(i<6) m.angle=Gj[i]; }); applyAngles(); rigRoot.updateMatrixWorld(true);
-  const t0=_tcpPose(); rm.forEach((m,i)=>{ if(i<6) m.angle=sv[i]; }); applyAngles();
-  if(!t0||!t0.ok){ executeGrasp(Gj, label); return; }
-  let q=(t0.quat||_frameQuat(t0)).clone(), gpos=t0.pos.clone();
-  let A=new THREE.Vector3(0,0,1).applyQuaternion(q).normalize();   // 기본=G의 느슨한 접근축
-  // 이상 자세: 수직=정아래·노란면 수평 / 수평=수평으로 중심 향함·손가락 수직(물체 y축 기준)
-  if(approach && O){
-    let z=null, up=null;
-    if(approach==='vert'){ z=new THREE.Vector3(0,-1,0); up=new THREE.Vector3(A.x,0,A.z); if(up.lengthSq()<1e-3)up.set(1,0,0); }
-    else { z=new THREE.Vector3(A.x,0,A.z); if(z.lengthSq()<1e-3)z.set(0,0,1); up=new THREE.Vector3(0,1,0); }
+  rm.forEach((m,i)=>{ if(i<6) m.angle=j[i]; }); applyAngles(); rigRoot.updateMatrixWorld(true);
+  const t=_tcpPose(); const r=(t&&t.ok)?{pos:t.pos.clone(), q:(t.quat||_frameQuat(t)).clone()}:null;
+  rm.forEach((m,i)=>{ if(i<6) m.angle=sv[i]; }); applyAngles(); return r;
+}
+function executeGraspTwoStage(Gj, label, approach, O){   // 이상 방향 정렬(가능한 만큼) → standoff → 직선 접근·파지·들기
+  let g=_tcpOfJoints(Gj); if(!g){ executeGrasp(Gj, label); return; }
+  let tilt=null;
+  if(approach && O){   // 이상 자세: 수직=정아래·노란면 수평 / 수평=수평으로 중심 향함·손가락 수직
+    const A0=new THREE.Vector3(0,0,1).applyQuaternion(g.q);
+    let z,up;
+    if(approach==='vert'){ z=new THREE.Vector3(0,-1,0); up=new THREE.Vector3(A0.x,0,A0.z); if(up.lengthSq()<1e-3)up.set(1,0,0); }
+    else { z=new THREE.Vector3(A0.x,0,A0.z); if(z.lengthSq()<1e-3)z.set(0,0,1); up=new THREE.Vector3(0,1,0); }
     z.normalize(); const x=new THREE.Vector3().crossVectors(up,z);
     if(x.lengthSq()>1e-6){ x.normalize(); const y=new THREE.Vector3().crossVectors(z,x).normalize();
       const qi=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x,y,z));
       const tTCP=O.clone().sub(new THREE.Vector3(gjaw.cx,gjaw.cy,gjaw.cz).applyQuaternion(qi));   // 물체가 jaw 중심에
       const Gi=_ikToPose(Gj, tTCP, qi);
-      if(Gi.err<30){ Gj=Gi.j; q=qi; gpos=tTCP; A=z; }   // 이상자세 도달가능 → 채택
+      if(Gi.posErr<25){ Gj=Gi.j; const gg=_tcpOfJoints(Gj); if(gg){ g=gg; tilt=Gi.angErr; } }   // 위치 도달 → '가능한 만큼' 이상자세 채택, 남은 기울기=angErr
     }
   }
-  const pre=_ikToPose(Gj, gpos.clone().addScaledVector(A,-GRASP_STANDOFF), q);   // 접근축 뒤 standoff (연속)
+  const A=new THREE.Vector3(0,0,1).applyQuaternion(g.q).normalize();   // 실제 도달 접근축으로 standoff/접근
+  const pre=_ikToPose(Gj, g.pos.clone().addScaledVector(A,-GRASP_STANDOFF), g.q);
   if(pre.err>80){ executeGrasp(Gj, label+' (직접 — standoff 도달 불가)'); return; }
-  const lift=_ikToPose(Gj, gpos.clone().add(new THREE.Vector3(0,GRASP_LIFT,0)), q);
+  const lift=_ikToPose(Gj, g.pos.clone().add(new THREE.Vector3(0,GRASP_LIFT,0)), g.q);
+  const tl = (tilt!=null) ? ` · 기울기 ${tilt.toFixed(0)}°${tilt>15?'(팔 구조 한계)':''}` : '';
   const steps=[
-    {joints:pre.j, grip:'open',  label:'① 프리그래스프(정렬·standoff)'},
+    {joints:pre.j, grip:'open',  label:'① 프리그래스프(정렬)'+tl},
     {joints:Gj,    grip:'close', label:'② 직선 접근·파지'},
   ];
   if(lift && lift.err<60) steps.push({joints:lift.j, grip:null, label:'③ 들기'});
