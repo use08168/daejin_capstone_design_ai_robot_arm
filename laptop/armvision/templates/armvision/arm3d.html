@@ -237,7 +237,8 @@
           <div class="row" style="margin-bottom:6px"><button class="primary" id="voShow" style="flex:1">표시 / 갱신(IK 목표에)</button><button class="ghost" id="voHide">숨김</button></div>
           <div class="row" style="margin-bottom:6px"><button id="voBest" style="flex:1;background:#7a3db5" title="물체 근처 도달 가능한 모든 자세를 훑어 실제 닫힘 품질(정렬·양쪽접촉·대칭)이 최고인 자세로 잡기">🔬 최적 파지 탐색 (수천 자세 평가)</button></div>
           <div class="row" style="margin-bottom:6px"><button id="voAI" style="flex:1;background:#1a7f4b" title="학습한 MLP로 수직/수평 파지가능 즉시 판정 → 추천 접근으로 검색·실행">🧠 AI 파지</button><select id="voAIap" title="접근 강제(자동=MLP 결정)" style="width:78px"><option value="auto">자동</option><option value="vert">수직 강제</option><option value="horz">수평 강제</option></select></div>
-          <div class="row" style="margin-bottom:0"><button id="voOpt" style="flex:1;background:#b5803d" title="물체 고정, 근처 자세를 전수 평가해 물체가 jaw에 쏙 들어간·충돌 없는 최적 자세를 찾아 실행(접근=위 선택)">🎯 최적 자세 찾기 (충돌검사)</button></div>
+          <div class="row" style="margin-bottom:6px"><button id="voOpt" style="flex:1;background:#b5803d" title="물체 고정, 근처 자세를 전수 평가해 물체가 jaw에 쏙 들어간·충돌 없는 최적 자세를 찾아 실행(접근=위 선택)">🎯 최적 자세 찾기 (충돌검사)</button></div>
+          <div class="row" style="margin-bottom:0"><button id="voMap" style="flex:1;background:#3a5a7a" title="이 물체 크기로 워크스페이스를 훑어 수직/수평 접근이 가능한(기울기 작은) 구역을 색으로 표시">🗺 접근 구역 맵 (수직/수평)</button></div>
           <div class="hintline" id="voStat" style="margin:6px 0 0;">물체를 IK 목표 위치에 표시 → 그리퍼 개폐 시 접촉 검증(아래). 🔬는 도달 자세를 훑어 닫힘 품질 최고로 잡기.</div>
           <div style="margin:8px 0 0; border-top:1px solid var(--c-line); padding-top:8px;">
             <div class="row" style="margin-bottom:4px;justify-content:space-between"><b style="font-size:12px">파지 접촉 검증 (C)</b><button class="ghost" id="voCheck" style="padding:2px 8px;font-size:12px">🤝 검사</button></div>
@@ -1465,6 +1466,60 @@ function executeGraspTwoStage(Gj, label, approach, O){   // 이상 방향 정렬
   if(lift && lift.err<60) steps.push({joints:lift.j, grip:null, label:'③ 들기'});
   graspSeq={steps, i:-1}; seqNext();
 }
+// ===== 접근 구역 맵: 이 물체 크기로 워크스페이스에서 수직/수평 접근(기울기 작음) 가능 구역 =====
+const _amGroup=new THREE.Group(); scene.add(_amGroup);
+function _clearAM(){ while(_amGroup.children.length){ const c=_amGroup.children[0]; _amGroup.remove(c); if(c.geometry)c.geometry.dispose(); if(c.material)c.material.dispose(); } }
+function _idealGraspTilt(O, type, R, H, approach){   // 그 위치에서 이상 자세(수직/수평) 도달 시 남은 기울기°. null=불가/충돌
+  const invObj=new THREE.Matrix4().makeTranslation(-O.x,-O.y,-O.z);
+  const best=_searchObjGrasp(O, type, R, H, invObj, approach);
+  if(!best || !best.reach || best.collide) return null;
+  const g0=_tcpOfJoints(best.j); if(!g0) return null;
+  const A0=new THREE.Vector3(0,0,1).applyQuaternion(g0.q);
+  let z,up;
+  if(approach==='vert'){ z=new THREE.Vector3(0,-1,0); up=new THREE.Vector3(A0.x,0,A0.z); if(up.lengthSq()<1e-3)up.set(1,0,0); }
+  else { z=new THREE.Vector3(A0.x,0,A0.z); if(z.lengthSq()<1e-3)z.set(0,0,1); up=new THREE.Vector3(0,1,0); }
+  z.normalize(); const x=new THREE.Vector3().crossVectors(up,z); if(x.lengthSq()<1e-6) return null;
+  x.normalize(); const y=new THREE.Vector3().crossVectors(z,x).normalize();
+  const qi=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x,y,z));
+  const tTCP=O.clone().sub(new THREE.Vector3(gjaw.cx,gjaw.cy,gjaw.cz).applyQuaternion(qi));
+  const Gi=_ikToPose(best.j, tTCP, qi);
+  if(Gi.posErr>25) return null;
+  return Gi.angErr;
+}
+let _amRun=false;
+function approachMap(){
+  if(_amRun){ _amRun=false; return; }                                   // 실행 중 → 중지
+  if(_amGroup.children.length){ _clearAM(); ikStat('🗺 접근맵 지움'); return; }   // 결과 있으면 → 지움
+  if(!graspDB||!graspDB.length){ ikStat('grasp_dataset.csv 로드 필요.'); return; }
+  if(gripMates().length<2){ ikStat('그리퍼 손가락 2개(grip) 필요.'); return; }
+  const type=_typeId($('voType').value), R=Math.max(3,+$('voR').value||15), H=Math.max(5,+$('voH').value||30);
+  const floorY=(+(($('glFloor')&&$('glFloor').value))||0), oY=floorY+H/2, TILT=20, STEP=45;
+  _clearAM(); _amRun=true;
+  const BB={x0:1e9,x1:-1e9,z0:1e9,z1:-1e9};
+  for(const s of graspDB){ if(s.tx<BB.x0)BB.x0=s.tx; if(s.tx>BB.x1)BB.x1=s.tx; if(s.tz<BB.z0)BB.z0=s.tz; if(s.tz>BB.z1)BB.z1=s.tz; }
+  const cells=[]; for(let x=BB.x0;x<=BB.x1;x+=STEP)for(let z=BB.z0;z<=BB.z1;z+=STEP)cells.push([x,z]);
+  const rm=revMates(), saveJ=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle));
+  let phase=(_tcpGrid&&_tcpGridFor===graspDB)?'map':'tcp', ti=0, i=0, nv=0, nh=0;
+  if(phase==='tcp') _tcpGrid=null; _precomputeGripperBody();
+  function chunk(){
+    if(!_amRun){ ikStat(`🗺 중지 (${i}/${cells.length})`); return; }
+    if(phase==='tcp'){ const done=_precomputeTcpStep(ti,3000); ti+=3000;
+      ikStat(`🗺 TCP 사전계산 ${Math.min(ti,graspDB.length)}/${graspDB.length}…`);
+      if(done){ rm.forEach((m,k)=>{ if(k<6)m.angle=saveJ[k]; }); applyAngles(); phase='map'; } setTimeout(chunk,0); return; }
+    const end=Math.min(i+30, cells.length);
+    for(; i<end; i++){ const O=new THREE.Vector3(cells[i][0], oY, cells[i][1]);
+      const tv=_idealGraspTilt(O,type,R,H,'vert'), th=_idealGraspTilt(O,type,R,H,'horz');
+      const v=(tv!=null&&tv<TILT), h=(th!=null&&th<TILT); if(!v&&!h)continue; if(v)nv++; if(h)nh++;
+      const col=(v&&h)?0x15b5b0:(v?0x2266ff:0x2ca02c);
+      const s=new THREE.Mesh(new THREE.SphereGeometry(7,8,6), new THREE.MeshBasicMaterial({color:col,depthTest:false,transparent:true,opacity:0.85}));
+      s.position.copy(O); s.renderOrder=995; _amGroup.add(s);
+    }
+    rm.forEach((m,k)=>{ if(k<6)m.angle=saveJ[k]; }); applyAngles();
+    ikStat(`🗺 접근맵 ${i}/${cells.length} · 수직 ${nv}·수평 ${nh} (파랑수직·초록수평·청록둘다, R${R}H${H}, 기울기<${TILT}°)`);
+    if(i<cells.length){ setTimeout(chunk,0); } else { _amRun=false; ikStat(`🗺 완료: 수직가능 ${nv}·수평가능 ${nh} 구역 (R${R}·H${H}). 다시 누르면 지움.`); }
+  }
+  chunk();
+}
 if($('voShow')){
   $('voShow').onclick=()=>{ showVObj(); clearCands(); evalGraspContact(); };
   $('voHide').onclick=()=>{ if(vObj){ scene.remove(vObj); vObj.geometry.dispose(); vObj.material.dispose(); vObj=null; } clearCands(); clearContactMarks(); $('voStat').textContent='숨김'; if($('voContact')){ $('voContact').textContent=''; } };
@@ -1472,6 +1527,7 @@ if($('voShow')){
   if($('voCheck')) $('voCheck').onclick=evalGraspContact;
   if($('voAI')) $('voAI').onclick=aiGrasp;
   if($('voOpt')) $('voOpt').onclick=optimizeGraspForObject;
+  if($('voMap')) $('voMap').onclick=approachMap;
 }
 // 손목(J4·J5·J6) 국소 최적화 — roll 포함 wrist를 미세조정해 jaw 정렬(cost) 최소화. 충돌 시 원본 복귀.
 // 근거: 6-DOF 파지 샘플링의 'roll 각도' 최적화(approach-based/antipodal). DB 밀도 한계를 국소 hill-climb로 보완.
