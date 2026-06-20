@@ -141,6 +141,42 @@ def fig_maps(clf, sc, X, y, ap):
     print(f"[그림] {out}  (좌=수직·우=수평 capability map)")
 
 
+def fig_3d(clf, sc, X):
+    """워크스페이스 3D 격자에서 파지가능 영역을 점구름으로 — 색=어느 접근(파랑 수직만·초록 수평만·청록 둘다)."""
+    from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 (projection='3d' 등록)
+    Rm, Hm = np.median(X[:, 4]), np.median(X[:, 5])
+    gx = np.linspace(X[:, 0].min(), X[:, 0].max(), 30)
+    gy = np.linspace(X[:, 1].min(), X[:, 1].max(), 30)
+    gz = np.linspace(X[:, 2].min(), X[:, 2].max(), 30)
+    GX, GY, GZ = np.meshgrid(gx, gy, gz, indexing="ij")
+    pts = np.column_stack([GX.ravel(), GY.ravel(), GZ.ravel()])
+
+    def predP(a):
+        grid = np.column_stack([pts, np.zeros(len(pts)), np.full(len(pts), Rm),
+                                np.full(len(pts), Hm), np.full(len(pts), a)])
+        return clf.predict_proba(sc.transform(grid))[:, 1]
+
+    pv, ph = predP(0), predP(1)
+    both = (pv > 0.5) & (ph > 0.5)
+    vonly = (pv > 0.5) & (ph <= 0.5)
+    honly = (ph > 0.5) & (pv <= 0.5)
+    fig = plt.figure(figsize=(10, 8.5))
+    ax = fig.add_subplot(111, projection="3d")
+    # '둘다'는 흐린 배경, '한쪽만'(접근이 갈리는 결정적 영역)은 진하게 강조
+    for m, c, lab, a, s in [(both, "#15b5b0", "둘 다 가능", 0.06, 5),
+                            (vonly, "#1f4fff", "수직만", 0.7, 13),
+                            (honly, "#2ca02c", "수평만", 0.7, 13)]:
+        ax.scatter(pts[m, 0], pts[m, 1], pts[m, 2], c=c, s=s, alpha=a, depthshade=True, label=f"{lab} ({m.sum()})")
+    ax.scatter([0], [0], [0], c="k", marker="^", s=70, label="로봇 베이스")
+    ax.set_title(f"학습된 3D 파지가능 영역 (R≈{Rm:.0f}·H≈{Hm:.0f}mm) — 색=접근")
+    ax.set_xlabel("x (mm)"); ax.set_ylabel("y (mm)"); ax.set_zlabel("z (mm)")
+    ax.legend(loc="upper left", fontsize=8); ax.view_init(elev=22, azim=-60)
+    os.makedirs(OUT_DIR, exist_ok=True)
+    out = os.path.join(OUT_DIR, "grasp-learned-3d.png")
+    fig.tight_layout(); fig.savefig(out, dpi=120); plt.close(fig)
+    print(f"[그림] {out}  (3D 파지가능 영역 · 접근별 색)")
+
+
 def main():
     path = sys.argv[1] if len(sys.argv) > 1 else r"C:\Users\use08\Downloads\grasp_learn.csv"
     X, y, ap, Xs, Js, rows = load(path)
@@ -150,6 +186,7 @@ def main():
     eval_approach_selection(clf, csc, X, y, ap)
     reg, rsc = train_regressor(Xs, Js)
     fig_maps(clf, csc, X, y, ap)
+    fig_3d(clf, csc, X)
     joblib.dump({"clf": clf, "clf_scaler": csc, "reg": reg, "reg_scaler": rsc,
                  "feats": FEATS, "jcols": JCOLS}, MODEL_PATH)
     print(f"[저장] {MODEL_PATH}")
