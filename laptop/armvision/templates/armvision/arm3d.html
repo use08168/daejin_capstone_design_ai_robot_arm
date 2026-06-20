@@ -239,8 +239,9 @@
         <div class="card sim-card" style="margin-top:10px;">
           <div class="ttl">파지 학습 데이터 생성 (L1 · 1단계)</div>
           <div class="hintline">물체마다 <b>수직·수평 접근을 둘 다 시도</b>해 접촉검출(C)로 각각 성공/품질 자동 라벨 → 물체당 2행 CSV. 형상·바닥에 따라 어느 접근이 되는지를 모델이 학습. 6DOF 데이터셋 로드 필요.</div>
-          <div class="row" style="margin-bottom:6px"><span class="muted" style="width:48px">물체수</span><input id="glN" type="number" value="800" step="100" min="50" style="width:64px">
-            <span class="muted" style="width:40px;text-align:right">반경</span><input id="glRmin" type="number" value="15" step="2" min="3" style="width:44px"><span class="muted">~</span><input id="glRmax" type="number" value="30" step="2" min="3" style="width:44px"><span class="muted">mm</span></div>
+          <div class="row" style="margin-bottom:6px"><span class="muted" style="width:48px">물체수</span><input id="glN" type="number" value="1500" step="100" min="50" style="width:64px">
+            <span class="muted" style="width:40px;text-align:right">반경</span><input id="glRmin" type="number" value="12" step="2" min="3" style="width:44px"><span class="muted">~</span><input id="glRmax" type="number" value="32" step="2" min="3" style="width:44px"><span class="muted">mm</span></div>
+          <div class="row" style="margin-bottom:6px"><span class="muted" style="width:48px">높이</span><input id="glHmin" type="number" value="15" step="5" min="5" style="width:64px"><span class="muted" style="width:40px;text-align:right">~</span><input id="glHmax" type="number" value="90" step="5" min="10" style="width:44px"><span class="muted">mm (납작~키큰)</span></div>
           <div class="row" style="margin-bottom:6px"><button class="primary" id="glRun" style="flex:1">▶ 데이터 생성 시작</button><button class="ghost" id="glStop">■ 중지</button><button class="ghost" id="glSave">💾 CSV</button></div>
           <div class="hintline" id="glStat" style="margin:0;">대기 — 물체 종류는 현재 선택(위 가상물체)을 사용. 시작하면 물체를 옮겨가며 라벨링합니다.</div>
         </div>
@@ -1102,7 +1103,8 @@ function genGraspLearnData(){
   if(!graspDB||!graspDB.length){ glStat('먼저 6DOF grasp_dataset.csv를 불러오세요(파지 IK 카드).'); return; }
   if(!graspHasQuat){ glStat('⚠ 6DOF 데이터셋(qx..qw) 필요 — 파지 재스윕 후 사용.'); return; }
   if(gripMates().length<2){ glStat('그리퍼 손가락 2개(grip 결합) 필요.'); return; }
-  const N=Math.max(50,+$('glN').value||800), Rmin=Math.max(3,+$('glRmin').value||15), Rmax=Math.max(Rmin,+$('glRmax').value||30), type=$('voType').value;
+  const N=Math.max(50,+$('glN').value||1500), Rmin=Math.max(3,+$('glRmin').value||12), Rmax=Math.max(Rmin,+$('glRmax').value||32),
+        Hmin=Math.max(5,+$('glHmin').value||15), Hmax=Math.max(Hmin,+$('glHmax').value||90), type=$('voType').value;
   _glRows=[]; _glRun=true; let i=0;
   const rm=revMates(), saveJ=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle));
   const _M=new THREE.Matrix4();
@@ -1117,7 +1119,7 @@ function genGraspLearnData(){
       if(Math.random()<0.6){ const s=graspDB[(Math.random()*graspDB.length)|0];   // 60% 도달영역 근처(양성+경계, 지터 ±35)
         O=new THREE.Vector3(s.tx+(Math.random()*2-1)*35, s.ty+(Math.random()*2-1)*35, s.tz+(Math.random()*2-1)*35); }
       else O=new THREE.Vector3(BB.x0+Math.random()*(BB.x1-BB.x0), BB.y0+Math.random()*(BB.y1-BB.y0), BB.z0+Math.random()*(BB.z1-BB.z0));   // 40% 전역(음성+경계)
-      const R=Rmin+Math.random()*(Rmax-Rmin), H=Math.max(40, R*3), invObj=_M.makeTranslation(-O.x,-O.y,-O.z).clone();
+      const R=Rmin+Math.random()*(Rmax-Rmin), H=Hmin+Math.random()*(Hmax-Hmin), invObj=_M.makeTranslation(-O.x,-O.y,-O.z).clone();   // 높이 독립(납작~키큰)
       if(vObj){ vObj.position.copy(O); vObj.updateMatrixWorld(true); }
       for(const ap of ['vert','horz']){            // 물체마다 수직·수평 둘 다 시도·라벨 → 접근 선택 학습용
         const best=_searchObjGrasp(O, type,R,H, invObj, ap);
