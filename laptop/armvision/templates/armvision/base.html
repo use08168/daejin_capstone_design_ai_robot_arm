@@ -44,7 +44,8 @@
     <a href="{% url 'armvision:setup' %}" class="{% if u == 'setup' %}active{% endif %}">2 · 캘리브레이션</a>
     <a href="{% url 'armvision:arm3d' %}?view=control" class="{% if u == 'arm3d' and request.GET.view != 'sim' %}active{% endif %}">3 · 3D 제어</a>
     <a href="{% url 'armvision:arm3d' %}?view=sim" class="{% if u == 'arm3d' and request.GET.view == 'sim' %}active{% endif %}">4 · 3D 시뮬레이터</a>
-    <a href="{% url 'armvision:control' %}" class="{% if u == 'control' %}active{% endif %}">5 · 자연어 제어</a>
+    <a href="{% url 'armvision:mlp' %}" class="{% if u == 'mlp' %}active{% endif %}">5 · MLP 학습</a>
+    <a href="{% url 'armvision:control' %}" class="{% if u == 'control' %}active{% endif %}">6 · 자연어 제어</a>
     {% endwith %}
   </nav>
   <main>{% block content %}{% endblock %}</main>

@@ -9,6 +9,7 @@ urlpatterns = [
     path("", views.index, name="index"),
     path("setup/", views.setup, name="setup"),
     path("control/", views.control, name="control"),
+    path("mlp/", views.mlp, name="mlp"),
     path("arm3d/", views.arm3d, name="arm3d"),
     path("cad/list/", views.cad_list, name="cad_list"),
     path("cad/<str:name>", views.cad_file, name="cad_file"),
@@ -20,6 +21,8 @@ urlpatterns = [
     path("arm/disconnect/", views.arm_disconnect, name="arm_disconnect"),
     path("arm/move/", views.arm_move, name="arm_move"),
     path("grasp/predict/", views.grasp_predict, name="grasp_predict"),
+    path("grasp/train/start/", views.grasp_train_start, name="grasp_train_start"),
+    path("grasp/train/status/", views.grasp_train_status, name="grasp_train_status"),
     # 카메라 선택
     path("cameras/", views.cameras_list, name="cameras_list"),
     path("cameras/config/", views.cameras_config, name="cameras_config"),
