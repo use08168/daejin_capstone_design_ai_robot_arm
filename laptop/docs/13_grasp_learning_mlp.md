@@ -121,3 +121,40 @@ python calibration/grasp_learn.py <grasp_learn.csv>   # 학습+평가+그림+모
   (C-space 능동학습과 동일).
 - **데이터 충실도:** 가상 jaw·바닥 기준이 실제 그리퍼와 정확히 맞아야 함(시각 조절·저장으로 보정).
 - **다음 단계:** 런타임 'AI 파지 제안'(Django 엔드포인트로 모델 서빙) → 능동학습 → 실물 검증.
+
+---
+
+## 8. 손목(J6) roll 최적화 — 문헌 근거
+
+6-DOF 파지 자세는 **접근축(approach) + 그 축 둘레의 roll 각도**로 정해지며, 이 **roll(우리 팔의 J6/손목)**
+을 명시적으로 샘플·최적화하는 것이 6-DOF 파지 생성 연구의 공통 원리다([R1]~[R4]).
+
+- **Approach-based 샘플링([R2]):** 표면 법선에 그리퍼를 정렬(접근 콘 반각 이내) + 접근각·**roll 각도**를 샘플.
+- **Antipodal 샘플링([R2][R3]):** 표면 접촉점 쌍을 잡고 그 축 둘레 **roll 회전**을 샘플 → force-closure로 평가.
+
+**본 프로젝트 적용:** FK-샘플링 DB는 J6가 균일 랜덤이라 밀도가 낮으면 잘 정렬된 roll을 못 찾는다. 그래서
+런타임 'AI 파지'에서 DB 최적 자세를 찾은 뒤, **손목(J4·J5·J6)을 국소 hill-climb으로 미세조정해 jaw
+정렬(닫힘축 중심오차)을 최소화**한다(`_refineWrist`, 충돌 시 원본 복귀). 근본 개선은 **더 조밀한 DB** 또는
+**객체 중심 antipodal+roll 생성**([R2][R3])이다.
+
+---
+
+## 9. 참고문헌
+
+**6-DOF 파지 자세 생성 · roll/접근 샘플링**
+- [R1] A. Mousavian, C. Eppner, D. Fox. *6-DOF GraspNet: Variational Grasp Generation for Object Manipulation.* ICCV 2019. <https://openaccess.thecvf.com/content_ICCV_2019/papers/Mousavian_6-DOF_GraspNet_Variational_Grasp_Generation_for_Object_Manipulation_ICCV_2019_paper.pdf>
+  — 파지 자세를 변분 생성. 접근+roll 6-DOF 표현의 대표 연구.
+- [R2] J. Huber et al. *Speeding up 6-DoF Grasp Sampling with Quality-Diversity.* arXiv:2403.06173, 2024. <https://arxiv.org/pdf/2403.06173>
+  — **approach-based/antipodal 샘플링의 파라미터(접근각·콘 회전·roll 각도)** 를 명시. 본 프로젝트의 roll(J6) 최적화 근거.
+- [R3] *QuickGrasp: Lightweight Antipodal Grasp Planning with Point Clouds.* arXiv:2504.19716, 2025. <https://arxiv.org/html/2504.19716v1>
+  — 점군에서 antipodal 파지 계획(경량). 접촉점+roll 샘플링·force-closure.
+- [R4] *GraNet: A Multi-Level Graph Network for 6-DoF Grasp Pose Generation in Cluttered Scenes.* arXiv:2312.03345, 2023. <https://arxiv.org/pdf/2312.03345>
+  — 군집 장면 6-DOF 파지 생성(그래프 신경망).
+
+**학습 도구 · 방법론**
+- [R5] F. Pedregosa et al. *Scikit-learn: Machine Learning in Python.* JMLR 12, 2011. <https://jmlr.org/papers/v12/pedregosa11a.html>
+  — 본 프로젝트의 `MLPClassifier`/`MLPRegressor`/`StandardScaler` 구현 라이브러리.
+- [R6] 자체 선행연구 — **디지털 트윈 안전 + C-space 충돌예측**. → [6_digital_twin_safety.md](6_digital_twin_safety.md).
+  — 시뮬 자가라벨 → MLP 학습 → 능동학습의 동일 레시피(파지에 그대로 적용).
+
+> 개념 토대: **antipodal 파지·force closure**(평행집게 안정 파지 기준), **다층 퍼셉트론·오차역전파**(지도학습).

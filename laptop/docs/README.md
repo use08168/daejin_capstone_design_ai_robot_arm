@@ -21,7 +21,7 @@
 | [10_grasp_ik_method.md](10_grasp_ik_method.md) | **데이터 기반 파지 IK — 방법론 도출 과정과 최종 정식화**(학술) — 비용함수 진화(v1→v4)·경로·capability 정식화 |
 | [11_gripper_design.md](11_gripper_design.md) | **그리퍼 정밀 설계** — 평행집게 개폐(prismatic) 시뮬·왜 디테일하게(파지 접촉검증)·J7 제어·리깅 드리프트 제거 |
 | [12_grasp_orientation_learning.md](12_grasp_orientation_learning.md) | **파지 방향 문제와 접근 조건부 학습** — 형상·바닥에 따른 수직/수평 결정·접근 타입별 데이터·접근 선택 학습 |
-| [13_grasp_learning_mlp.md](13_grasp_learning_mlp.md) | **파지 학습 MLP** — 참고 토대(C-space·sklearn)·입력 데이터·학습 원리·결과값(분류 92.7%·접근선택 86.8%)·용도(런타임 판단층) |
+| [13_grasp_learning_mlp.md](13_grasp_learning_mlp.md) | **파지 학습 MLP** — 참고 토대·입력 데이터·학습 원리·결과값(분류 92.7%·접근선택 86.8%)·용도·손목(J6)roll 최적화·**참고문헌**(6-DOF 파지 생성) |
 | [14_setup_procedure.md](14_setup_procedure.md) | 환경 구성 / 실행 절차 |
 | [15_aruco_markers.md](15_aruco_markers.md) | ArUco / ChArUco 마커 명세 |
 
