@@ -67,6 +67,7 @@
       <div class="metric"><div class="v" id="mAcc">—</div><div class="k">테스트 정확도</div></div>
       <div class="metric"><div class="v" id="mVert">—</div><div class="k">수직 정확도</div></div>
       <div class="metric"><div class="v" id="mHorz">—</div><div class="k">수평 정확도</div></div>
+      <div class="metric"><div class="v" id="mQ">—</div><div class="k">품질 MAE(낮을수록↑)</div></div>
       <div class="metric"><div class="v" id="mRows">—</div><div class="k">학습 행수</div></div>
     </div>
     <p class="hint" style="margin-top:10px;">학습 완료 시 <code>grasp_model.joblib</code>이 갱신됩니다(기존 회귀기 보존). → 4페이지 <b>🧠 AI 파지</b>가 새 모델을 사용합니다.
@@ -127,6 +128,7 @@ async function poll(){
       $('mAcc').textContent=(m.acc*100).toFixed(1)+'%';
       $('mVert').textContent=m.per&&m.per.vert!=null?(m.per.vert*100).toFixed(1)+'%':'—';
       $('mHorz').textContent=m.per&&m.per.horz!=null?(m.per.horz*100).toFixed(1)+'%':'—';
+      $('mQ').textContent=m.qmae!=null?m.qmae:'—';
       $('mRows').textContent=(m.rows||0).toLocaleString();
     }
   }

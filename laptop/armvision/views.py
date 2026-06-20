@@ -179,9 +179,18 @@ def grasp_predict(request):
 
         pv = float(clf.predict_proba(feat(0))[0, 1])
         ph = float(clf.predict_proba(feat(1))[0, 1])
-        approach = "vert" if pv >= ph else "horz"
-        out = {"ok": True, "vert": round(pv, 3), "horz": round(ph, 3),
-               "approach": approach, "graspable": bool(max(pv, ph) >= 0.5)}
+        out = {"ok": True, "vert": round(pv, 3), "horz": round(ph, 3)}
+        # 품질 회귀가 있으면 품질로 접근 결정(잘 잡히는 쪽), 없으면 가능성으로
+        qreg = m.get("qreg")
+        if qreg is not None:
+            qv = float(qreg.predict(feat(0))[0]); qh = float(qreg.predict(feat(1))[0])
+            out["qvert"] = round(qv, 3); out["qhorz"] = round(qh, 3)
+            out["approach"] = "vert" if qv >= qh else "horz"
+            out["graspable"] = bool(max(qv, qh) >= 0.25)   # 품질 임계
+        else:
+            out["approach"] = "vert" if pv >= ph else "horz"
+            out["graspable"] = bool(max(pv, ph) >= 0.5)
+        approach = out["approach"]
         reg, rsc = m.get("reg"), m.get("reg_scaler")
         if reg is not None:
             ap = 0 if approach == "vert" else 1
@@ -247,9 +256,13 @@ def _train_worker(csv_path, sample, epochs):
         X = df[_FEATS].to_numpy(dtype=float)
         y = df["success"].to_numpy(dtype=int)
         ap = X[:, 6].astype(int)
+        q = df["quality"].to_numpy(dtype=float) if "quality" in df.columns else None
         _TRAIN["msg"] = f"{len(X):,}행 · 학습 준비"
 
-        Xtr, Xte, ytr, yte, _, ate = train_test_split(X, y, ap, test_size=0.2, random_state=0, stratify=y)
+        if q is not None:
+            Xtr, Xte, ytr, yte, _, ate, qtr, qte = train_test_split(X, y, ap, q, test_size=0.2, random_state=0, stratify=y)
+        else:
+            Xtr, Xte, ytr, yte, _, ate = train_test_split(X, y, ap, test_size=0.2, random_state=0, stratify=y)
         sc = StandardScaler().fit(Xtr)
         Xtr_s, Xte_s = sc.transform(Xtr), sc.transform(Xte)
         clf = MLPClassifier(hidden_layer_sizes=(64, 64), max_iter=1, warm_start=True, random_state=0)
@@ -271,9 +284,20 @@ def _train_worker(csv_path, sample, epochs):
             m = ate == a
             if m.any():
                 per[nm] = round(float(accuracy_score(yte[m], pred[m])), 3)
-        # 모델 저장(기존 회귀기 보존, 분류기·스케일러 교체)
+
+        # 품질 회귀: (물체+접근) → 파지 품질 점수(0~1, 접근정렬+중심+깊이). quality 열 있을 때만.
+        qreg = None; qmae = None
+        if q is not None and _TRAIN["running"]:
+            _TRAIN["msg"] = "품질 모델 학습 중…"
+            from sklearn.neural_network import MLPRegressor
+            from sklearn.metrics import mean_absolute_error
+            qreg = MLPRegressor(hidden_layer_sizes=(64, 64), max_iter=300, random_state=0)
+            qreg.fit(Xtr_s, qtr)
+            qmae = round(float(mean_absolute_error(qte, qreg.predict(Xte_s))), 3)
+
+        # 모델 저장(기존 자세회귀기 보존, 분류기·품질회귀·스케일러 교체)
         mp = os.path.join(os.path.dirname(__file__), "..", "calibration", "grasp_model.joblib")
-        out = {"clf": clf, "clf_scaler": sc, "reg": None, "reg_scaler": None,
+        out = {"clf": clf, "clf_scaler": sc, "qreg": qreg, "reg": None, "reg_scaler": None,
                "feats": _FEATS, "jcols": ["J1", "J2", "J3", "J4", "J5", "J6"]}
         try:
             old = joblib.load(mp); out["reg"] = old.get("reg"); out["reg_scaler"] = old.get("reg_scaler")
@@ -283,9 +307,9 @@ def _train_worker(csv_path, sample, epochs):
         _GRASP_MODEL = None  # /grasp/predict 캐시 무효화 → 새 모델 로드
 
         _TRAIN["metrics"] = {"acc": round(acc, 3), "per": per, "rows": int(len(X)),
-                             "pos": int(y.sum()), "epochs": _TRAIN["epoch"]}
+                             "pos": int(y.sum()), "epochs": _TRAIN["epoch"], "qmae": qmae}
         _TRAIN["done"] = True
-        _TRAIN["msg"] = f"완료 — 테스트 정확도 {acc*100:.1f}%"
+        _TRAIN["msg"] = f"완료 — 정확도 {acc*100:.1f}%" + (f" · 품질 MAE {qmae}" if qmae is not None else "")
     except Exception as ex:
         _TRAIN["error"] = str(ex)
     finally:

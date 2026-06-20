@@ -1196,7 +1196,11 @@ function genGraspLearnData(){
       for(const ap of ['vert','horz']){            // 물체마다 수직·수평 둘 다 시도·라벨 → 접근 선택 학습용
         const best=tooBig ? null : _searchObjGrasp(O, type,R,H, invObj, ap);
         const succ=(best && best.reach && best.perp<12)?1:0;   // 고정 정렬 임계(크기 비례 X)
-        _glRows.push([O.x,O.y,O.z, _typeId(type), R, H, (ap==='vert'?0:1), succ,
+        let qual=0;                                            // 파지 품질 점수(0~1): 접근정렬 + 중심 + 깊이
+        if(succ){ const align=(ap==='vert')?Math.max(0,-best.app[1]):(1-Math.min(1,Math.abs(best.app[1])));   // 수직=정아래(-y)에 가까울수록·수평=수평면(y0)에 가까울수록
+          const ps=1-Math.min(1,best.perp/12), ds=1-Math.min(1,best.secure/Math.max(1,gjaw.d));               // 중심 정렬·깊이
+          qual=+(0.4*align+0.3*ps+0.3*ds).toFixed(3); }
+        _glRows.push([O.x,O.y,O.z, _typeId(type), R, H, (ap==='vert'?0:1), succ, qual,
           best?best.perp:'', best?best.secure:'', best?best.gA:'', best?best.gB:'',
           best?best.app[0]:'', best?best.app[1]:'', best?best.app[2]:'',
           ...(best?best.j.slice(0,6):['','','','','',''])]);
@@ -1211,7 +1215,7 @@ function genGraspLearnData(){
 }
 function saveGraspLearnCsv(){
   if(!_glRows.length){ glStat('데이터 없음 — 먼저 생성하세요.'); return; }
-  const hdr=['obj_x','obj_y','obj_z','type','R','H','approach','success','perp','secure','gapA','gapB','app_x','app_y','app_z','J1','J2','J3','J4','J5','J6'];
+  const hdr=['obj_x','obj_y','obj_z','type','R','H','approach','success','quality','perp','secure','gapA','gapB','app_x','app_y','app_z','J1','J2','J3','J4','J5','J6'];
   const body=_glRows.map(r=>r.map(v=>typeof v==='number'?+v.toFixed(2):v).join(',')).join('\n');
   const blob=new Blob([hdr.join(',')+'\n'+body],{type:'text/csv'}); const a=document.createElement('a');
   a.href=URL.createObjectURL(blob); a.download='grasp_learn.csv'; a.click(); URL.revokeObjectURL(a.href);
@@ -1411,18 +1415,19 @@ async function aiGrasp(){
   let res; try{ res=await (await fetch('/grasp/predict/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({x:O.x,y:O.y,z:O.z,type,R,H})})).json(); }
   catch(e){ ikStat('AI 파지 실패: 서버 응답 없음'); return; }
   if(!res.ok){ ikStat('AI 파지 실패: '+(res.error||'?')); return; }
-  const pct=v=>Math.round(v*100);
-  const ov=($('voAIap')&&$('voAIap').value)||'auto';   // 접근 강제(자동=MLP 결정)
-  const ap=(ov==='auto')?res.approach:ov, apP=(ap==='vert')?res.vert:res.horz, pick=ap==='vert'?'수직':'수평';
-  if(ov==='auto' && !res.graspable){ ikStat(`🧠 잡기 어려움 — 수직 ${pct(res.vert)}% · 수평 ${pct(res.horz)}% (둘 다 낮음). 위치·크기 변경.`); return; }
-  ikStat(`🧠 수직 ${pct(res.vert)}% · 수평 ${pct(res.horz)}% → ${pick}${ov==='auto'?'':'(강제)'} 정밀 자세 검색…`);
-  if(!graspDB||!graspDB.length){ ikStat(`🧠 판정 OK(${pick} ${pct(apP)}%) — 정밀 자세 실행은 grasp_dataset.csv 로드 필요.`); return; }
+  const pct=v=>Math.round(v*100), hasQ=res.qvert!=null;   // 품질 모델 학습됐으면 품질로 결정
+  const info=hasQ ? `품질 수직 ${res.qvert} · 수평 ${res.qhorz}` : `수직 ${pct(res.vert)}% · 수평 ${pct(res.horz)}%`;
+  const ov=($('voAIap')&&$('voAIap').value)||'auto';   // 접근 강제(자동=모델 결정)
+  const ap=(ov==='auto')?res.approach:ov, pick=ap==='vert'?'수직':'수평';
+  if(ov==='auto' && !res.graspable){ ikStat(`🧠 잡기 어려움 — ${info} (둘 다 낮음). 위치·크기 변경.`); return; }
+  ikStat(`🧠 ${info} → ${pick}${ov==='auto'?'':'(강제)'} 정밀 자세 검색…`);
+  if(!graspDB||!graspDB.length){ ikStat(`🧠 판정 OK(${pick}) — 정밀 자세 실행은 grasp_dataset.csv 로드 필요.`); return; }
   const invObj=new THREE.Matrix4().makeTranslation(-O.x,-O.y,-O.z);
   const best=_searchObjGrasp(O, type,R,H, invObj, ap);
   if(!best || !best.reach){ ikStat(`🧠 ${pick} 자세 검색 실패 — ${ov==='auto'?'jaw 보정/위치 확인.':'이 위치엔 '+pick+' 자세가 DB에 없음(다른 접근/DB 보강).'}`); return; }
   const refined=_refineWrist(best.j, type,R,H, O, invObj);   // 손목(J4~J6) 미세조정 → roll/정렬 최적화
-  ikStat(`🧠 AI 파지: ${pick}${ov==='auto'?'':'(강제)'} ${pct(apP)}% 손목 정밀화 자세로 잡기…`);
-  executeGrasp(refined, `AI ${pick} ${pct(apP)}%`);
+  ikStat(`🧠 AI 파지: ${pick}${ov==='auto'?'':'(강제)'} 손목 정밀화 자세로 잡기… (${info})`);
+  executeGrasp(refined, `AI ${pick}`);
 }
 
 // ===== C: 손가락-물체 접촉 검출 (파지 검증) =====
