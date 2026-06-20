@@ -8,7 +8,7 @@
 ## 사전 준비물
 
 - **ChArUco 보드** 인쇄(`calibration/calibration_targets.pdf` 1쪽), 평판에 평평히 부착
-- **로봇 마커** 인쇄(`calibration/arm_markers.pdf`): 베이스 id0(70mm), 추적 id1~12(40mm) — [13_aruco_markers.md](13_aruco_markers.md)
+- **로봇 마커** 인쇄(`calibration/arm_markers.pdf`): 베이스 id0(70mm), 추적 id1~12(40mm) — [14_aruco_markers.md](14_aruco_markers.md)
 - **카메라 2대**: 서로 리지드하게 고정(같은 프레임 권장), 작업면에서 **0.5~0.9m**, 대각선 위에서 내려다보게
 
 ---

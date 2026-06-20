@@ -20,8 +20,9 @@
 | [9_grasp_pipeline.md](9_grasp_pipeline.md) | **물체 파지 파이프라인** — TCP 정의·축보정·파지DB·6DOF IK·방향별 도달영역(capability map) |
 | [10_grasp_ik_method.md](10_grasp_ik_method.md) | **데이터 기반 파지 IK — 방법론 도출 과정과 최종 정식화**(학술) — 비용함수 진화(v1→v4)·경로·capability 정식화 |
 | [11_gripper_design.md](11_gripper_design.md) | **그리퍼 정밀 설계** — 평행집게 개폐(prismatic) 시뮬·왜 디테일하게(파지 접촉검증)·J7 제어·리깅 드리프트 제거 |
-| [12_setup_procedure.md](12_setup_procedure.md) | 환경 구성 / 실행 절차 |
-| [13_aruco_markers.md](13_aruco_markers.md) | ArUco / ChArUco 마커 명세 |
+| [12_grasp_orientation_learning.md](12_grasp_orientation_learning.md) | **파지 방향 문제와 접근 조건부 학습** — 형상·바닥에 따른 수직/수평 결정·접근 타입별 데이터·접근 선택 학습 |
+| [13_setup_procedure.md](13_setup_procedure.md) | 환경 구성 / 실행 절차 |
+| [14_aruco_markers.md](14_aruco_markers.md) | ArUco / ChArUco 마커 명세 |
 
 > **현황:** ① YOLO-World 탐지 + 객체 id, ② ChArUco 스테레오 캘리브레이션(~0.5px, 588mm) + 삼각측량 3D(30mm를 0.32mm 오차로 복원) — 실측 검증. ③ STL 3D 시뮬레이터로 6관절 조립·리깅 완료 → 관절 슬라이더가 3D+실물 서보 동시 구동(연동 ON/OFF). ④ 디지털 트윈 안전검증(C-space 충돌지도·신경망 99.5%·능동학습)·콜드스타트 자가보정. ⑤ **파지 파이프라인**(FK 샘플링 파지 DB 10만·6DOF IK·capability map) + **그리퍼 정밀 개폐**(평행집게 슬라이드·J7 제어). **다음: 손가락-물체 접촉 검증 → AI 서버 연동.**
 

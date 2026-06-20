@@ -5,7 +5,7 @@
 > 즉 본 비전 측정 파이프라인이 **물리적으로 정확**하며, 이후 시각-운동학 자가보정(콜드스타트)의
 > 신뢰할 수 있는 입력이 됨을 **두 차례 독립 실행(24·30자세)** 의 실측으로 입증한다.
 
-관련: [3_coordinate_3d_pipeline.md](3_coordinate_3d_pipeline.md) · [8_arm3d_simulator.md](8_arm3d_simulator.md) · [13_aruco_markers.md](13_aruco_markers.md)
+관련: [3_coordinate_3d_pipeline.md](3_coordinate_3d_pipeline.md) · [8_arm3d_simulator.md](8_arm3d_simulator.md) · [14_aruco_markers.md](14_aruco_markers.md)
 
 ---
 
