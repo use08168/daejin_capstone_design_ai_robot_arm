@@ -1429,13 +1429,18 @@ function executePlace(){
   const py=($('plY')&&$('plY').value!=='')?+$('plY').value:(floorY+H/2);   // 놓을 높이(물체 중심)
   const cur=revMates().slice(0,6).map(m=>(m.angle==null?90:m.angle)), g=_tcpOfJoints(cur);
   if(!g||!vObj){ ikStat('TCP/물체 오류'); return; }
-  const q=g.q.clone(), offW=_held.localPos.clone().applyQuaternion(q);   // 물체→TCP 오프셋(월드, 든 자세 유지)
+  // 자이로: 접근이 수평이면 jaw를 수평 레벨로(손가락축 y=수직) → 물체 안 기울게. ow↑로 J6 충분히 돌려 유지
+  let q=g.q.clone(); const zc=new THREE.Vector3(0,0,1).applyQuaternion(q);
+  if(Math.abs(zc.y)<0.7){ const z=new THREE.Vector3(zc.x,0,zc.z);
+    if(z.lengthSq()>1e-4){ z.normalize(); const up=new THREE.Vector3(0,1,0), x=new THREE.Vector3().crossVectors(up,z).normalize(), y=new THREE.Vector3().crossVectors(z,x).normalize();
+      q=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x,y,z)); } }
+  const OW=4, offW=_held.localPos.clone().applyQuaternion(q);            // 자세 가중치↑(수평 유지)
   const tcpFor=(c)=>c.clone().sub(offW);                                  // 물체중심 → TCP
-  const objCur=vObj.position.clone(), transY=Math.max(objCur.y, py)+90;   // 운반 높이(현재·목표 중 높은 곳+여유) → 바닥 안 쓸게
+  const objCur=vObj.position.clone(), transY=Math.max(objCur.y, py)+90;   // 운반 높이(바닥 안 쓸게)
   const wpA=new THREE.Vector3(objCur.x, transY, objCur.z);                // ① 들어올림
   const wpB=new THREE.Vector3(px, transY, pz);                            // ② 운반(목표 위)
   const wpC=new THREE.Vector3(px, py, pz);                                // ③ 하강(놓기)
-  const jA=_ikToPose(cur, tcpFor(wpA), q), jB=_ikToPose(jA.j, tcpFor(wpB), q), jC=_ikToPose(jB.j, tcpFor(wpC), q);
+  const jA=_ikToPose(cur, tcpFor(wpA), q, 90, OW), jB=_ikToPose(jA.j, tcpFor(wpB), q, 90, OW), jC=_ikToPose(jB.j, tcpFor(wpC), q, 90, OW);
   if(jB.posErr>40 || jC.posErr>40){ ikStat(`✗ 놓을 위치 도달 불가 (오차 ${Math.max(jB.posErr,jC.posErr).toFixed(0)}mm) — 접근맵 가능구역으로`); return; }
   graspSeq={steps:[
     {joints:jA.j, grip:null,   label:'① 들어올림'},
@@ -1451,18 +1456,18 @@ function _directGrasp(Gj, label){   // 폴백: G로 직접 이동 + 닫기 + 부
   graspSeq={steps, i:-1}; seqNext();
 }
 // ===== (b) standoff → 직선 접근 두 단계 집기 =====
-function _poseErr(j, tPos, tQuat){   // 관절 j의 TCP가 목표 포즈에서 얼마나 벗어났나(위치mm + 자세도)
+function _poseErr(j, tPos, tQuat, ow){   // 관절 j의 TCP가 목표 포즈에서 벗어남(위치mm + 자세도×ow). ow↑=자세 우선(J6로 수평 유지)
   const rm=revMates(); rm.forEach((m,i)=>{ if(i<6) m.angle=j[i]; }); applyAngles(); rigRoot.updateMatrixWorld(true);
   const t=_tcpPose(); if(!t||!t.ok) return 1e6;
   let dot=Math.abs((t.quat||_frameQuat(t)).dot(tQuat)); dot=Math.min(1,dot);
-  return t.pos.distanceTo(tPos) + (2*Math.acos(dot)*180/Math.PI)*1.5;
+  return t.pos.distanceTo(tPos) + (2*Math.acos(dot)*180/Math.PI)*(ow||1.5);
 }
-function _ikToPose(j0, tPos, tQuat, iters){   // j0에서 출발해 목표 TCP 포즈로 국소 IK(연속성 유지 → 직선접근)
+function _ikToPose(j0, tPos, tQuat, iters, ow){   // j0에서 목표 TCP 포즈로 국소 IK(연속). ow=자세가중치
   const rm=revMates(), sv=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle));
-  let best=j0.slice(), bc=_poseErr(best, tPos, tQuat), step=12;
+  let best=j0.slice(), bc=_poseErr(best, tPos, tQuat, ow), step=12;
   for(let it=0; it<(iters||80); it++){ let imp=false;
     for(let k=0;k<6;k++) for(const d of [step,-step]){ const c=best.slice(); c[k]=Math.max(0,Math.min(180,c[k]+d));
-      const e=_poseErr(c, tPos, tQuat); if(e<bc-0.03){ best=c; bc=e; imp=true; } }
+      const e=_poseErr(c, tPos, tQuat, ow); if(e<bc-0.03){ best=c; bc=e; imp=true; } }
     if(!imp){ step*=0.5; if(step<0.4) break; } }
   rm.forEach((m,i)=>{ if(i<6) m.angle=best[i]; }); applyAngles(); rigRoot.updateMatrixWorld(true);   // 최종 분리오차
   const tf=_tcpPose(); let posErr=1e6, angErr=180;
