@@ -1075,26 +1075,22 @@ function optimizeRoll(){
   executeGrasp(best.g.j, `롤정렬 Δ롤${best.deg}°·중심오차 ${bestPerp.toFixed(0)}mm`);
 }
 // 최적 파지 탐색 — 물체 근처 도달 가능 자세를 모두 평가, 실제 닫힘 품질이 최고인 자세 선택
-const _ONE3=new THREE.Vector3(1,1,1), _gjInv=new THREE.Matrix4();
-function _graspQuality(j, type,R,H, invObj, O){   // 가상 jaw 기반: 물체가 jaw 박스 안에 잡히나 + 깊이(안전). cost 낮을수록 좋음
+const _ONE3=new THREE.Vector3(1,1,1), _gjInv=new THREE.Matrix4(), _loV=new THREE.Vector3();
+function _jawEval(pos, quat, R, H, O){   // TCP 월드포즈(pos,quat) 기준 jaw 판정 — 순수 기하(관절적용 X). 대량 라벨링용
+  _gjInv.compose(pos, quat, _ONE3).invert();
+  _loV.copy(O).applyMatrix4(_gjInv);                       // 물체중심 → jaw(TCP) 로컬
+  const lx=_loV.x-gjaw.cx, ly=_loV.y-gjaw.cy, lz=_loV.z-gjaw.cz;
+  const fit=(2*R<=gjaw.w), slack=Math.max(2, gjaw.w/2-R);
+  const valid=fit && Math.abs(lx)<=slack && (lz>=-gjaw.d/2-3 && lz<=gjaw.d/2+3) && Math.abs(ly)<=gjaw.h/2+R;
+  const depthFromBase=Math.max(0, lz+gjaw.d/2);            // 0=가장 깊음(베이스·안전) … d=손끝(얕음)
+  return {cost: valid?(Math.abs(lx)+0.3*depthFromBase):999, perp:Math.abs(lx), secure:depthFromBase, gA:lz, gB:ly, reach:valid};
+}
+function _graspQuality(j, type,R,H, invObj, O){   // 관절각 j를 적용해 TCP 구한 뒤 jaw 판정(국소 정밀화용, 느림)
   if(gripMates().length<2) return null;
   const rm=revMates(), save=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle));
   rm.forEach((m,i)=>{ if(i<6) m.angle=j[i]; }); applyAngles(); rigRoot.updateMatrixWorld(true);
   const t=_tcpPose(); let out=null;
-  if(t&&t.ok){
-    const q=t.quat||_frameQuat(t);
-    _gjInv.compose(t.pos, q, _ONE3).invert();
-    const lo=O.clone().applyMatrix4(_gjInv);                  // 물체중심 → jaw(TCP) 로컬
-    const lx=lo.x-gjaw.cx, ly=lo.y-gjaw.cy, lz=lo.z-gjaw.cz;  // jaw 중심 기준
-    const fit=(2*R<=gjaw.w), slack=Math.max(2, gjaw.w/2-R);   // 벌림 안에 들어옴
-    const centered=Math.abs(lx)<=slack;                        // 닫힘축(x) 중심에 위치
-    const inDepth=(lz>=-gjaw.d/2-3 && lz<=gjaw.d/2+3);         // jaw 깊이 안(베이스~손끝)
-    const inHeight=Math.abs(ly)<=gjaw.h/2+R;                   // jaw 높이 안
-    const valid=fit&&centered&&inDepth&&inHeight;
-    const depthFromBase=Math.max(0, lz+gjaw.d/2);              // 0=가장 깊음(베이스·안전) … d=손끝(얕음)
-    const cost=valid ? (Math.abs(lx)+0.3*depthFromBase) : 999; // 중심 가깝고 깊게 잡을수록 우선
-    out={cost, perp:Math.abs(lx), secure:depthFromBase, gA:lz, gB:ly, reach:valid, j:j.slice()};
-  }
+  if(t&&t.ok){ const r=_jawEval(t.pos, t.quat||_frameQuat(t), R, H, O); out={...r, j:j.slice()}; }
   rm.forEach((m,i)=>{ if(i<6) m.angle=save[i]; }); applyAngles();   // 복원(팔 안 움직임)
   return out;
 }
@@ -1125,15 +1121,41 @@ function findBestGrasp(){
 // ===== L1 파지 학습 · 1단계: 데이터 생성 (접촉검출 C로 자동 라벨) =====
 function glStat(m){ const e=$('glStat'); if(e) e.textContent=m; }
 function _typeId(t){ return t==='cyl'?0:t==='sph'?1:t==='box'?2:3; }
-function _searchObjGrasp(O, type,R,H, invObj, approach){   // 물체 근처 도달자세를 품질평가 → 최적(동기). approach='vert'|'horz'|undefined(전체). null=후보없음
-  const NEAR=Math.max(60,R+50), N2=NEAR*NEAR; let cand=[];
+// 대량 생성 최적화: DB 각 자세의 TCP 월드포즈를 1회 사전계산 + 공간격자 인덱스 → 라벨링이 순수 기하(수백배 빠름)
+let _tcpGrid=null, _tcpGridFor=null; const _TCELL=90;
+const _tkey=(x,y,z)=>(Math.floor(x/_TCELL))+'|'+(Math.floor(y/_TCELL))+'|'+(Math.floor(z/_TCELL));
+function _precomputeTcpStep(i0, n){   // [i0,i0+n) 자세의 TCP 포즈 계산·격자 적재. 끝나면 true 반환
+  const rm=revMates(); if(!_tcpGrid){ _tcpGrid=new Map(); }
+  const end=Math.min(i0+n, graspDB.length);
+  for(let i=i0;i<end;i++){ const s=graspDB[i];
+    rm.forEach((m,k)=>{ if(k<6)m.angle=s.j[k]; }); applyAngles(); rigRoot.updateMatrixWorld(true);
+    const t=_tcpPose(); if(t&&t.ok){ s._tp={pos:t.pos.clone(), quat:(t.quat||_frameQuat(t)).clone()};
+      const kk=_tkey(t.pos.x,t.pos.y,t.pos.z); let a=_tcpGrid.get(kk); if(!a){a=[];_tcpGrid.set(kk,a);} a.push(s); } }
+  if(end>=graspDB.length){ _tcpGridFor=graspDB; return true; } return false;
+}
+function _gridNear(O){   // O 근처 3×3×3 셀의 후보 자세
+  const cx=Math.floor(O.x/_TCELL), cy=Math.floor(O.y/_TCELL), cz=Math.floor(O.z/_TCELL), out=[];
+  for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++)for(let dz=-1;dz<=1;dz++){ const a=_tcpGrid.get((cx+dx)+'|'+(cy+dy)+'|'+(cz+dz)); if(a)for(const s of a)out.push(s); }
+  return out;
+}
+function _searchObjGrasp(O, type,R,H, invObj, approach){   // 물체 근처 도달자세 jaw평가 → 최적. null=후보없음
+  const NEAR=Math.max(60,R+50), N2=NEAR*NEAR; let best=null;
+  if(_tcpGrid && _tcpGridFor===graspDB){                       // 빠른 경로: 사전계산 TCP + 격자
+    for(const s of _gridNear(O)){ if(!s._tp) continue;
+      if(approach==='vert' && !(s.ay<-0.6)) continue;
+      if(approach==='horz' && !(Math.abs(s.ay)<0.4)) continue;
+      const dx=s._tp.pos.x-O.x,dy=s._tp.pos.y-O.y,dz=s._tp.pos.z-O.z; if(dx*dx+dy*dy+dz*dz>N2) continue;
+      const Q=_jawEval(s._tp.pos, s._tp.quat, R, H, O); if(Q.reach && (!best||Q.cost<best.cost)) best={...Q, app:[s.ax,s.ay,s.az], j:s.j};
+    }
+    return best;
+  }
+  let cand=[];                                                // 느린 경로(격자 없을 때): 관절 적용
   for(const s of graspDB){
-    if(approach==='vert' && !(s.ay<-0.6)) continue;            // 수직=접근축 아래
-    if(approach==='horz' && !(Math.abs(s.ay)<0.4)) continue;   // 수평=접근축 옆
+    if(approach==='vert' && !(s.ay<-0.6)) continue;
+    if(approach==='horz' && !(Math.abs(s.ay)<0.4)) continue;
     const dx=s.tx-O.x,dy=s.ty-O.y,dz=s.tz-O.z, d2=dx*dx+dy*dy+dz*dz; if(d2<=N2) cand.push({s,d2}); }
   if(!cand.length) return null;
-  cand.sort((a,b)=>a.d2-b.d2); if(cand.length>120) cand.length=120;   // 가까운 120자세만(시간 제한)
-  let best=null;
+  cand.sort((a,b)=>a.d2-b.d2); if(cand.length>120) cand.length=120;
   for(const c of cand){ const Q=_graspQuality(c.s.j, type,R,H, invObj, O); if(Q && (!best||Q.cost<best.cost)) best={...Q, app:[c.s.ax,c.s.ay,c.s.az]}; }
   return best;
 }
@@ -1146,7 +1168,8 @@ function genGraspLearnData(){
   const N=Math.max(50,+$('glN').value||2000), Rmin=Math.max(3,+$('glRmin').value||5), Rmax=Math.max(Rmin,+$('glRmax').value||35),
         Hmin=Math.max(5,+$('glHmin').value||10), Hmax=Math.max(Hmin,+$('glHmax').value||120), maxW=Math.max(10,+$('glGrip').value||50),
         floorY=(+$('glFloor').value||0), type=$('voType').value;
-  _glRows=[]; _glRun=true; let i=0;
+  _glRows=[]; _glRun=true; let i=0, ti=0, phase=(_tcpGrid&&_tcpGridFor===graspDB)?'gen':'tcp';
+  if(phase==='tcp') _tcpGrid=null;   // 새 DB면 격자 새로 빌드(stale 방지)
   const rm=revMates(), saveJ=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle));
   const _M=new THREE.Matrix4();
   const BB={x0:1e9,x1:-1e9,y0:1e9,y1:-1e9,z0:1e9,z1:-1e9};   // 워크스페이스 경계(전역 음성 샘플용)
@@ -1154,7 +1177,13 @@ function genGraspLearnData(){
   const MG=40; BB.x0-=MG;BB.x1+=MG;BB.y0-=MG;BB.y1+=MG;BB.z0-=MG;BB.z1+=MG;
   function chunk(){
     if(!_glRun){ glStat(`중지 — ${_glRows.length}개 수집(💾 CSV로 저장 가능)`); return; }
-    const end=Math.min(i+20, N);
+    if(phase==='tcp'){   // 1회 TCP 사전계산(공간격자) → 이후 라벨링 수백배 빠름
+      const done=_precomputeTcpStep(ti, 3000); ti+=3000;
+      glStat(`TCP 사전계산 ${Math.min(ti,graspDB.length)}/${graspDB.length}… (최초 1회)`);
+      if(done){ rm.forEach((m,k)=>{ if(k<6) m.angle=saveJ[k]; }); applyAngles(); phase='gen'; }
+      setTimeout(chunk,0); return;
+    }
+    const end=Math.min(i+200, N);   // 빠른 경로라 청크 크게
     for(; i<end; i++){
       const R=Rmin+Math.random()*(Rmax-Rmin), H=Hmin+Math.random()*(Hmax-Hmin);   // 반경·높이(납작~키큰)
       let ox, oz;
