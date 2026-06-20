@@ -1436,13 +1436,15 @@ function executePlace(){
   if(Math.abs(zc.y)<0.7){ const z=new THREE.Vector3(zc.x,0,zc.z);
     if(z.lengthSq()>1e-4){ z.normalize(); const up=new THREE.Vector3(0,1,0), x=new THREE.Vector3().crossVectors(up,z).normalize(), y=new THREE.Vector3().crossVectors(z,x).normalize();
       q=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x,y,z)); } }
-  const OW=4, offW=_held.localPos.clone().applyQuaternion(q);            // 자세 가중치↑(수평 유지)
-  const tcpFor=(c)=>c.clone().sub(offW);                                  // 물체중심 → TCP
+  const OW=4;
   const objCur=vObj.position.clone(), transY=Math.max(objCur.y, py)+90;   // 운반 높이(바닥 안 쓸게)
   const wpA=new THREE.Vector3(objCur.x, transY, objCur.z);                // ① 들어올림
   const wpB=new THREE.Vector3(px, transY, pz);                            // ② 운반(목표 위)
   const wpC=new THREE.Vector3(px, py, pz);                                // ③ 하강(놓기)
-  const jA=_ikToPose(cur, tcpFor(wpA), q, 90, OW), jB=_ikToPose(jA.j, tcpFor(wpB), q, 90, OW), jC=_ikToPose(jB.j, tcpFor(wpC), q, 90, OW);
+  // 대칭 강화: q와 flip(q) 중 목적지(wpC)에서 J6 범위 내로 더 잘 닿는 자세 선택(면 뒤집기). 운반 내내 동일 자세 유지.
+  const sel=_bestPlaceQ(cur, wpC, q, _held.localPos, OW), qf=sel.q, offW=_held.localPos.clone().applyQuaternion(qf);
+  const tcpFor=(c)=>c.clone().sub(offW);                                  // 물체중심 → TCP
+  const jA=_ikToPose(cur, tcpFor(wpA), qf, 90, OW), jB=_ikToPose(jA.j, tcpFor(wpB), qf, 90, OW), jC=_ikToPose(jB.j, tcpFor(wpC), qf, 90, OW);
   if(jB.posErr>40 || jC.posErr>40){ ikStat(`✗ 놓을 위치 도달 불가 (오차 ${Math.max(jB.posErr,jC.posErr).toFixed(0)}mm) — 접근맵 가능구역으로`); return; }
   graspSeq={steps:[
     {joints:jA.j, grip:null,   label:'① 들어올림'},
@@ -1483,6 +1485,17 @@ function _tcpOfJoints(j){   // 관절 j의 TCP 포즈(팔 복원). {pos,q} 또�
   const t=_tcpPose(); const r=(t&&t.ok)?{pos:t.pos.clone(), q:(t.quat||_frameQuat(t)).clone()}:null;
   rm.forEach((m,i)=>{ if(i<6) m.angle=sv[i]; }); applyAngles(); return r;
 }
+// ===== 자이로 대칭 강화: 평행집게는 접근축(z) 둘레 180° 회전에 같은 파지 → J6 한계 시 면을 뒤집어 수평 유지 =====
+function _flipQ(q){ return q.clone().multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1), Math.PI)); }
+function _bestPlaceQ(j0, pt, qBase, localPos, ow){   // q와 flip(q) 중 목적지 pt(물체중심)에 더 잘 닿는(J6 범위 내) 자세 선택
+  let best=null;
+  for(const q of [qBase, _flipQ(qBase)]){
+    const off=localPos.clone().applyQuaternion(q);
+    const r=_ikToPose(j0, pt.clone().sub(off), q, 90, ow), sc=r.posErr + r.angErr*0.5;   // 위치 우선 + 자세
+    if(!best || sc<best.sc) best={q, off:off.clone(), sc, posErr:r.posErr, angErr:r.angErr};
+  }
+  return best;
+}
 function executeGraspTwoStage(Gj, label, approach, O){   // 이상 방향 정렬(가능한 만큼) → standoff → 직선 접근·파지·들기
   const Gorig=Gj.slice(), cur0=revMates().slice(0,6).map(m=>(m.angle==null?90:m.angle));   // 폴백용 원본 G + 현재 자세
   let g=_tcpOfJoints(Gj); if(!g){ _directGrasp(Gj, label); return; }
@@ -1495,16 +1508,20 @@ function executeGraspTwoStage(Gj, label, approach, O){   // 이상 방향 정렬
     z.normalize(); const x=new THREE.Vector3().crossVectors(up,z);
     if(x.lengthSq()>1e-6){ x.normalize(); const y=new THREE.Vector3().crossVectors(z,x).normalize();
       const qi=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x,y,z));
-      const tTCP=O.clone().sub(new THREE.Vector3(gjaw.cx,gjaw.cy,gjaw.cz).applyQuaternion(qi));   // 물체가 jaw 중심에
-      const Gi=_ikToPose(Gj, tTCP, qi);
-      if(Gi.posErr<25){ Gj=Gi.j; const gg=_tcpOfJoints(Gj); if(gg){ g=gg; tilt=Gi.angErr; } }   // 위치 도달 → '가능한 만큼' 이상자세 채택, 남은 기울기=angErr
+      let bi=null;   // 대칭(접근축 180°) 두 후보 중 J6 범위 내로 더 잘 닿는 자세 선택(면 뒤집기) + 자세가중치↑(접근 중 자이로 유지)
+      for(const qc of [qi, _flipQ(qi)]){
+        const tTCP=O.clone().sub(new THREE.Vector3(gjaw.cx,gjaw.cy,gjaw.cz).applyQuaternion(qc));   // 물체가 jaw 중심에
+        const r=_ikToPose(Gj, tTCP, qc, 90, 4), sc=r.posErr + r.angErr*0.5;
+        if(!bi || sc<bi.sc) bi={r, sc};
+      }
+      if(bi.r.posErr<25){ Gj=bi.r.j; const gg=_tcpOfJoints(Gj); if(gg){ g=gg; tilt=bi.r.angErr; } }   // 위치 도달 → '가능한 만큼' 이상자세 채택, 남은 기울기=angErr
     }
   }
   const A=new THREE.Vector3(0,0,1).applyQuaternion(g.q).normalize();   // 실제 도달 접근축으로 standoff/접근
-  const pre=_ikToPose(Gj, g.pos.clone().addScaledVector(A,-GRASP_STANDOFF), g.q);
+  const pre=_ikToPose(Gj, g.pos.clone().addScaledVector(A,-GRASP_STANDOFF), g.q, 90, 4);   // ow=4: 접근 중 자세 유지(자이로)
   const pathOK=pathClear(pre.j, Gj); revMates().forEach((m,i)=>{ if(i<6)m.angle=cur0[i]; }); applyAngles();   // 직선 접근 가능?(검사 후 자세 복원)
-  if(pre.err>80 || !pathOK){ _directGrasp(Gorig, label+' (직접접근 — 직선경로 불가)'); return; }   // 막히면 원본 G로 직접(닫기+부착 포함)
-  const lift=_ikToPose(Gj, g.pos.clone().add(new THREE.Vector3(0,GRASP_LIFT,0)), g.q);
+  if(pre.posErr>45 || !pathOK){ _directGrasp(Gorig, label+' (직접접근 — 직선경로 불가)'); return; }   // 막히면 원본 G로 직접(닫기+부착 포함)
+  const lift=_ikToPose(Gj, g.pos.clone().add(new THREE.Vector3(0,GRASP_LIFT,0)), g.q, 90, 4);
   const tl = (tilt!=null) ? ` · 기울기 ${tilt.toFixed(0)}°${tilt>15?'(팔 구조 한계)':''}` : '';
   const steps=[
     {joints:pre.j, grip:'open',  label:'① 프리그래스프(정렬)'+tl},
@@ -1593,9 +1610,8 @@ function _placeReach(px,py,pz){   // executePlace와 동일 기준으로 놓기 
     if(Math.abs(zc.y)<0.7){ const z=new THREE.Vector3(zc.x,0,zc.z);
       if(z.lengthSq()>1e-4){ z.normalize(); const up=new THREE.Vector3(0,1,0), x=new THREE.Vector3().crossVectors(up,z).normalize(), y=new THREE.Vector3().crossVectors(z,x).normalize();
         q=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x,y,z)); } }
-    const off=_held.localPos.clone().applyQuaternion(q);
-    const r=_ikToPose(cur, new THREE.Vector3(px,py,pz).sub(off), q, 90, 4);
-    return {reach:r.posErr<=40, perr:r.posErr};
+    const sel=_bestPlaceQ(cur, new THREE.Vector3(px,py,pz), q, _held.localPos, 4);   // 대칭(면 뒤집기) 포함 도달성
+    return {reach:sel.posErr<=40, perr:sel.posErr};
   }
   const r=_ikToPose(cur, new THREE.Vector3(px,py,pz), g.q, 70, 0);   // 빈손: 위치 도달성만
   return {reach:r.posErr<40, perr:r.posErr};
