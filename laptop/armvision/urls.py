@@ -19,6 +19,7 @@ urlpatterns = [
     path("arm/connect/", views.arm_connect, name="arm_connect"),
     path("arm/disconnect/", views.arm_disconnect, name="arm_disconnect"),
     path("arm/move/", views.arm_move, name="arm_move"),
+    path("grasp/predict/", views.grasp_predict, name="grasp_predict"),
     # 카메라 선택
     path("cameras/", views.cameras_list, name="cameras_list"),
     path("cameras/config/", views.cameras_config, name="cameras_config"),

@@ -144,6 +144,51 @@ def arm_disconnect(request):
     return JsonResponse(arduino_bridge.disconnect())
 
 
+_GRASP_MODEL = None
+
+
+def _load_grasp_model():
+    """학습된 파지 MLP(grasp_model.joblib)를 1회 로드·캐시."""
+    global _GRASP_MODEL
+    if _GRASP_MODEL is None:
+        import joblib
+        path = os.path.join(os.path.dirname(__file__), "..", "calibration", "grasp_model.joblib")
+        _GRASP_MODEL = joblib.load(path)
+    return _GRASP_MODEL
+
+
+@csrf_exempt
+def grasp_predict(request):
+    """물체(x,y,z,type,R,H) → MLP로 수직/수평 파지가능 확률 + 추천 접근 + 회귀 초기 관절각.
+    런타임 'AI 파지': 비전/시뮬 물체를 즉시 판정 → 가능하면 접근 정해 검색·실행."""
+    import json
+    try:
+        d = json.loads(request.body.decode("utf-8"))
+        x, y, z = float(d["x"]), float(d["y"]), float(d["z"])
+        typ = float(d.get("type", 0)); R = float(d["R"]); H = float(d["H"])
+        m = _load_grasp_model()
+        clf, sc = m["clf"], m["clf_scaler"]
+
+        def feat(ap):
+            return sc.transform([[x, y, z, typ, R, H, ap]])
+
+        pv = float(clf.predict_proba(feat(0))[0, 1])
+        ph = float(clf.predict_proba(feat(1))[0, 1])
+        approach = "vert" if pv >= ph else "horz"
+        out = {"ok": True, "vert": round(pv, 3), "horz": round(ph, 3),
+               "approach": approach, "graspable": bool(max(pv, ph) >= 0.5)}
+        reg, rsc = m.get("reg"), m.get("reg_scaler")
+        if reg is not None:
+            ap = 0 if approach == "vert" else 1
+            j = reg.predict(rsc.transform([[x, y, z, typ, R, H, ap]]))[0]
+            out["joints"] = [round(float(v), 1) for v in j]
+        return JsonResponse(out)
+    except FileNotFoundError:
+        return JsonResponse({"ok": False, "error": "grasp_model.joblib 없음 — grasp_learn.py로 먼저 학습하세요."})
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)})
+
+
 @csrf_exempt
 def arm_move(request):
     """{'joints':[{'channel','us'},...]} 또는 {'channel','us'} 펄스 전송."""
