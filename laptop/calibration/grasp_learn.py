@@ -37,22 +37,25 @@ from sklearn.preprocessing import StandardScaler
 
 OUT_DIR = r"C:\robotic_arm\docs\image"
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "grasp_model.joblib")
-FEATS = ["obj_x", "obj_y", "obj_z", "type", "R", "H"]   # 모델 입력특징
+# approach(0=수직·1=수평)를 입력특징에 포함 → per-approach 파지가능 + 접근 선택(argmax) 학습
+FEATS = ["obj_x", "obj_y", "obj_z", "type", "R", "H", "approach"]
 JCOLS = ["J1", "J2", "J3", "J4", "J5", "J6"]
 
 
 def load(path):
     rows = list(csv.DictReader(open(path, encoding="utf-8")))
+    if "approach" not in rows[0]:
+        sys.exit("⚠ 구형 CSV(approach 열 없음) — 4페이지 Ctrl+F5 후 재생성 필요")
     X = np.array([[float(r[f]) for f in FEATS] for r in rows], dtype=float)
     y = np.array([int(float(r["success"])) for r in rows], dtype=int)
-    # 회귀 타깃(성공 샘플만): 파지 관절각
+    ap = X[:, FEATS.index("approach")].astype(int)
     mask = y == 1
     Js = np.array([[float(r[j]) for j in JCOLS] for r in rows if int(float(r["success"])) == 1], dtype=float)
-    return X, y, X[mask], Js, rows
+    return X, y, ap, X[mask], Js, rows
 
 
-def train_classifier(X, y):
-    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.2, random_state=0, stratify=y)
+def train_classifier(X, y, ap):
+    Xtr, Xte, ytr, yte, _, ate = train_test_split(X, y, ap, test_size=0.2, random_state=0, stratify=y)
     sc = StandardScaler().fit(Xtr)
     clf = MLPClassifier(hidden_layer_sizes=(64, 64), max_iter=600, random_state=0)
     t0 = time.time(); clf.fit(sc.transform(Xtr), ytr); dt = time.time() - t0
@@ -60,11 +63,38 @@ def train_classifier(X, y):
     acc = (pred == yte).mean()
     rec_yes = recall_score(yte, pred, pos_label=1)   # 잡을 수 있는걸 놓치지 않는 비율
     rec_no = recall_score(yte, pred, pos_label=0)
-    cm = confusion_matrix(yte, pred)
-    print(f"[분류] 학습 {dt:.1f}s · 테스트 정확도 {acc*100:.1f}%")
+    print(f"[분류] (물체+접근)→파지가능 · 학습 {dt:.1f}s · 테스트 정확도 {acc*100:.1f}%")
     print(f"        파지가능 재현율 {rec_yes*100:.1f}% · 불가 재현율 {rec_no*100:.1f}%")
-    print(f"        혼동행렬 [TN FP; FN TP] = {cm.tolist()}")
+    for a, nm in [(0, "수직"), (1, "수평")]:
+        m = ate == a
+        if m.any():
+            print(f"        {nm} 접근 정확도 {(pred[m] == yte[m]).mean()*100:.1f}% ({m.sum()}개)")
     return clf, sc, acc
+
+
+def eval_approach_selection(clf, sc, X, y, ap):
+    """물체별로 모델이 더 잘 잡을 접근(argmax P)을 고르고, 실제 라벨과 비교 — '접근 선택' 정확도.
+    각 물체의 수직행·수평행을 짝지어, 한쪽만 성공하는 결정적 물체에서 옳게 고르는지 본다."""
+    key = {}
+    for i in range(len(X)):
+        k = (round(X[i, 0], 1), round(X[i, 1], 1), round(X[i, 2], 1))
+        key.setdefault(k, {})[int(ap[i])] = (X[i], y[i])
+    pv = clf.predict_proba(sc.transform(X))[:, 1]
+    pmap = {}
+    for i in range(len(X)):
+        k = (round(X[i, 0], 1), round(X[i, 1], 1), round(X[i, 2], 1))
+        pmap.setdefault(k, {})[int(ap[i])] = pv[i]
+    dec = ok = 0
+    for k, d in key.items():
+        if 0 in d and 1 in d:
+            yv, yh = d[0][1], d[1][1]
+            if yv != yh:                       # 결정적(한쪽만 성공)
+                dec += 1
+                pick = 0 if pmap[k][0] >= pmap[k][1] else 1
+                if (pick == 0 and yv == 1) or (pick == 1 and yh == 1):
+                    ok += 1
+    if dec:
+        print(f"[접근선택] 결정적 물체(한쪽만 가능) {dec}개 중 옳은 접근 선택 {ok} ({100*ok/dec:.1f}%)")
 
 
 def train_regressor(Xs, Js):
@@ -84,43 +114,46 @@ def train_regressor(Xs, Js):
     return reg, sc
 
 
-def fig_map(clf, sc, X, y):
-    """워크스페이스 x-z 슬라이스(중앙 y)의 예측 파지가능확률 + 실제 성공(○)/실패(×)점."""
+def fig_maps(clf, sc, X, y, ap):
+    """수직/수평 각각의 파지가능확률 맵(워크스페이스 x-z 슬라이스) + 실제 성공(○)/실패(×)점."""
     ix, iy, iz = 0, 1, 2
-    ymid = np.median(X[:, iy])
-    Rm, Hm = np.median(X[:, 4]), np.median(X[:, 5])
+    ymid = np.median(X[:, iy]); Rm, Hm = np.median(X[:, 4]), np.median(X[:, 5])
     gx = np.linspace(X[:, ix].min(), X[:, ix].max(), 90)
     gz = np.linspace(X[:, iz].min(), X[:, iz].max(), 90)
     GX, GZ = np.meshgrid(gx, gz)
-    grid = np.column_stack([GX.ravel(), np.full(GX.size, ymid), GZ.ravel(),
-                            np.zeros(GX.size), np.full(GX.size, Rm), np.full(GX.size, Hm)])
-    P = clf.predict_proba(sc.transform(grid))[:, 1].reshape(GX.shape)
-    fig, ax = plt.subplots(figsize=(7.6, 6.4))
-    im = ax.contourf(GX, GZ, P, levels=np.linspace(0, 1, 21), cmap="RdYlGn")
-    near = np.abs(X[:, iy] - ymid) < 60   # 슬라이스 근처 실제점만
-    s, f = near & (y == 1), near & (y == 0)
-    ax.scatter(X[s, ix], X[s, iz], s=9, c="#063", marker="o", label="실제 파지성공", linewidths=0)
-    ax.scatter(X[f, ix], X[f, iz], s=14, c="k", marker="x", label="실제 실패", linewidths=0.8)
-    ax.set_title(f"학습된 파지가능확률 (y≈{ymid:.0f}mm 슬라이스, R≈{Rm:.0f})")
-    ax.set_xlabel("obj_x (mm)"); ax.set_ylabel("obj_z (mm)"); ax.legend(loc="upper right", fontsize=8)
-    fig.colorbar(im, ax=ax, label="P(파지 가능)")
+    fig, axes = plt.subplots(1, 2, figsize=(13.6, 6.2))
+    for a, nm, axp in [(0, "수직 top-down", axes[0]), (1, "수평 side", axes[1])]:
+        grid = np.column_stack([GX.ravel(), np.full(GX.size, ymid), GZ.ravel(),
+                                np.zeros(GX.size), np.full(GX.size, Rm), np.full(GX.size, Hm),
+                                np.full(GX.size, a)])
+        P = clf.predict_proba(sc.transform(grid))[:, 1].reshape(GX.shape)
+        im = axp.contourf(GX, GZ, P, levels=np.linspace(0, 1, 21), cmap="RdYlGn")
+        near = (np.abs(X[:, iy] - ymid) < 60) & (ap == a)
+        s, f = near & (y == 1), near & (y == 0)
+        axp.scatter(X[s, ix], X[s, iz], s=9, c="#063", marker="o", linewidths=0)
+        axp.scatter(X[f, ix], X[f, iz], s=14, c="k", marker="x", linewidths=0.8)
+        axp.set_title(f"{nm} 파지가능확률 (y≈{ymid:.0f}, R≈{Rm:.0f})")
+        axp.set_xlabel("obj_x (mm)"); axp.set_ylabel("obj_z (mm)")
+        fig.colorbar(im, ax=axp, label="P(파지 가능)")
     os.makedirs(OUT_DIR, exist_ok=True)
     out = os.path.join(OUT_DIR, "grasp-learned.png")
     fig.tight_layout(); fig.savefig(out, dpi=120); plt.close(fig)
-    print(f"[그림] {out}")
+    print(f"[그림] {out}  (좌=수직·우=수평 capability map)")
 
 
 def main():
     path = sys.argv[1] if len(sys.argv) > 1 else r"C:\Users\use08\Downloads\grasp_learn.csv"
-    X, y, Xs, Js, rows = load(path)
-    print(f"데이터 {len(rows)}행 · 파지가능 {int(y.sum())} ({100*y.mean():.0f}%) · 입력특징 {FEATS}")
-    clf, csc, acc = train_classifier(X, y)
+    X, y, ap, Xs, Js, rows = load(path)
+    nv, nh = (ap == 0).sum(), (ap == 1).sum()
+    print(f"데이터 {len(rows)}행 · 수직 {nv}(성공 {int(y[ap==0].sum())}) · 수평 {nh}(성공 {int(y[ap==1].sum())}) · 특징 {FEATS}")
+    clf, csc, acc = train_classifier(X, y, ap)
+    eval_approach_selection(clf, csc, X, y, ap)
     reg, rsc = train_regressor(Xs, Js)
-    fig_map(clf, csc, X, y)
+    fig_maps(clf, csc, X, y, ap)
     joblib.dump({"clf": clf, "clf_scaler": csc, "reg": reg, "reg_scaler": rsc,
                  "feats": FEATS, "jcols": JCOLS}, MODEL_PATH)
     print(f"[저장] {MODEL_PATH}")
-    print("다음: 능동학습(모델이 애매한 물체 골라 재라벨) → 런타임 'AI 파지 제안'")
+    print("런타임: 물체→ clf(수직)·clf(수평) 확률 비교 → 더 높은(가능한) 접근 선택 → 검색/IK로 정밀화")
 
 
 if __name__ == "__main__":
