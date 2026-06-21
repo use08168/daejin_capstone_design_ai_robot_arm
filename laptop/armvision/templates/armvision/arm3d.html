@@ -222,8 +222,9 @@
             <button class="ghost ikrot" data-ax="0" data-d="-1">RX−</button><button class="ghost ikrot" data-ax="0" data-d="1">RX＋</button>
             <button class="ghost ikrot" data-ax="1" data-d="-1">RY−</button><button class="ghost ikrot" data-ax="1" data-d="1">RY＋</button>
             <button class="ghost ikrot" data-ax="2" data-d="-1">RZ−</button><button class="ghost ikrot" data-ax="2" data-d="1">RZ＋</button></div>
-          <div class="row" style="margin-bottom:0"><button class="primary" id="ikSolve" style="flex:1">🤖 이 위치 잡기(IK)</button><button class="ghost" id="ikRollOpt" title="접근축은 유지하고 손목 롤(J6 등)을 훑어 손가락이 물체를 양쪽에서 감싸는 자세로 잡기">🎯 닫힘 정렬(롤)</button></div>
-          <div class="hintline" id="ikStat" style="margin:6px 0 0;">물체 프레임(좌표축)=고정. 수직/수평은 <b>그리퍼 접근방향(노란 화살표)</b>만 바꿈 → 로봇팔이 그 방향으로 접근. 물체는 집어 옮길 때만 이동.</div>
+          <div class="row" style="margin-bottom:6px"><button class="primary" id="ikGrabFree" style="flex:1;background:#1a7f4b" title="입력한 XYZ 좌표에 가상물체를 놓고 DB 없이 순수 IK로 바로 잡기(비전 무관·접근=가상물체 카드 설정)">📍 입력 좌표 잡기 (DB없이·비전무관)</button></div>
+          <div class="row" style="margin-bottom:0"><button class="ghost" id="ikSolve" style="flex:1">🤖 이 위치 잡기(IK·DB)</button><button class="ghost" id="ikRollOpt" title="접근축은 유지하고 손목 롤(J6 등)을 훑어 손가락이 물체를 양쪽에서 감싸는 자세로 잡기">🎯 닫힘 정렬(롤)</button></div>
+          <div class="hintline" id="ikStat" style="margin:6px 0 0;"><b>비전은 참고용</b> — 📷 비전으로 대략 좌표를 불러온 뒤 X±/Y±/Z±로 실제 물체에 맞추고 <b>📍 입력 좌표 잡기</b>. 접근(수직/수평)·크기는 아래 가상 물체 카드에서.</div>
         </div>
 
         <div class="card sim-card" style="margin-top:10px;">
@@ -1677,6 +1678,7 @@ if($('voShow')){
   if($('voBest')) $('voBest').onclick=findBestGrasp;
   if($('voCheck')) $('voCheck').onclick=evalGraspContact;
   if($('voAI')) $('voAI').onclick=aiGrasp;
+  if($('ikGrabFree')) $('ikGrabFree').onclick=()=>{ showVObj(); aiGrasp(); };   // 입력 XYZ에 가상물체 놓고 DB없이 바로 잡기
   if($('voOpt')) $('voOpt').onclick=optimizeGraspForObject;
   if($('voMap')) $('voMap').onclick=approachMap;
   if($('voReach')) $('voReach').onclick=reachRanges;
