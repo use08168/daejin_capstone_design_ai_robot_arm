@@ -1,9 +1,15 @@
 {% extends "armvision/base.html" %}
 {% block title %}캘리브레이션 — 로봇팔 비전{% endblock %}
 {% block style %}
-  .step { background: var(--panel); border-radius:10px; padding:14px 16px; margin-bottom:14px; border-left:3px solid var(--line); }
+  .phase { border:1px solid var(--line); border-radius:12px; margin-bottom:18px; overflow:hidden; }
+  .phase-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 16px; cursor:pointer; background:#16181d; }
+  .phase-head h2 { font-size:16px; margin:0; }
+  .phase-head .tag { font-size:12px; color:#9cf; }
+  .phase.open .phase-head { background:#1b2330; }
+  .phase-body { padding:10px 14px 4px; }
+  .step { background: var(--panel); border-radius:10px; padding:13px 15px; margin-bottom:12px; border-left:3px solid var(--line); }
   .step.active { border-left-color: var(--accent); }
-  .step h2 { font-size:16px; margin:0 0 6px; display:flex; align-items:center; gap:10px; }
+  .step h3 { font-size:15px; margin:0 0 6px; display:flex; align-items:center; gap:10px; }
   .step .desc { color:#bbb; font-size:13px; margin-bottom:10px; line-height:1.6; }
   .result { font-size:13px; margin-top:10px; white-space:pre-wrap; font-variant-numeric:tabular-nums; }
   .result.ok { color: var(--ok); } .result.err { color: var(--warn); }
@@ -17,80 +23,162 @@
   .gridov > div.weak { background:rgba(255,60,60,.32); border-color:rgba(255,90,90,.9); }
 {% endblock %}
 {% block content %}
-  <h1>2 · 초기 캘리브레이션 (6단계)</h1>
-  <div class="hint" style="margin:0 0 16px;">처음 세팅 시 위에서부터 차례로. <b>카메라를 먼저 고정·보정한 뒤 로봇을 설치</b>합니다(①②③ → 로봇설치 → ④⑤⑥). 자세한 절차: docs/14_setup_procedure.md</div>
+  <h1>2 · 초기 캘리브레이션</h1>
+  <div class="hint" style="margin:0 0 16px;"><b>A. 팔 관절 보정</b>은 모터가 안 바뀌면 <b>평생 1회</b>(오프셋·앵커·관절보정 저장). 이후엔 <b>B. 작업공간 설치</b>만 — 카메라를 물체 쪽으로 당겨 <b>앵커(id8~12)</b>로 좌표를 잡습니다. 자세한 절차: docs/14_setup_procedure.md</div>
 
-  <!-- 1 -->
-  <div class="step active" id="step1">
-    <h2><span class="num">1</span> ChArUco 촬영 <span class="badge todo" id="b1">대기</span></h2>
-    <div class="desc">카메라를 로봇 놓일 자리에 <b>겹치게 배치·고정</b>하고, 보드를 위치·기울기·거리를 바꿔가며 <b>20~30쌍</b> 촬영. <b>좌·우 코너가 둘 다 초록</b>일 때만 3D에 유효(한쪽만 보이면 렌즈 보정에만 도움). ⚠ <b>촬영 중·후 카메라를 움직이면 보정 무효</b> → [새 환경으로 초기화] 후 처음부터. 그러니 카메라 배치는 <b>촬영 전에 확정</b>하세요.</div>
-    <div class="feeds">
-      <div class="cam"><div class="label">좌 카메라 — index {{ cam_left }}</div>
-        <div class="feedwrap"><img src="{% url 'armvision:video_feed' %}?cam={{ cam_left }}&charuco=1"><div class="gridov"></div></div></div>
-      <div class="cam"><div class="label">우 카메라 — index {{ cam_right }}</div>
-        <div class="feedwrap"><img src="{% url 'armvision:video_feed' %}?cam={{ cam_right }}&charuco=1"><div class="gridov"></div></div></div>
+  <!-- ===================== PHASE A ===================== -->
+  <div class="phase" id="phaseA">
+    <div class="phase-head" data-phase="A">
+      <h2>A · 팔 관절 보정 <span class="tag">(최초 1회 · 저장되면 유지)</span></h2>
+      <span class="badge todo" id="stA">대기</span>
     </div>
-    <div class="hint" style="margin:6px 0 0;">6×4 격자는 3단계 커버리지 맵과 같은 칸. 검증 후 <b style="color:#f66">빨간 칸</b> = <b>양쪽 카메라 공통</b> 코너가 부족한 위치 → 그 칸에 보드를 두되 <b>좌·우 화면 모두</b>에 보이게 촬영하세요.</div>
-    <div class="hint" style="margin:0 0 10px;">좌/우 카메라는 <a href="{% url 'armvision:index' %}">1페이지</a>에서 선택한 설정을 따릅니다.</div>
-    <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
-      <button id="cap" class="primary">📸 캡처 (좌·우 동시)</button>
-      <span>저장: <b id="saved">0</b> 쌍</span>
-      <span class="live">실시간 코너 — 좌:<span id="lL">0</span> 우:<span id="lR">0</span></span>
-      <button id="resetCal" style="background:#622; margin-left:auto;">🔄 새 환경으로 초기화</button>
+    <div class="phase-body" id="bodyA">
+
+      <!-- A1 -->
+      <div class="step active" id="step1">
+        <h3><span class="num">1</span> 팔 보정용 ChArUco 촬영 <span class="badge todo" id="b1">대기</span></h3>
+        <div class="desc">카메라를 <b>팔 전체가 보이는 위치</b>에 겹치게 배치·고정하고, 보드를 위치·기울기·거리 바꿔가며 <b>20~30쌍</b> 촬영. <b>좌·우 코너 둘 다 초록</b>일 때 3D 유효. ⚠ 촬영 후 카메라 움직이면 무효.</div>
+        <div class="feeds">
+          <div class="cam"><div class="label">좌 카메라 — index {{ cam_left }}</div>
+            <div class="feedwrap"><img class="feedA" data-src="{% url 'armvision:video_feed' %}?cam={{ cam_left }}&charuco=1"><div class="gridov"></div></div></div>
+          <div class="cam"><div class="label">우 카메라 — index {{ cam_right }}</div>
+            <div class="feedwrap"><img class="feedA" data-src="{% url 'armvision:video_feed' %}?cam={{ cam_right }}&charuco=1"><div class="gridov"></div></div></div>
+        </div>
+        <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+          <button id="capA" class="primary">📸 캡처 (좌·우 동시)</button>
+          <span>저장: <b id="savedA">0</b> 쌍</span>
+          <span class="live">실시간 코너 — 좌:<span id="lLa">0</span> 우:<span id="lRa">0</span></span>
+          <button id="resetA" style="background:#622; margin-left:auto;">🔄 새 환경으로 초기화</button>
+        </div>
+        <div class="result" id="r1"></div>
+      </div>
+
+      <!-- A2 -->
+      <div class="step" id="step2">
+        <h3><span class="num">2</span> 팔 보정용 카메라 캘리브레이션 (내부 K·왜곡 + 스테레오 R·T) <span class="badge todo" id="b2">대기</span></h3>
+        <div class="desc">촬영분으로 카메라 파라미터 산출. (재투영오차 &lt;1px 양호)</div>
+        <button id="runCalA">캘리브레이션 실행</button>
+        <div class="result" id="r2"></div>
+      </div>
+
+      <!-- A3 -->
+      <div class="step" id="step3">
+        <h3><span class="num">3</span> 3D 정확도 검증 <span class="badge todo" id="b3">대기</span></h3>
+        <div class="desc">보드 30mm 칸을 3D로 복원해 오차 확인. (오차 &lt;~2mm, 스케일≈1 통과)</div>
+        <button id="runValA">검증 실행</button>
+        <div class="result" id="r3"></div>
+        <div id="covA"></div>
+      </div>
+
+      <!-- A4 -->
+      <div class="step" id="step4">
+        <h3><span class="num">4</span> 로봇팔 배치 &amp; 베이스 마커(id0) + 앵커(id8~12) 배치 <span class="badge todo" id="b4">대기</span></h3>
+        <div class="desc"><b>움직이지 않는 베이스</b>에 <b>id0(70mm)</b> 부착. 그리고 <b>작업공간 주변</b>(나중에 카메라 당겨도 보일 곳)에 <b>앵커 id8~12를 환경에 단단히 고정</b> — 이게 로봇 프레임의 영구 기준이 됩니다. <b>id0·id1(J1축)·앵커가 좌·우 동시</b>에 보이게.</div>
+        <div class="live">베이스 id0 — 좌:<span id="m0L">○</span> 우:<span id="m0R">○</span> · 앵커 보임(공통): <b id="anchVis">–</b> · 검출 좌[<span id="mIDL">–</span>] 우[<span id="mIDR">–</span>]</div>
+        <div class="result" id="r4"></div>
+      </div>
+
+      <!-- A5 -->
+      <div class="step" id="step5">
+        <h3><span class="num">5</span> 카메라→로봇 변환 T + 오프셋 저장 + 앵커 등록 <span class="badge todo" id="b5">대기</span></h3>
+        <div class="desc"><b>① 변환 T 산출</b>: id0+id1로 로봇 프레임 확정 → <b>id0→J1 오프셋 영구 저장</b>.<br>
+          <b>② 앵커 등록</b>: 보이는 앵커(id8~12)의 <b>로봇기준 좌표를 저장</b> → 이후 작업공간(Phase B)에서 <b>팔·id0 없이</b> 앵커만으로 변환 복원. (여러 번 눌러 앵커 누적 가능)</div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+          <button id="runT">① 변환 T 산출</button>
+          <span id="offBadge" class="badge todo">오프셋 미보정</span>
+          <button id="regAnchor" style="background:#2e6b4f">② 앵커 등록</button>
+          <span id="anchBadge" class="badge todo">앵커 미등록</span>
+        </div>
+        <div class="result" id="r5"></div>
+      </div>
+
+      <!-- A6 -->
+      <div class="step" id="step6">
+        <h3><span class="num">6</span> 로봇 관절 보정 — 팔 작동 + 관절별 보정값 산출·저장 <span class="badge todo" id="b6">대기</span></h3>
+        <div class="desc">2페이지에서 팔을 직접 구동(가시성 박스 <b>J5=180·J2&lt;70·J4&lt;110</b> 안)하며 마커로 실제각을 측정 → 중력 sag 자세 의존 보정(J2·J3·J4)을 적합·저장(servo_corr.json). <i>(트랙 2에서 구현 — 우선 현재 자세 마커 측정으로 가시성 확인)</i></div>
+        <button id="measM">현재 자세 마커 측정</button>
+        <button id="jcorr" disabled title="트랙 2에서 구현" style="background:#444">⚙ 관절 보정 스윕 (준비중)</button>
+        <div class="result" id="r6"></div>
+        <table style="margin-top:8px; max-width:420px;"><thead><tr><th>마커</th><th>X (mm)</th><th>Y (mm)</th><th>Z (mm)</th></tr></thead><tbody id="mtbl"></tbody></table>
+      </div>
+
     </div>
-    <div class="hint" style="margin:8px 0 0;"><b>새 환경으로 초기화</b> = 카메라를 옮겼거나 좌/우 카메라가 바뀌어 처음부터 다시 보정할 때. 기존 촬영본·캘리브레이션은 <b>보관(archive)</b> 후 0부터 새로 시작합니다.</div>
-    <div class="result" id="r1"></div>
   </div>
 
-  <!-- 2 -->
-  <div class="step" id="step2">
-    <h2><span class="num">2</span> 카메라 캘리브레이션 (내부 K·왜곡 + 스테레오 R·T) <span class="badge todo" id="b2">대기</span></h2>
-    <div class="desc">촬영분으로 카메라 파라미터를 산출합니다. (재투영오차 &lt;1px 이면 양호)</div>
-    <button id="runCal">캘리브레이션 실행</button>
-    <div class="result" id="r2"></div>
-  </div>
+  <!-- ===================== PHASE B ===================== -->
+  <div class="phase" id="phaseB">
+    <div class="phase-head" data-phase="B">
+      <h2>B · 작업공간 설치 <span class="tag">(설치할 때마다 · 가벼움)</span></h2>
+      <span class="badge todo" id="stB">대기</span>
+    </div>
+    <div class="phase-body" id="bodyB" style="display:none">
 
-  <!-- 3 -->
-  <div class="step" id="step3">
-    <h2><span class="num">3</span> 3D 정확도 검증 <span class="badge todo" id="b3">대기</span></h2>
-    <div class="desc">보드 30mm 칸을 3D로 복원해 오차를 확인합니다. (오차 &lt;~2mm, 스케일≈1 이면 통과)</div>
-    <button id="runVal">검증 실행</button>
-    <div class="result" id="r3"></div>
-    <div id="cov"></div>
-  </div>
+      <!-- B7 -->
+      <div class="step" id="step7">
+        <h3><span class="num">7</span> 카메라 재배치 (작업공간 근접) <span class="badge todo" id="b7">대기</span></h3>
+        <div class="desc">카메라를 <b>물체 쪽으로 당겨</b> 작은 물체(주사위·지우개)가 크게 잡히게. <b>앵커 id8~12 중 몇 개가 좌·우 동시</b>에 보이게. ⚠ <b>오토포커스·노출 OFF(초점 고정)</b> — 안 하면 보정이 어긋납니다. 배치했으면 아래 촬영으로.</div>
+        <div class="live">앵커 보임(공통): <b id="anchVisB">–</b> · 등록된 앵커: <b id="anchReg">–</b></div>
+      </div>
 
-  <!-- 4 -->
-  <div class="step" id="step4">
-    <h2><span class="num">4</span> 로봇팔 배치 &amp; 베이스 마커(id0) 부착 <span class="badge todo" id="b4">대기</span></h2>
-    <div class="desc">①②③ 통과 후 겨냥한 자리에 로봇 설치. <b>움직이지 않는 베이스</b>에 <b>ArUco id0(70mm)</b>를 카메라 향하게 부착(팔은 홈 자세로 안 가리게). 아래에서 <b>좌·우 동시 검출</b>되면 5단계로.</div>
-    <div class="live">베이스 id0 — 좌:<span id="m0L">○</span> 우:<span id="m0R">○</span> &nbsp;·&nbsp; 검출 마커 좌[<span id="mIDL">–</span>] 우[<span id="mIDR">–</span>]</div>
-    <div class="result" id="r4"></div>
-  </div>
+      <!-- B8 -->
+      <div class="step" id="step8">
+        <h3><span class="num">8</span> 작업공간용 ChArUco 촬영 <span class="badge todo" id="b8">대기</span></h3>
+        <div class="desc">이 근접 위치에서 보드를 <b>20~30쌍</b> 새로 촬영. 먼저 <b>[작업공간 재촬영 시작]</b>으로 기존 촬영분을 보관·초기화하세요. (오프셋·앵커는 유지됨)</div>
+        <div class="feeds">
+          <div class="cam"><div class="label">좌 카메라 — index {{ cam_left }}</div>
+            <div class="feedwrap"><img class="feedB" data-src="{% url 'armvision:video_feed' %}?cam={{ cam_left }}&charuco=1"><div class="gridov"></div></div></div>
+          <div class="cam"><div class="label">우 카메라 — index {{ cam_right }}</div>
+            <div class="feedwrap"><img class="feedB" data-src="{% url 'armvision:video_feed' %}?cam={{ cam_right }}&charuco=1"><div class="gridov"></div></div></div>
+        </div>
+        <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+          <button id="resetB" style="background:#622;">🔄 작업공간 재촬영 시작(기존 보관)</button>
+          <button id="capB" class="primary">📸 캡처 (좌·우 동시)</button>
+          <span>저장: <b id="savedB">0</b> 쌍</span>
+          <span class="live">실시간 코너 — 좌:<span id="lLb">0</span> 우:<span id="lRb">0</span></span>
+        </div>
+        <div class="result" id="r8"></div>
+      </div>
 
-  <!-- 5 -->
-  <div class="step" id="step5">
-    <h2><span class="num">5</span> 카메라→로봇 변환 T 산출 <span class="badge todo" id="b5">대기</span></h2>
-    <div class="desc">베이스 마커로 카메라 좌표 → <b>로봇 베이스 좌표</b> 변환 T를 산출·저장. 이후 1페이지 <b>3D 좌표가 로봇 기준 mm</b>로 표시됩니다.<br>
-      <b style="color:#9cf">① 최초 1회(팔 보정):</b> 팔을 홈 자세로 두고 <b>id0 + id1(J1축)</b> 둘 다 좌·우에 보이게 산출 → <b>id0→J1 오프셋이 영구 저장</b>됩니다.<br>
-      <b style="color:#7ee0a0">② 이후(작업공간):</b> 카메라를 물체 쪽으로 당겨 <b>id0만</b> 보여도 저장된 오프셋으로 J1 원점이 복원 → <b>팔이 프레임에 없어도 됩니다</b>(작은 물체 근접 촬영 가능).</div>
-    <button id="runT">변환 T 산출</button>
-    <span id="offBadge" class="badge todo" style="margin-left:8px">오프셋 미보정</span>
-    <div class="result" id="r5"></div>
-  </div>
+      <!-- B9 -->
+      <div class="step" id="step9">
+        <h3><span class="num">9</span> 작업공간용 카메라 캘리브레이션 <span class="badge todo" id="b9">대기</span></h3>
+        <div class="desc">근접 촬영분으로 카메라 보정. <b>이 보정이 런타임(1페이지 3D)에 쓰입니다.</b></div>
+        <button id="runCalB">캘리브레이션 실행</button>
+        <div class="result" id="r9"></div>
+      </div>
 
-  <!-- 6 -->
-  <div class="step" id="step6">
-    <h2><span class="num">6</span> 로봇 관절 위치 측정 &amp; 작업공간 (콜드스타트) <span class="badge wip" id="b6">진행중</span></h2>
-    <div class="desc">각 링크 마커(id1~)를 <b>로봇 기준 3D</b>로 측정. 먼저 현재 자세에서 측정이 되는지 확인 → 이후 <b>스윕 자동화</b>로 작업공간·운동학 보정(다음 단계).</div>
-    <button id="measM">현재 자세 마커 측정</button>
-    <div class="result" id="r6"></div>
-    <table style="margin-top:8px; max-width:420px;"><thead><tr><th>마커</th><th>X (mm)</th><th>Y (mm)</th><th>Z (mm)</th></tr></thead><tbody id="mtbl"></tbody></table>
+      <!-- B10 -->
+      <div class="step" id="step10">
+        <h3><span class="num">10</span> 3D 정확도 검증 <span class="badge todo" id="b10">대기</span></h3>
+        <div class="desc">근접 보정의 3D 정확도 확인.</div>
+        <button id="runValB">검증 실행</button>
+        <div class="result" id="r10"></div>
+        <div id="covB"></div>
+      </div>
+
+      <!-- B11 -->
+      <div class="step" id="step11">
+        <h3><span class="num">11</span> 앵커로 카메라→로봇 변환 T 복원 <span class="badge todo" id="b11">대기</span></h3>
+        <div class="desc"><b>id0·팔 없이</b> 보이는 앵커(id8~12)만으로 카메라→로봇 변환을 복원합니다(Kabsch). 정합 <b>잔차 rms</b>가 작으면(≲수 mm) 정상. 이후 1페이지 3D가 로봇 기준 mm.</div>
+        <button id="anchorT" class="primary">앵커로 변환 복원</button>
+        <div class="result" id="r11"></div>
+      </div>
+
+      <!-- B12 -->
+      <div class="step" id="step12">
+        <h3><span class="num">12</span> 가상공간 위치 시각화 &amp; 자가검증 <span class="badge todo" id="b12">대기</span></h3>
+        <div class="desc">등록된 앵커를 로봇기준으로 표시하고, <b>현재 측정값과 비교</b>(자가검증)합니다. 잔차가 작으면 좌표 체인 정상 → AI에 넘길 3D 준비 완료. <i>(3D 시뮬 시각화는 트랙 3)</i></div>
+        <button id="measCompare">측정 비교(자가검증)</button>
+        <div class="result" id="r12"></div>
+        <table style="margin-top:8px; max-width:520px;"><thead><tr><th>앵커</th><th>X</th><th>Y</th><th>Z (mm, 로봇기준)</th></tr></thead><tbody id="atbl"></tbody></table>
+      </div>
+
+    </div>
   </div>
 {% endblock %}
 
 {% block script %}
 <script>
-  const ST = "{% url 'armvision:setup_state' %}";
   const CAPU = "{% url 'armvision:capture_pair' %}";
   const CHU = "{% url 'armvision:calibrate_status' %}";
   const CALU = "{% url 'armvision:run_calibration' %}";
@@ -99,12 +187,14 @@
   const MSU = "{% url 'armvision:marker_status' %}";
   const CTU = "{% url 'armvision:compute_transform' %}";
   const MEASU = "{% url 'armvision:measure_markers' %}";
-  const NEED = 15;  // 최소 권장 쌍
+  const AREG = "{% url 'armvision:anchors_register' %}";
+  const ATF = "{% url 'armvision:anchors_transform' %}";
+  const NEED = 15;
 
   const $ = id => document.getElementById(id);
-  function badge(el, txt, cls) { el.textContent = txt; el.className = 'badge ' + cls; }
+  function badge(el, txt, cls) { if(el){ el.textContent = txt; el.className = 'badge ' + cls; } }
 
-  // 라이브 피드 위 6×4 격자(3단계 커버리지 맵과 동일 칸) — 검증 후 부족 칸은 빨갛게
+  // 6×4 격자(커버리지 맵 칸)
   const GCOLS = 6, GROWS = 4;
   document.querySelectorAll('.gridov').forEach(ov => {
     ov.style.gridTemplateColumns = `repeat(${GCOLS},1fr)`;
@@ -117,64 +207,153 @@
       [...ov.children].forEach((c, i) => c.classList.toggle('weak', set.has(i))));
   }
 
-  // 실시간 코너 + 저장 수
-  async function poll() {
-    try {
-      const d = await (await fetch(CHU)).json();
-      $('lL').textContent = d.cornersL; $('lL').style.color = d.cornersL>=d.min_good?'#6f6':'#fa6';
-      $('lR').textContent = d.cornersR; $('lR').style.color = d.cornersR>=d.min_good?'#6f6':'#fa6';
-      $('saved').textContent = d.captures;
-      if (d.captures >= NEED) badge($('b1'), `완료 (${d.captures}쌍)`, 'done');
-      else if (d.captures > 0) badge($('b1'), `${d.captures}/${NEED}쌍`, 'wip');
-    } catch (e) {}
+  // ----- 아코디언 phase: 펼친 쪽 영상만 로드 -----
+  function openPhase(which) {
+    document.querySelectorAll('.phase').forEach(p => {
+      const on = (p.id === 'phase' + which);
+      p.classList.toggle('open', on);
+      $('body' + p.id.slice(-1)).style.display = on ? 'block' : 'none';
+      p.querySelectorAll('img[data-src]').forEach(im => { im.src = on ? im.dataset.src : ''; });
+    });
   }
-  setInterval(poll, 800); poll();
+  document.querySelectorAll('.phase-head').forEach(h =>
+    h.addEventListener('click', () => openPhase(h.dataset.phase)));
 
-  // 초기 상태
-  (async () => {
-    const s = await (await fetch(ST)).json();
-    if (s.calibrated) badge($('b2'), '완료', 'done');
-  })();
-
-  // 캡처
-  $('cap').addEventListener('click', async () => {
+  // ----- 공용 동작 -----
+  async function doCapture(savedEl, rEl) {
     const d = await (await fetch(CAPU)).json();
-    if (d.error) { $('r1').textContent = d.error; return; }
-    $('saved').textContent = d.saved;
-    $('r1').className = 'result ' + (d.ok ? 'ok' : 'err');
-    $('r1').textContent = `#${d.saved} 저장 — 좌 ${d.cornersL} / 우 ${d.cornersR} ${d.ok?'✓':'⚠ 코너 부족(건너뛰어도 됨)'}`;
-  });
-
-  // 새 환경으로 초기화 (보관 후 0부터)
-  $('resetCal').addEventListener('click', async () => {
-    if (!confirm('새 환경으로 다시 캘리브레이션합니다.\n기존 촬영본과 캘리브레이션 결과는 보관(archive)되고 0부터 새로 시작합니다.\n(보정 완료 전까지 1페이지 3D 좌표는 비활성)\n\n계속할까요?')) return;
-    $('r1').className = 'result'; $('r1').textContent = '초기화 중…';
-    try {
-      const d = await (await fetch(RESETU, { method: 'POST' })).json();
-      if (!d.ok) { $('r1').className = 'result err'; $('r1').textContent = '✗ ' + (d.error || '초기화 실패'); return; }
-      $('saved').textContent = '0'; $('lL').textContent = '0'; $('lR').textContent = '0';
-      badge($('b1'), '대기', 'todo'); badge($('b2'), '대기', 'todo'); badge($('b3'), '대기', 'todo');
-      $('r2').textContent = ''; $('r2').className = 'result'; $('r3').textContent = ''; $('r3').className = 'result';
-      $('cov').innerHTML = ''; markWeakOnFeeds([]);   // 초기화 시 격자 하이라이트도 리셋
-      $('r1').className = 'result ok';
-      $('r1').textContent = `✓ 초기화됨 — 촬영본 ${d.archived_pairs}쌍${d.calib_archived ? ' + 기존 캘리브레이션' : ''} 보관(${d.stamp}). 새 환경에서 다시 촬영하세요.`;
-    } catch (e) { $('r1').className = 'result err'; $('r1').textContent = '✗ 초기화 실패'; }
-  });
-
-  // 캘리브레이션 실행
-  $('runCal').addEventListener('click', async () => {
-    $('r2').className = 'result'; $('r2').textContent = '실행 중…';
+    if (d.error) { rEl.textContent = d.error; return; }
+    savedEl.textContent = d.saved;
+    rEl.className = 'result ' + (d.ok ? 'ok' : 'err');
+    rEl.textContent = `#${d.saved} 저장 — 좌 ${d.cornersL} / 우 ${d.cornersR} ${d.ok ? '✓' : '⚠ 코너 부족(건너뛰어도 됨)'}`;
+  }
+  async function doCalibrate(bEl, rEl) {
+    rEl.className = 'result'; rEl.textContent = '실행 중…';
     const d = await (await fetch(CALU)).json();
     if (d.ok) {
-      badge($('b2'), '완료', 'done');
-      $('r2').className = 'result ok';
-      $('r2').textContent = `✓ 내부오차 좌 ${d.err_L}px / 우 ${d.err_R}px · 스테레오 ${d.err_stereo}px · 베이스라인 ${d.baseline_mm}mm\n(내부뷰 L${d.n_intrinsic_L}/R${d.n_intrinsic_R}, 스테레오 ${d.n_stereo})`;
-    } else {
-      $('r2').className = 'result err'; $('r2').textContent = '✗ ' + (d.error||'실패');
-    }
-  });
+      badge(bEl, '완료', 'done'); rEl.className = 'result ok';
+      rEl.textContent = `✓ 내부오차 좌 ${d.err_L}px / 우 ${d.err_R}px · 스테레오 ${d.err_stereo}px · 베이스라인 ${d.baseline_mm}mm\n(내부뷰 L${d.n_intrinsic_L}/R${d.n_intrinsic_R}, 스테레오 ${d.n_stereo})`;
+    } else { rEl.className = 'result err'; rEl.textContent = '✗ ' + (d.error || '실패'); }
+  }
+  async function doValidate(bEl, rEl, covEl) {
+    rEl.className = 'result'; rEl.textContent = '실행 중…'; covEl.innerHTML = '';
+    const d = await (await fetch(VALU)).json();
+    if (d.ok) {
+      const pass = d.mean_abs_err_mm < 2.0 && Math.abs(d.scale - 1) < 0.01;
+      badge(bEl, pass ? '완료' : '점검', pass ? 'done' : 'wip');
+      rEl.className = 'result ' + (pass ? 'ok' : 'err');
+      rEl.textContent = `${pass ? '✓' : '⚠'} 거리오차 ${d.mean_abs_err_mm}mm · 스케일 ${d.scale} · 깊이 ${d.depth_mm}mm (${d.depth_min}~${d.depth_max}) · 코너쌍 ${d.corner_pairs}`;
+      renderCoverage(d, covEl);
+    } else { rEl.className = 'result err'; rEl.textContent = '✗ ' + (d.error || '실패'); }
+  }
+  async function doReset(rEl, badges) {
+    if (!confirm('기존 촬영본·카메라 보정을 보관(archive)하고 0부터 새로 촬영합니다.\n(id0→J1 오프셋·앵커 등록은 유지됩니다)\n계속할까요?')) return;
+    rEl.className = 'result'; rEl.textContent = '초기화 중…';
+    try {
+      const d = await (await fetch(RESETU, { method: 'POST' })).json();
+      if (!d.ok) { rEl.className = 'result err'; rEl.textContent = '✗ ' + (d.error || '초기화 실패'); return; }
+      (badges || []).forEach(b => badge($(b), '대기', 'todo'));
+      markWeakOnFeeds([]);
+      rEl.className = 'result ok';
+      rEl.textContent = `✓ 초기화됨 — 촬영본 ${d.archived_pairs}쌍${d.calib_archived ? ' + 기존 캘리브레이션' : ''} 보관(${d.stamp}). 새로 촬영하세요.`;
+    } catch (e) { rEl.className = 'result err'; rEl.textContent = '✗ 초기화 실패'; }
+  }
 
-  // 4단계: 베이스 마커 실시간 검출 상태
+  // ----- Phase A 버튼 -----
+  $('capA').onclick = () => doCapture($('savedA'), $('r1'));
+  $('resetA').onclick = () => doReset($('r1'), ['b1', 'b2', 'b3']);
+  $('runCalA').onclick = () => doCalibrate($('b2'), $('r2'));
+  $('runValA').onclick = () => doValidate($('b3'), $('r3'), $('covA'));
+  // ----- Phase B 버튼 -----
+  $('capB').onclick = () => doCapture($('savedB'), $('r8'));
+  $('resetB').onclick = () => doReset($('r8'), ['b8', 'b9', 'b10']);
+  $('runCalB').onclick = () => doCalibrate($('b9'), $('r9'));
+  $('runValB').onclick = () => doValidate($('b10'), $('r10'), $('covB'));
+
+  // 5단계 ① 변환 T (id0)
+  $('runT').onclick = async () => {
+    $('r5').className = 'result'; $('r5').textContent = '산출 중…';
+    try {
+      const d = await (await fetch(CTU, { method: 'POST' })).json();
+      if (d.ok) {
+        const sane = Math.abs(d.marker_mm - 70) < 7;
+        badge($('b5'), '완료', 'done'); $('r5').className = 'result ' + (sane ? 'ok' : 'err');
+        $('r5').textContent = `${sane ? '✓' : '⚠'} 변환 T — 원점 ${d.origin} · 베이스 ${d.dist_mm}mm · 마커변 ${d.marker_mm}mm(${sane ? 'OK' : '70mm와 차이 큼'})${d.has_offset ? ' · 🟢 오프셋 저장됨' : ''}`;
+      } else { $('r5').className = 'result err'; $('r5').textContent = '✗ ' + (d.error || '실패'); }
+    } catch (e) { $('r5').className = 'result err'; $('r5').textContent = '✗ 실패'; }
+  };
+  // 5단계 ② 앵커 등록
+  $('regAnchor').onclick = async () => {
+    $('r5').className = 'result'; $('r5').textContent = '앵커 등록 중…';
+    try {
+      const d = await (await fetch(AREG, { method: 'POST' })).json();
+      if (d.ok) {
+        $('r5').className = 'result ok';
+        $('r5').textContent = `✓ 앵커 등록 — 이번 ${d.registered.join(',') || '–'} · 누적 전체 [${d.total.join(',')}] (${d.n_total}개). 작업공간(Phase B)에서 이 앵커로 좌표 복원.`;
+      } else { $('r5').className = 'result err'; $('r5').textContent = '✗ ' + (d.error || '실패'); }
+    } catch (e) { $('r5').className = 'result err'; $('r5').textContent = '✗ 실패'; }
+  };
+
+  // 6단계 마커 측정
+  $('measM').onclick = async () => {
+    $('r6').className = 'result'; $('r6').textContent = '측정 중…'; $('mtbl').innerHTML = '';
+    try {
+      const d = await (await fetch(MEASU)).json();
+      if (!d.ok) { $('r6').className = 'result err'; $('r6').textContent = '✗ ' + (d.error || '실패'); return; }
+      const ids = Object.keys(d.markers);
+      $('r6').className = 'result ' + (ids.length ? 'ok' : 'err');
+      const onlyMsg = (d.left_only.length || d.right_only.length) ? ` · 한쪽만: 좌[${d.left_only}] 우[${d.right_only}]` : '';
+      $('r6').textContent = `${ids.length}개 측정 (${d.frame === 'robot' ? '로봇 기준 mm' : '⚠ 카메라 기준 — 5단계 T 먼저'})${onlyMsg}`;
+      $('mtbl').innerHTML = ids.map(id => `<tr><td>id ${id}</td><td class="coord">${d.markers[id][0]}</td><td class="coord">${d.markers[id][1]}</td><td class="coord">${d.markers[id][2]}</td></tr>`).join('');
+    } catch (e) { $('r6').className = 'result err'; $('r6').textContent = '✗ 실패'; }
+  };
+
+  // 11단계 앵커로 변환 복원
+  $('anchorT').onclick = async () => {
+    $('r11').className = 'result'; $('r11').textContent = '복원 중…';
+    try {
+      const d = await (await fetch(ATF, { method: 'POST' })).json();
+      if (d.ok) {
+        const good = d.rms_mm < 6;
+        badge($('b11'), good ? '완료' : '점검', good ? 'done' : 'wip');
+        $('r11').className = 'result ' + (good ? 'ok' : 'err');
+        $('r11').textContent = `${good ? '✓' : '⚠'} 앵커 ${d.n}개로 변환 복원 — 잔차 rms ${d.rms_mm}mm (사용 [${d.anchors_used.join(',')}]). ${good ? '이제 1페이지 3D가 로봇 기준 mm.' : '잔차 큼 → 앵커 재등록/보정 점검.'}`;
+      } else { $('r11').className = 'result err'; $('r11').textContent = '✗ ' + (d.error || '실패'); }
+    } catch (e) { $('r11').className = 'result err'; $('r11').textContent = '✗ 실패'; }
+  };
+
+  // 12단계 측정 비교(자가검증) — 현재 측정한 앵커 위치를 로봇기준으로 표시
+  $('measCompare').onclick = async () => {
+    $('r12').className = 'result'; $('r12').textContent = '측정 중…'; $('atbl').innerHTML = '';
+    try {
+      const d = await (await fetch(MEASU)).json();
+      if (!d.ok) { $('r12').className = 'result err'; $('r12').textContent = '✗ ' + (d.error || '실패'); return; }
+      const anchorIds = Object.keys(d.markers).filter(id => +id >= 8 && +id <= 12);
+      $('atbl').innerHTML = anchorIds.map(id => `<tr><td>id ${id}</td><td class="coord">${d.markers[id][0]}</td><td class="coord">${d.markers[id][1]}</td><td class="coord">${d.markers[id][2]}</td></tr>`).join('');
+      $('r12').className = 'result ' + (anchorIds.length ? 'ok' : 'err');
+      $('r12').textContent = anchorIds.length
+        ? `앵커 ${anchorIds.length}개 측정 (${d.frame === 'robot' ? '로봇 기준 mm — 11단계 복원 반영' : '⚠ 카메라 기준 — 11단계 먼저'}). 등록 위치와 가까우면 정상.`
+        : '⚠ 앵커(id8~12)가 안 보입니다.';
+      if (anchorIds.length) badge($('b12'), '확인', 'done');
+    } catch (e) { $('r12').className = 'result err'; $('r12').textContent = '✗ 실패'; }
+  };
+
+  // ----- 폴링: 코너수·저장수 -----
+  async function pollCorners() {
+    try {
+      const d = await (await fetch(CHU)).json();
+      const col = n => n >= d.min_good ? '#6f6' : '#fa6';
+      ['lLa', 'lLb'].forEach(i => { const e = $(i); if (e) { e.textContent = d.cornersL; e.style.color = col(d.cornersL); } });
+      ['lRa', 'lRb'].forEach(i => { const e = $(i); if (e) { e.textContent = d.cornersR; e.style.color = col(d.cornersR); } });
+      $('savedA').textContent = d.captures; $('savedB').textContent = d.captures;
+      if (d.captures >= NEED) { badge($('b1'), `완료 (${d.captures}쌍)`, 'done'); badge($('b8'), `완료 (${d.captures}쌍)`, 'done'); }
+      else if (d.captures > 0) { badge($('b1'), `${d.captures}/${NEED}쌍`, 'wip'); badge($('b8'), `${d.captures}/${NEED}쌍`, 'wip'); }
+    } catch (e) {}
+  }
+  setInterval(pollCorners, 800); pollCorners();
+
+  // ----- 폴링: 마커·앵커·오프셋 + Phase 완료 판정 -----
+  let phaseInit = false;
   async function pollMarkers() {
     try {
       const d = await (await fetch(MSU)).json();
@@ -183,82 +362,38 @@
       $('m0R').textContent = R.includes(0) ? '✓' : '○'; $('m0R').style.color = R.includes(0) ? '#6f6' : '#fa6';
       $('mIDL').textContent = L.length ? L.join(',') : '–';
       $('mIDR').textContent = R.length ? R.join(',') : '–';
-      if (d.base_ok) badge($('b4'), '검출됨 ✓', 'done');
-      else badge($('b4'), '대기', 'todo');
-      if (d.has_T) badge($('b5'), '완료', 'done');
-      if (d.has_offset) badge($('offBadge'), 'id0→J1 오프셋 보정됨 ✓ (id0만으로 OK)', 'done');
-      else badge($('offBadge'), '오프셋 미보정 (팔+id1로 1회 필요)', 'todo');
+      const av = (d.anchors_visible || []).join(',') || '–';
+      $('anchVis').textContent = av; $('anchVisB').textContent = av;
+      $('anchReg').textContent = (d.anchors_registered || []).join(',') || '–(미등록)';
+      badge($('b4'), d.base_ok ? '검출됨 ✓' : '대기', d.base_ok ? 'done' : 'todo');
+      badge($('offBadge'), d.has_offset ? 'id0→J1 오프셋 ✓' : '오프셋 미보정', d.has_offset ? 'done' : 'todo');
+      badge($('anchBadge'), d.has_anchors ? `앵커 등록됨 [${(d.anchors_registered || []).join(',')}]` : '앵커 미등록', d.has_anchors ? 'done' : 'todo');
+
+      // Phase A 완료 = 오프셋 + 앵커 (관절보정은 트랙2)
+      const aDone = d.has_offset && d.has_anchors;
+      badge($('stA'), aDone ? '완료 ✓ (펼쳐서 재보정)' : '진행 필요', aDone ? 'done' : 'wip');
+      badge($('stB'), aDone ? '준비됨' : 'A 먼저', aDone ? 'done' : 'todo');
+      if (!phaseInit) { phaseInit = true; openPhase(aDone ? 'B' : 'A'); }   // 최초 1회 자동 진입
     } catch (e) {}
   }
-  setInterval(pollMarkers, 900); pollMarkers();
+  setInterval(pollMarkers, 1000); pollMarkers();
 
-  // 5단계: 카메라→로봇 변환 T 산출
-  $('runT').addEventListener('click', async () => {
-    $('r5').className = 'result'; $('r5').textContent = '산출 중…';
-    try {
-      const d = await (await fetch(CTU, { method: 'POST' })).json();
-      if (d.ok) {
-        const sane = Math.abs(d.marker_mm - 70) < 7;   // 마커 실측 70mm 와 비교
-        badge($('b5'), '완료', 'done');
-        $('r5').className = 'result ' + (sane ? 'ok' : 'err');
-        const offMsg = d.has_offset ? ' · 🟢 id0→J1 오프셋 보정됨(이후 id0만으로 변환 가능)' : '';
-        $('r5').textContent = `${sane ? '✓' : '⚠'} 변환 T 저장됨 — 원점 ${d.origin || 'id0'} · 베이스 거리 ${d.dist_mm}mm · 마커 변 ${d.marker_mm}mm(${sane ? '70mm 근접 OK' : '70mm와 차이 큼 → 캘리브레이션 점검'})${offMsg}. 이제 1페이지 3D가 로봇 기준 mm.`;
-      } else {
-        $('r5').className = 'result err'; $('r5').textContent = '✗ ' + (d.error || '실패');
-      }
-    } catch (e) { $('r5').className = 'result err'; $('r5').textContent = '✗ 실패'; }
-  });
-
-  // 6단계: 현재 자세 마커 측정 (로봇 기준 3D)
-  $('measM').addEventListener('click', async () => {
-    $('r6').className = 'result'; $('r6').textContent = '측정 중…'; $('mtbl').innerHTML = '';
-    try {
-      const d = await (await fetch(MEASU)).json();
-      if (!d.ok) { $('r6').className = 'result err'; $('r6').textContent = '✗ ' + (d.error || '실패'); return; }
-      const ids = Object.keys(d.markers);
-      $('r6').className = 'result ' + (ids.length ? 'ok' : 'err');
-      const onlyMsg = (d.left_only.length || d.right_only.length) ? ` · 한쪽만(측정불가): 좌[${d.left_only}] 우[${d.right_only}]` : '';
-      $('r6').textContent = `${ids.length}개 측정 (${d.frame === 'robot' ? '로봇 기준 mm' : '⚠ 카메라 기준 — 5단계 T 먼저'})${onlyMsg}`;
-      $('mtbl').innerHTML = ids.map(id =>
-        `<tr><td>id ${id}</td><td class="coord">${d.markers[id][0]}</td><td class="coord">${d.markers[id][1]}</td><td class="coord">${d.markers[id][2]}</td></tr>`).join('');
-    } catch (e) { $('r6').className = 'result err'; $('r6').textContent = '✗ 실패'; }
-  });
-
-  // 검증 실행
-  $('runVal').addEventListener('click', async () => {
-    $('r3').className = 'result'; $('r3').textContent = '실행 중…'; $('cov').innerHTML = '';
-    const d = await (await fetch(VALU)).json();
-    if (d.ok) {
-      const pass = d.mean_abs_err_mm < 2.0 && Math.abs(d.scale-1) < 0.01;
-      badge($('b3'), pass?'완료':'점검', pass?'done':'wip');
-      $('r3').className = 'result ' + (pass?'ok':'err');
-      $('r3').textContent = `${pass?'✓':'⚠'} 거리오차 ${d.mean_abs_err_mm}mm · 스케일 ${d.scale} · 깊이 ${d.depth_mm}mm (${d.depth_min}~${d.depth_max}) · 코너쌍 ${d.corner_pairs}`;
-      renderCoverage(d);
-    } else {
-      $('r3').className = 'result err'; $('r3').textContent = '✗ ' + (d.error||'실패');
-    }
-  });
-
-  // 커버리지 히트맵: 좌 카메라에서 보드 코너가 어디에 분포했는지 → 부족한 영역 표시
-  function renderCoverage(d) {
-    const host = $('cov'); host.innerHTML = '';
-    markWeakOnFeeds(d.weak_cells);   // 1단계 라이브 화면에도 부족 칸 표시
+  // 커버리지 히트맵
+  function renderCoverage(d, host) {
+    host.innerHTML = ''; markWeakOnFeeds(d.weak_cells);
     if (!d.grid) return;
-    const G = d.grid, R = d.grid_rows, C = d.grid_cols;
-    const max = Math.max(1, ...G.flat());
-    const weak = new Set((d.weak_cells||[]).map(w => w[1]*C + w[0]));
-    const title = document.createElement('div'); title.className='hint'; title.style.margin='10px 0 4px';
-    title.innerHTML = '<b>커버리지 맵</b> (양쪽 카메라 <b>공통</b> 코너 = 3D 가능 영역 · 좌 화면 배치) — 칸 숫자=공통 코너 수, <b style="color:#f55">빨간 테두리</b>=부족 → 그 위치에 보드를 <b>두 화면 모두</b>에 보이게 촬영';
+    const G = d.grid, R = d.grid_rows, C = d.grid_cols, max = Math.max(1, ...G.flat());
+    const weak = new Set((d.weak_cells || []).map(w => w[1] * C + w[0]));
+    const title = document.createElement('div'); title.className = 'hint'; title.style.margin = '10px 0 4px';
+    title.innerHTML = '<b>커버리지 맵</b> (양쪽 공통 코너 = 3D 가능 영역) — <b style="color:#f55">빨간 테두리</b>=부족';
     host.appendChild(title);
     const grid = document.createElement('div');
     grid.style.cssText = `display:grid;grid-template-columns:repeat(${C},1fr);gap:3px;max-width:560px;`;
-    for (let r=0;r<R;r++) for (let cc=0;cc<C;cc++) {
-      const n = G[r][cc], t = n/max;
-      const cell = document.createElement('div');
-      const bg = n===0 ? '#3a1414' : `hsl(${Math.round(t*120)} 55% ${18+t*22}%)`;
-      cell.style.cssText = `background:${bg};border-radius:4px;min-height:36px;display:flex;align-items:center;justify-content:center;font-size:12px;color:#eee;${weak.has(r*C+cc)?'outline:2px solid #f55;outline-offset:-2px;':''}`;
-      cell.textContent = n;
-      grid.appendChild(cell);
+    for (let r = 0; r < R; r++) for (let cc = 0; cc < C; cc++) {
+      const n = G[r][cc], t = n / max, cell = document.createElement('div');
+      const bg = n === 0 ? '#3a1414' : `hsl(${Math.round(t * 120)} 55% ${18 + t * 22}%)`;
+      cell.style.cssText = `background:${bg};border-radius:4px;min-height:36px;display:flex;align-items:center;justify-content:center;font-size:12px;color:#eee;${weak.has(r * C + cc) ? 'outline:2px solid #f55;outline-offset:-2px;' : ''}`;
+      cell.textContent = n; grid.appendChild(cell);
     }
     host.appendChild(grid);
     if (d.advice && d.advice.length) {
