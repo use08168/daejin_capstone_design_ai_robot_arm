@@ -125,18 +125,41 @@ def transition_order(cur, tgt):
     return None
 
 
-def plan_summary(n2=4, n3=4, n4=3, n1=3, j1_range=J1_RANGE):
-    """스윕 계획 요약(움직임 없음·미리보기용)."""
-    poses = generate_sweep(n2, n3, n4, n1, j1_range)
+def single_joint_sweep(n_per=7):
+    """관절별 단일 스윕(한 관절만 n_per점, 나머지 고정) — 깨끗한 k 추출용.
+    중력 sag 자세 의존(B) 위해 J2·J3·J4는 다른 관절을 몇 설정으로 바꿔가며 반복.
+    is_safe 통과분만. 각 블록은 '나머지 관절이 같은' 부분스윕이라 원호 적합이 안정적."""
+    out = []
+
+    def add(joint, lo, hi, fixed):
+        for v in _grid(lo, hi, n_per):
+            p = {**SAFE_HOME, **fixed, joint: round(v, 1)}
+            if is_safe(p["J1"], p["J2"], p["J3"], p["J4"]):
+                out.append(p)
+
+    for fx in ({"J2": 45, "J3": 80, "J4": 90}, {"J2": 35, "J3": 60, "J4": 70}):   # J1 (수직축)
+        add("J1", J1_RANGE[0], J1_RANGE[1], fx)
+    for (j3, j4) in ((80, 90), (60, 70), (110, 110)):                              # J2 (자세 의존)
+        add("J2", J2_MIN + MARGIN, J2_MAX - MARGIN, {"J3": j3, "J4": j4})
+    for j2 in (45, 60):                                                            # J3
+        lo, hi = safe_j3(j2); add("J3", lo, hi, {"J2": j2, "J4": 90})
+    for (j2, j3) in ((45, 80), (60, 120)):                                         # J4
+        lo, hi = safe_j4(j2, j3); add("J4", lo, hi, {"J2": j2, "J3": j3})
+    return out
+
+
+def plan_summary(n_per=7):
+    """스윕 계획 요약(움직임 없음·미리보기용) — 단일 관절 스윕."""
+    poses = single_joint_sweep(n_per)
     def rng(key):
         vs = [p[key] for p in poses]
         return [min(vs), max(vs)] if vs else [None, None]
+    # 어떤 관절이 변하는 블록인지 카운트(나머지 고정 기준)
     return {
         "count": len(poses),
         "ranges": {k: rng(k) for k in ("J1", "J2", "J3", "J4")},
         "fixed": {"J5": J5_FIXED, "J6": J6_FIXED},
-        "grid": {"n1": n1, "n2": n2, "n3": n3, "n4": n4},
-        "margin_deg": MARGIN,
+        "n_per": n_per, "mode": "single-joint", "margin_deg": MARGIN,
         "sample": poses[:8],
     }
 

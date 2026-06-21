@@ -475,9 +475,8 @@ def joint_sweep_plan(request):
     import json
     from . import joint_cal
     d = json.loads(request.body or "{}") if request.body else {}
-    n1 = max(1, int(d.get("n1", 3))); n2 = max(2, int(d.get("n2", 4)))
-    n3 = max(2, int(d.get("n3", 4))); n4 = max(2, int(d.get("n4", 3)))
-    return JsonResponse({"ok": True, **joint_cal.plan_summary(n2=n2, n3=n3, n4=n4, n1=n1)})
+    n_per = max(4, min(15, int(d.get("n_per", 7))))
+    return JsonResponse({"ok": True, **joint_cal.plan_summary(n_per=n_per)})
 
 
 # ---- 관절 보정 스윕(백그라운드 구동 + 마커 수집) ----
@@ -591,9 +590,8 @@ def joint_sweep_start(request):
         return JsonResponse({"ok": False, "need_park": True, "safe_home": joint_cal.SAFE_HOME,
                              "error": f"현재 J2={cur['J2']}° — 팔을 들어올리거나(J2≥70) 안전 자세로 둔 뒤 시작하세요. (이후 스윕이 자동으로 안전 자세로 이동)"})
     d = json.loads(request.body or "{}") if request.body else {}
-    n1 = max(1, int(d.get("n1", 3))); n2 = max(2, int(d.get("n2", 4)))
-    n3 = max(2, int(d.get("n3", 4))); n4 = max(2, int(d.get("n4", 3)))
-    poses = joint_cal.generate_sweep(n2=n2, n3=n3, n4=n4, n1=n1)
+    n_per = max(4, min(15, int(d.get("n_per", 7))))
+    poses = joint_cal.single_joint_sweep(n_per=n_per)
     with _SWEEP_LOCK:
         _SWEEP.update({"running": True, "i": 0, "total": len(poses), "saved": 0, "skipped": 0,
                        "msg": "시작…", "error": "", "done": False, "stop": False, "path": ""})
