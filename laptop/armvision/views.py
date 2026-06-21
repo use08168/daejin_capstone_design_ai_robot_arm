@@ -488,6 +488,30 @@ _SWEEP_LOCK = _threading.Lock()
 SWEEP_PATH = r"C:\robotic_arm\laptop\calibration\joint_sweep.json"
 
 
+def _approach_safe_home():
+    """현재 자세에서 SAFE_HOME(박스 내)으로 안전 진입.
+    - 이미 박스 안: 안전 전이(transition_order)로.
+    - 팔이 들려 있음(J2≥70, 바닥에서 멀): wrist 고정 → J3·J4를 SAFE_HOME 값으로(들린 채)
+      → J2를 45로 하강(절대 45 밑 안 감 = SAFE_HOME 높이 이하로 안 내려감) → J1.
+    floor-safe by monotonicity: 진입 내내 SAFE_HOME 높이보다 낮아지지 않음."""
+    from . import joint_cal
+    H = joint_cal.SAFE_HOME
+    cur = {j: _JOINT_STATE.get(j, 90.0) for j in ("J1", "J2", "J3", "J4")}
+    if joint_cal.is_safe(cur["J1"], cur["J2"], cur["J3"], cur["J4"]):
+        seq = joint_cal.transition_order(cur, H)
+        steps = [("J5", joint_cal.J5_FIXED), ("J6", joint_cal.J6_FIXED)] + (seq or [])
+        if seq is None:
+            steps = [("J5", joint_cal.J5_FIXED), ("J6", joint_cal.J6_FIXED),
+                     ("J3", H["J3"]), ("J4", H["J4"]), ("J2", H["J2"]), ("J1", H["J1"])]
+    else:   # 팔 들림(J2≥70) → 들어올림·설정·하강
+        steps = [("J5", joint_cal.J5_FIXED), ("J6", joint_cal.J6_FIXED),
+                 ("J3", H["J3"]), ("J4", H["J4"]), ("J2", H["J2"]), ("J1", H["J1"])]
+    for (j, v) in steps:
+        if not _move_joint_to(j, v).get("ok"):
+            return {"ok": False}
+    return {"ok": True}
+
+
 def _sweep_worker(poses):
     """안전 박스 자세들을 한 관절씩 안전 이동하며 각 자세에서 팔 마커(id0~7) 3D 수집·저장."""
     import time
@@ -495,8 +519,12 @@ def _sweep_worker(poses):
     from . import joint_cal, markers
     data = []
     try:
-        for j in ("J5", "J6"):                       # 고정값 먼저(박스 전제)
-            _move_joint_to(j, joint_cal.SAFE_HOME[j])
+        with _SWEEP_LOCK:
+            _SWEEP["msg"] = "안전 자세(SAFE_HOME)로 이동 중…"
+        if not _approach_safe_home().get("ok"):
+            with _SWEEP_LOCK:
+                _SWEEP["error"] = "안전 자세 이동 실패(연결 끊김?)"
+            return
         for idx, pose in enumerate(poses):
             with _SWEEP_LOCK:
                 if _SWEEP["stop"]:
@@ -556,10 +584,12 @@ def joint_sweep_start(request):
             return JsonResponse({"ok": False, "error": "이미 스윕 진행 중"})
     if not arduino_bridge.is_connected():
         return JsonResponse({"ok": False, "error": "실물 미연결 — 3페이지(3D 제어)에서 연결하세요."})
+    # 시작 자세: 박스 안이거나 '팔이 들려 있으면'(J2≥70, 바닥에서 멀어 안전 진입 가능) 허용 →
+    # 워커가 먼저 자동으로 SAFE_HOME으로 이동. 둘 다 아니면(낮게 뻗은 상태) 거부.
     cur = {j: _JOINT_STATE.get(j, 90.0) for j in ("J1", "J2", "J3", "J4")}
-    if not joint_cal.is_safe(cur["J1"], cur["J2"], cur["J3"], cur["J4"]):
+    if not (joint_cal.is_safe(cur["J1"], cur["J2"], cur["J3"], cur["J4"]) or cur["J2"] >= 70.0):
         return JsonResponse({"ok": False, "need_park": True, "safe_home": joint_cal.SAFE_HOME,
-                             "error": f"현재 자세가 안전 박스 밖 {cur} — 3페이지에서 안전 자세로 이동 후 시작하세요. 권장 {joint_cal.SAFE_HOME}"})
+                             "error": f"현재 J2={cur['J2']}° — 팔을 들어올리거나(J2≥70) 안전 자세로 둔 뒤 시작하세요. (이후 스윕이 자동으로 안전 자세로 이동)"})
     d = json.loads(request.body or "{}") if request.body else {}
     n1 = max(1, int(d.get("n1", 3))); n2 = max(2, int(d.get("n2", 4)))
     n3 = max(2, int(d.get("n3", 4))); n4 = max(2, int(d.get("n4", 3)))
