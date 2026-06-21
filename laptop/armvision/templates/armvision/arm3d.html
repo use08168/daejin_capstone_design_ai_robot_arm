@@ -1752,18 +1752,22 @@ function _ikGraspPose(O, type, R, H, approach){
   z.normalize(); const x0=new THREE.Vector3().crossVectors(up,z); if(x0.lengthSq()<1e-6) return {ok:false, reason:'자세 특이(축 정렬 불가)'};
   x0.normalize(); const y0=new THREE.Vector3().crossVectors(z,x0).normalize();
   const qi=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x0,y0,z));
+  // 여러 시작자세(특히 J1 방위각)에서 국소 IK 시도 — cur 하나면 멀 때 못 빠져나옴(국소최소). DB 없이도 닿게.
+  const seeds=[cur]; for(const j1 of [20,55,90,125,160]) seeds.push([j1,55,95,90,90,90]);
   let best=null, minPos=1e9;
   for(const q of [qi, _flipQ(qi)]){                       // 대칭(면 뒤집기) 두 후보 중 J6 범위 내로 더 잘 닿는 자세
     const tTCP=O.clone().sub(new THREE.Vector3(gjaw.cx,gjaw.cy,gjaw.cz).applyQuaternion(q));   // 물체가 jaw 중심에
-    const r=_ikToPose(cur, tTCP, q, 100, 4);
-    minPos=Math.min(minPos, r.posErr);
-    if(r.posErr>30) continue;                              // 위치 못 닿음
-    const rm=revMates(), sv=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle));   // 충돌 검사(그리퍼 몸체↔물체 + 팔 자기/바닥)
-    rm.forEach((m,i)=>{ if(i<6)m.angle=r.j[i]; }); applyAngles(); rigRoot.updateMatrixWorld(true);
-    const collide=_gripperHitsObject(invObj,type,R,H) || _cfgCollides();
-    rm.forEach((m,i)=>{ if(i<6)m.angle=sv[i]; }); applyAngles();
-    const score=r.posErr + r.angErr*0.3 + (collide?500:0);
-    if(!best || score<best.score) best={j:r.j, posErr:r.posErr, angErr:r.angErr, collide, score};
+    for(const seed of seeds){
+      const r=_ikToPose(seed, tTCP, q, 100, 4);
+      minPos=Math.min(minPos, r.posErr);
+      if(r.posErr>30) continue;                            // 위치 못 닿음
+      const rm=revMates(), sv=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle));   // 충돌 검사(그리퍼 몸체↔물체 + 팔 자기/바닥)
+      rm.forEach((m,i)=>{ if(i<6)m.angle=r.j[i]; }); applyAngles(); rigRoot.updateMatrixWorld(true);
+      const collide=_gripperHitsObject(invObj,type,R,H) || _cfgCollides();
+      rm.forEach((m,i)=>{ if(i<6)m.angle=sv[i]; }); applyAngles();
+      const score=r.posErr + r.angErr*0.3 + (collide?500:0);
+      if(!best || score<best.score) best={j:r.j, posErr:r.posErr, angErr:r.angErr, collide, score};
+    }
   }
   if(!best) return {ok:false, reason:`도달 불가 (IK 위치오차 ${minPos.toFixed(0)}mm > 30mm — 워크스페이스 밖/가장자리)`};
   if(best.collide) return {ok:false, reason:'충돌 (그리퍼/팔이 물체·자기와 간섭)', j:best.j};
