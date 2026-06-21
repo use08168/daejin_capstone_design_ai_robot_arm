@@ -357,10 +357,13 @@ def grasp_dataset(request):
     """grasp_dataset.csv 서버 저장(POST)/제공(GET).
     4페이지에서 한 번 업로드하면 저장 → 4·6페이지 arm3d가 시작 시 자동 로드(좌표 파지도 DB 검색 사용)."""
     if request.method == "POST":
+        data = request.body                      # 먼저 읽기(실패 시 기존 파일 보존). 한도는 settings DATA_UPLOAD_MAX_MEMORY_SIZE
+        if not data:
+            return JsonResponse({"ok": False, "error": "빈 본문"})
         os.makedirs(os.path.dirname(GRASP_DATASET_PATH), exist_ok=True)
         with open(GRASP_DATASET_PATH, "wb") as f:
-            f.write(request.body)
-        return JsonResponse({"ok": True, "bytes": len(request.body)})
+            f.write(data)
+        return JsonResponse({"ok": True, "bytes": len(data)})
     if not os.path.exists(GRASP_DATASET_PATH):
         return HttpResponse("", content_type="text/csv", status=404)
     with open(GRASP_DATASET_PATH, "rb") as f:

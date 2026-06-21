@@ -27,6 +27,9 @@ DEBUG = True
 
 ALLOWED_HOSTS = []
 
+# grasp_dataset.csv 등 큰 본문 업로드 허용(기본 2.5MB → 200MB). 로컬 단일사용자 앱.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 200 * 1024 * 1024
+
 
 # Application definition
 
