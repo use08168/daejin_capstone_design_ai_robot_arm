@@ -15,8 +15,9 @@ import numpy as np
 CAL = r"C:\robotic_arm\laptop\calibration\stereo_calib.npz"
 T_PATH = r"C:\robotic_arm\laptop\calibration\camera_robot_T.npz"
 
+_UNSET = object()   # 미로딩 센티넬 (ndarray와 == 비교하면 모호성 에러 → is 비교용)
 _calib = None
-_T = "unset"   # 'unset' = 미로딩, None = 파일없음, ndarray = 로딩됨
+_T = _UNSET   # _UNSET = 미로딩, None = 파일없음, ndarray = 로딩됨
 
 
 def is_calibrated() -> bool:
@@ -31,13 +32,13 @@ def reload():
     """캘리브레이션/변환 파일 재로딩(실행 직후 호출)."""
     global _calib, _T
     _calib = None
-    _T = "unset"
+    _T = _UNSET
 
 
 def _load_T():
     """카메라→로봇 변환 T(4x4). 없으면 None (카메라 좌표 그대로)."""
     global _T
-    if _T == "unset":
+    if _T is _UNSET:
         _T = np.load(T_PATH)["T"] if os.path.exists(T_PATH) else None
     return _T
 
