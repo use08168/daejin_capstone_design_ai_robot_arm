@@ -139,8 +139,7 @@ def validate_dsl(obj, known_targets=None):
                 errors.append(f"[{i}] 이미 물체를 든 상태에서 pick (먼저 place 필요)")
             holding = True
         if op == "place":
-            if not holding:
-                errors.append(f"[{i}] pick 없이 place (잡지 않고 놓기)")
+            # 단독 place 허용(멀티턴: 이전 명령에서 잡은 물체를 이번에 놓기). 실제로 든 게 있는지는 노트북(_held)이 판정.
             holding = False
     # 집기만 하는 명령('집어줘')은 잡은 채 끝나도 정상 — place 강제하지 않음.
     return len(errors) == 0, errors
