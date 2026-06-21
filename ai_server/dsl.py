@@ -32,8 +32,43 @@ def _is_xyz(v):
     return isinstance(v, list) and len(v) == 3 and all(isinstance(c, (int, float)) for c in v)
 
 
+def _salvage_actions(text):
+    """잘리거나 깨진 JSON에서 actions 배열만 복구 → {"actions":[...], "reasoning":""}.
+    (예: reasoning이 길어 토큰 한계로 끊겨도 앞쪽 actions는 살림)"""
+    i = text.find('"actions"')
+    if i < 0:
+        return None
+    lb = text.find("[", i)
+    if lb < 0:
+        return None
+    depth = 0; instr = False; esc = False; end = -1
+    for j in range(lb, len(text)):           # 문자열/이스케이프 인지하며 대괄호 균형
+        ch = text[j]
+        if instr:
+            if esc: esc = False
+            elif ch == "\\": esc = True
+            elif ch == '"': instr = False
+        elif ch == '"': instr = True
+        elif ch == "[": depth += 1
+        elif ch == "]":
+            depth -= 1
+            if depth == 0:
+                end = j; break
+    arr = text[lb:end + 1] if end > 0 else None
+    if arr is None:                          # 끝이 잘림 → 마지막 완전한 } 까지 모아 ] 로 닫기
+        last = text.rfind("}", lb)
+        if last > lb:
+            arr = text[lb:last + 1] + "]"
+    if not arr:
+        return None
+    try:
+        return {"actions": json.loads(arr), "reasoning": ""}
+    except Exception:
+        return None
+
+
 def extract_json(text):
-    """LLM 출력에서 JSON 추출 — ```json 펜스/잡설 제거 후 첫 {...} 파싱."""
+    """LLM 출력에서 JSON 추출 — ```json 펜스/잡설 제거 후 첫 {...} 파싱. 잘리면 actions만 복구."""
     m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.S)
     raw = m.group(1) if m else None
     if raw is None:
@@ -42,6 +77,9 @@ def extract_json(text):
     try:
         return json.loads(raw), None
     except Exception as e:
+        salv = _salvage_actions(text)        # 잘린 출력 복구(actions 우선)
+        if salv is not None:
+            return salv, None
         return None, f"JSON 파싱 실패: {e}"
 
 

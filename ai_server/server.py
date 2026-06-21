@@ -98,11 +98,12 @@ def handle_command(images, text, detections_json):
            "4) place 는 놓을 물체/장소 id(그 위에 놓기) 또는 to:[x,y,z](mm). 미세조정은 offset:[x,y,z].\n"
            "5) 직접 관절 제어만 요구하면(예: J1을 180도) set_joint.\n"
            f"사용 가능한 op(이 외 금지):\n{OPS_DOC}\n"
-           '예) {"reasoning":"빨간 컵을 책 위로","actions":[{"op":"pick","target":"red_cup"},{"op":"place","target":"book","offset":[0,0,40]}]}\n'
-           '예) {"reasoning":"대상 안 보임","actions":[{"op":"ask_user","question":"노란 공이 안 보여요. 어디 있나요?"}]}\n'
-           '오직 JSON 하나만 출력: {"reasoning":"...","actions":[...]}')
+           "⚠ actions 를 먼저 쓰고, reasoning 은 마지막에 한 문장으로 아주 짧게(생략 가능).\n"
+           '예) {"actions":[{"op":"pick","target":"red_cup"},{"op":"place","target":"book","offset":[0,0,40]}],"reasoning":"컵을 책 위로"}\n'
+           '예) {"actions":[{"op":"ask_user","question":"노란 공이 안 보여요. 어디 있나요?"}]}\n'
+           '오직 JSON 하나만 출력: {"actions":[...],"reasoning":"짧게"}')
     c = [{"type": "image", "image": im} for im in images] + [{"type": "text", "text": txt}]
-    raw = _gen(c)
+    raw = _gen(c, max_new=1024)   # reasoning 잘림 방지(여유 토큰)
     obj, perr = extract_json(raw)
     if perr:
         return {"reasoning": "", "actions": []}, False, [perr]
