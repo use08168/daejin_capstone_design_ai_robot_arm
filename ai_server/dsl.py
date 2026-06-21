@@ -105,6 +105,8 @@ def validate_dsl(obj, known_targets=None):
                 errors.append(f"[{i}] {op}: 파라미터 '{p}' 누락")
         # 3b. 타입/제약
         if op == "set_joint":
+            if isinstance(a.get("joint"), str):
+                a["joint"] = a["joint"].upper()                       # j1 → J1 정규화(노트북도 대문자 필요)
             if a.get("joint") not in JOINTS:
                 errors.append(f"[{i}] joint 은 {sorted(JOINTS)} 중 하나여야 함")
             if not isinstance(a.get("angle"), (int, float)):
