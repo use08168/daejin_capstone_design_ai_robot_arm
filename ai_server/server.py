@@ -101,8 +101,9 @@ def handle_command(images, text, detections_json):
            "pick 에 at:[x,y,z](mm)를 넣어라. 좌표를 target 문자열에 넣지 마라.\n"
            "5) '어떻게 잡을지'(수직/수평·손목 자세)는 노트북이 결정한다 → approach 는 보통 생략(auto).\n"
            "6) place 는 놓을 물체/장소 id(그 위에 놓기) 또는 to:[x,y,z](mm). 미세조정은 offset:[x,y,z]. "
-           "⚠ 이미 잡고 있는 물체를 놓는 명령('놔줘','내려놔','거기/좌표에 둬') = place 하나만(앞에 pick 없이). "
-           "좌표를 주면 to:[x,y,z], 놓을 곳이 모호하면 ask_user.\n"
+           "⚠ 이미 잡고 있는 물체를 놓는 명령 = place 하나만(앞에 pick 없이). 구분: "
+           "①'내려놔','그냥 놔','제자리에 놔'(특정 위치 없음) = place 좌표 없이(현재 위치 바닥에 내려놓음). "
+           "②좌표를 주면('좌표 X에 놔') to:[x,y,z]. ③'저기/거기/다른 곳에'처럼 위치를 가리키지만 어디인지 불명확하면 ask_user.\n"
            "7) 직접 관절 제어(예: 'J1을 180도로') = set_joint. joint 은 반드시 대문자(J1~J7). "
            "⚠ 각도를 사용자가 명시하지 않으면('J1 움직여줘'처럼) 각도를 멋대로 정하지 말고 ask_user 로 '몇 도로 움직일까요?'라 되물어라.\n"
            f"사용 가능한 op(이 외 금지):\n{OPS_DOC}\n"
@@ -114,7 +115,8 @@ def handle_command(images, text, detections_json):
            '예5 각도없음) {"actions":[{"op":"ask_user","question":"J1을 몇 도로 움직일까요? (0~180)"}]}\n'
            '예6 관절제어) {"actions":[{"op":"set_joint","joint":"J1","angle":180}],"reasoning":"J1을 180도로"}\n'
            '예7 좌표파지) {"actions":[{"op":"pick","at":[0,15,-320]}],"reasoning":"지정 좌표의 물체를 집음"}\n'
-           '예8 놓기만) {"actions":[{"op":"place","to":[100,50,-250]}],"reasoning":"잡은 물체를 좌표에 놓음"}\n'
+           '예8 좌표놓기) {"actions":[{"op":"place","to":[100,50,-250]}],"reasoning":"잡은 물체를 좌표에 놓음"}\n'
+           '예9 제자리놓기) {"actions":[{"op":"place"}],"reasoning":"잡은 물체를 현재 위치에 내려놓음"}\n'
            '오직 JSON 하나만 출력: {"actions":[...],"reasoning":"짧게"}')
     c = [{"type": "image", "image": im} for im in images] + [{"type": "text", "text": txt}]
     raw = _gen(c, max_new=1024)   # reasoning 잘림 방지(여유 토큰)

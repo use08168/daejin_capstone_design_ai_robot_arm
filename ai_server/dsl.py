@@ -121,9 +121,8 @@ def validate_dsl(obj, known_targets=None):
                 errors.append(f"[{i}] at 은 숫자 3개 배열[x,y,z]이어야 함")
             if "approach" in a and a["approach"] not in APPROACHES:
                 errors.append(f"[{i}] approach 는 {sorted(APPROACHES)} 중 하나여야 함")
-        if op == "place":                                          # target(의미) 또는 to[x,y,z] 중 하나는 필요
-            if "target" not in a and "to" not in a:
-                errors.append(f"[{i}] place: target(장소 ID) 또는 to[x,y,z] 중 하나 필요")
+        if op == "place":
+            # target/to 둘 다 없어도 허용 = 제자리 내려놓기(현재 들고 있는 위치 바닥). 노트북이 처리.
             if "to" in a and not _is_xyz(a["to"]):
                 errors.append(f"[{i}] to 는 길이 3 숫자배열[x,y,z]이어야 함")
         if "offset" in a and not _is_xyz(a["offset"]):
