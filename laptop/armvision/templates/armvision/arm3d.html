@@ -2041,7 +2041,7 @@ async function executeDSL(actions){
       if(!Array.isArray(a.to) && (!a.target || a.target==='none' || a.target==='')){   // 놓을 곳 미지정(잡기만 명령) → 든 채 유지
         _aiLog('place 생략 — 놓을 곳 미지정(잡은 채 유지)'); continue; }
       let O=null, src='';
-      if(Array.isArray(a.to)){ const ps=await _vis2sim(a.to); O=new THREE.Vector3(ps[0],ps[1],ps[2]); src=`to(${_r3(a.to)})`; }
+      if(Array.isArray(a.to)){ O=new THREE.Vector3(+a.to[0],+a.to[1],+a.to[2]); src=`to(${_r3(a.to)}) 시뮬좌표`; }   // 직접 좌표=시뮬좌표(pick at과 동일, 비전무관)
       else { const r=await _resolveTarget(a.target, a.place_idx); if(r){ O=r.O; src=`'${a.target}'→${r.obj.id||r.obj.class} 비전(${_r3(r.obj.xyz_mm)})`; } }
       if(!O){ _aiLog(`<span style="color:#f88">✗ place '${a.target}' 비전에서 못 찾음</span>`); ikStat('✗ place 목표 해석 실패'); return false; }
       const off=a.offset||[0,0,0];
