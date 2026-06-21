@@ -517,6 +517,8 @@ def _sweep_worker(poses):
     import json as _json
     from . import joint_cal, markers
     data = []
+    _prev_correct = ARM_CFG.get("correct", False)
+    ARM_CFG["correct"] = False                        # 측정 스윕은 nominal 거동 측정 → 보정 OFF(순환 방지)
     try:
         with _SWEEP_LOCK:
             _SWEEP["msg"] = "안전 자세(SAFE_HOME)로 이동 중…"
@@ -567,6 +569,7 @@ def _sweep_worker(poses):
         with _SWEEP_LOCK:
             _SWEEP["error"] = str(e)
     finally:
+        ARM_CFG["correct"] = _prev_correct           # 보정 플래그 원복
         with _SWEEP_LOCK:
             _SWEEP["running"] = False
 
@@ -800,7 +803,30 @@ _JOINT_CH = {"J1": 0, "J2": 1, "J3": 2, "J4": 3, "J5": 4, "J6": 5, "J7": 6}
 _SERVO_CAL = {0: [600, 2740], 1: [530, 2670], 2: [520, 2700], 3: [540, 2720], 4: [600, 2750], 5: [560, 2750]}  # J4↔J5 모터교체 J4(ch3):0°=2720,180°=540 J5(ch4):0°=2750,180°=600 / J6(ch5):0°=2750,180°=560 실측
 
 
+# 관절 보정(6단계) — servo_corr.json {Jk:{ch,k,ref}}. 명령 시 θ_cmd=ref+(θ−ref)/k 로 보정.
+SERVO_CORR_PATH = r"C:\robotic_arm\laptop\calibration\servo_corr.json"
+_SERVO_CORR = {"map": None}   # ch -> {k, ref}
+
+
+def _load_corr(reload=False):
+    if _SERVO_CORR["map"] is None or reload:
+        m = {}
+        try:
+            import json as _j
+            d = _j.load(open(SERVO_CORR_PATH, encoding="utf-8"))
+            for _jt, c in d.items():
+                m[int(c["ch"])] = {"k": float(c["k"]), "ref": float(c["ref"])}
+        except Exception:
+            pass
+        _SERVO_CORR["map"] = m
+    return _SERVO_CORR["map"]
+
+
 def _ang_to_us(ch, ang):
+    if ARM_CFG.get("correct"):                        # 보정 ON → 덜/더 도는 만큼 명령 비틀기
+        c = _load_corr().get(ch)
+        if c and c["k"] > 0.05:
+            ang = c["ref"] + (ang - c["ref"]) / c["k"]
     a = max(0.0, min(180.0, 180.0 - ang))            # 시뮬↔실물 미러
     us0, us180 = _SERVO_CAL.get(ch, [600, 2740])
     return round(us0 + (a / 180.0) * (us180 - us0))
@@ -812,7 +838,7 @@ _JOINT_STATE = {f"J{i}": 90.0 for i in range(1, 7)}
 
 # ============ 로봇팔 작동 속도 — 단일 설정(모든 경로 공통, 한 곳에서 제어) ============
 # 관절·그리퍼·각 페이지 램프가 전부 이 값을 사용 → 속도 일관. /arm/config/ 로 조회·변경.
-ARM_CFG = {"deg_per_s": 30.0, "grip_us_per_s": 700.0}
+ARM_CFG = {"deg_per_s": 30.0, "grip_us_per_s": 700.0, "correct": False}   # correct=관절 보정 적용
 _RAMP_DT = 0.02   # 램프 갱신 주기(초) — 50Hz
 
 
@@ -876,7 +902,10 @@ def arm_config(request):
             ARM_CFG["deg_per_s"] = max(2.0, min(120.0, float(d["deg_per_s"])))
         if "grip_us_per_s" in d:
             ARM_CFG["grip_us_per_s"] = max(100.0, min(3000.0, float(d["grip_us_per_s"])))
-    return JsonResponse({"ok": True, **ARM_CFG})
+        if "correct" in d:
+            ARM_CFG["correct"] = bool(d["correct"])
+            _load_corr(reload=True)                  # 토글 시 servo_corr.json 재로딩
+    return JsonResponse({"ok": True, **ARM_CFG, "corr_joints": sorted(_load_corr().keys())})
 
 
 @csrf_exempt

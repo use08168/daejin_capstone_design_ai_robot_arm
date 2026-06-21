@@ -116,6 +116,12 @@ def main():
             print(f"    {tgt:6.0f}° {cmd:7.1f}° {ang_to_us(ch, tgt):9d}us {ang_to_us(ch, cmd):8d}us")
     if not corr:
         print("  (추출된 관절 없음)")
+        return
+    # 저장: servo_corr.json — 명령 시 θ_cmd = ref + (θ−ref)/k 로 보정 (nominal _SERVO_CAL 유지)
+    out = {j: {"ch": JCH[j], "k": round(r["k"], 4), "ref": 90.0} for j, r in corr.items()}
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "servo_corr.json")
+    json.dump(out, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    print(f"\n저장: {path}\n  {out}")
     print("\n※ k는 '기울기(게인)' 보정. |k|로 보고(법선 부호 임의). 절대 offset(상수 편차)은 "
           "절대기준이 필요해 별도. J2 부분스윕별 k 차이가 크면 자세 의존(중력 sag) → B 모델로 확장.")
 

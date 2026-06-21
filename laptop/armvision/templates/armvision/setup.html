@@ -106,7 +106,11 @@
         <div class="hint" style="margin:0 0 6px;font-size:12px">⚠ <b>실물이 자동으로 움직입니다.</b> 3페이지에서 연결만 하면, 스윕이 <b>먼저 자동으로 안전 자세(SAFE_HOME)로 이동</b>한 뒤 시작합니다. 단, 팔이 <b>낮게 뻗은 상태면</b> 거부되니 그땐 <b>팔을 살짝 들어(J2≥70)</b> 두세요. 처음엔 꼭 <b>옆에서 지켜보며</b> 실행.</div>
         <div class="prog" style="height:8px;background:#222;border-radius:5px;overflow:hidden;margin:6px 0;"><div id="sweepBar" style="height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--ok));transition:width .3s"></div></div>
         <div class="result" id="r6plan"></div>
-        <div style="margin-top:6px"><button id="measM">현재 자세 마커 측정</button></div>
+        <div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <button id="measM">현재 자세 마커 측정</button>
+          <button id="corrToggle" style="background:#444">⚙ 보정 적용: OFF</button>
+          <span class="muted" style="font-size:12px">← 켜고 3페이지에서 관절 명령 → 마커로 실제각 비교(검증). 측정 스윕 땐 자동 OFF.</span>
+        </div>
         <div class="result" id="r6"></div>
         <table style="margin-top:8px; max-width:420px;"><thead><tr><th>마커</th><th>X (mm)</th><th>Y (mm)</th><th>Z (mm)</th></tr></thead><tbody id="mtbl"></tbody></table>
       </div>
@@ -202,6 +206,7 @@
   const JSS = "{% url 'armvision:joint_sweep_start' %}";
   const JST = "{% url 'armvision:joint_sweep_status' %}";
   const JSX = "{% url 'armvision:joint_sweep_stop' %}";
+  const AC = "{% url 'armvision:arm_config' %}";
   const NEED = 15;
 
   const $ = id => document.getElementById(id);
@@ -356,6 +361,20 @@
         $('r6plan').textContent = `✓ 스윕 완료 — ${s.saved}자세 수집 (skip ${s.skipped}). 다음: 실제각 추출·B 모델 적합.`; }
     }
   }
+
+  // 6단계 관절 보정 적용 토글
+  function showCorr(on, joints) {
+    $('corrToggle').textContent = '⚙ 보정 적용: ' + (on ? 'ON' : 'OFF') + (joints && joints.length ? ` (J${joints.map(c=>c+1).join('·J')})` : '');
+    $('corrToggle').style.background = on ? '#1a7f4b' : '#444';
+  }
+  (async () => { try { const c = await (await fetch(AC)).json(); showCorr(c.correct, c.corr_joints); } catch (e) {} })();
+  $('corrToggle').onclick = async () => {
+    try {
+      const cur = await (await fetch(AC)).json();
+      const c = await (await fetch(AC, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ correct: !cur.correct }) })).json();
+      showCorr(c.correct, c.corr_joints);
+    } catch (e) {}
+  };
 
   // 6단계 마커 측정
   $('measM').onclick = async () => {
