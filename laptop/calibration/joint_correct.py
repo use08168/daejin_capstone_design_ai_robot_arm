@@ -68,7 +68,7 @@ def extract_joint(poses, joint):
     for key, grp in groups.items():
         if len({round(p["cmd"][joint], 1) for p in grp}) < 3:      # 부분스윕 = 3각 이상
             continue
-        for m in sorted(cand_markers, reverse=True):               # 가장 말단부터
+        for m in sorted(cand_markers, reverse=True):               # 가장 말단부터, 실패 시 더 proximal 시도
             sub = [(p["cmd"][joint], p["markers"].get(str(m))) for p in grp if str(m) in p["markers"]]
             sub = [(a, np.array(v)) for a, v in sub if v]
             if len({round(a, 1) for a, _ in sub}) < 3:
@@ -78,13 +78,15 @@ def extract_joint(poses, joint):
                 continue
             res = _k_from_subsweep([a for a, _ in sub], pts)
             if res and res[1] < 5.0 and res[3] > 30:               # 잔차<5°, 반경>30mm
-                ks.append((res[0], res[2], m))
-            break
+                ks.append((abs(res[0]), res[2], m, res[1]))         # |k|: 법선 부호 임의 → 게인은 크기
+                break                                               # 이 블록 채택 → 다음 그룹
+            # 필터 실패 → 다음(더 proximal) 마커로
     if not ks:
         return None
-    kv = np.array([k for k, _, _ in ks])
+    kv = np.array([k for k, _, _, _ in ks])
     return {"k": float(np.mean(kv)), "k_std": float(np.std(kv)), "n_sub": len(ks),
-            "markers": sorted({m for _, _, m in ks})}
+            "markers": sorted({m for _, _, m, _ in ks}),
+            "per": [(round(k, 3), m, round(r, 1)) for k, _, m, r in ks]}
 
 
 def main():
@@ -101,6 +103,8 @@ def main():
         corr[j] = r
         tag = "더 돈다(보정 필요)" if r["k"] > 1.02 else "덜 돈다(보정 필요)" if r["k"] < 0.98 else "양호"
         print(f"  {j}: k={r['k']:.3f} ±{r['k_std']:.3f}  ({r['n_sub']}개 부분스윕, id{r['markers']}) → {tag}")
+        if r["n_sub"] > 1:
+            print(f"       부분스윕별 k(자세 의존): {[p[0] for p in r['per']]}")
 
     print("\n=== 펄스 보정 예시 (nominal 유지, 명령만 보정) ===")
     for j, r in corr.items():
@@ -112,8 +116,8 @@ def main():
             print(f"    {tgt:6.0f}° {cmd:7.1f}° {ang_to_us(ch, tgt):9d}us {ang_to_us(ch, cmd):8d}us")
     if not corr:
         print("  (추출된 관절 없음)")
-    print("\n※ k는 '기울기(게인)' 보정. 절대 offset(상수 편차)은 절대기준이 필요해 별도. "
-          "현재 격자는 J1·J4만 분리됨 — J2·J3(중력 sag)은 단일관절 스윕을 추가하면 같은 방식으로 산출.")
+    print("\n※ k는 '기울기(게인)' 보정. |k|로 보고(법선 부호 임의). 절대 offset(상수 편차)은 "
+          "절대기준이 필요해 별도. J2 부분스윕별 k 차이가 크면 자세 의존(중력 sag) → B 모델로 확장.")
 
 
 if __name__ == "__main__":
