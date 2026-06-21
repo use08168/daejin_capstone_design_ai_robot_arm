@@ -103,8 +103,11 @@
           <input id="n3" type="number" value="4" min="2" max="8" style="width:46px">
           <input id="n4" type="number" value="3" min="2" max="6" style="width:46px">
           <button id="sweepPlan" style="background:#3a5a7a">📋 스윕 계획 미리보기 (움직임 없음)</button>
-          <button id="jcorr" disabled title="계획 검토 후 다음 단계" style="background:#444">⚙ 실제 스윕 실행 (검토 후)</button>
+          <button id="sweepRun" style="background:#7a3d3d">▶ 실제 스윕 실행</button>
+          <button id="sweepStop" disabled style="background:#444">■ 중지</button>
         </div>
+        <div class="hint" style="margin:0 0 6px;font-size:12px">⚠ <b>실물이 자동으로 움직입니다.</b> 먼저 3페이지에서 연결하고, 팔을 <b>안전 자세(권장 J2≈45·J3≈80·J4≈90·J5=180)</b>로 둔 뒤 실행하세요. 시작 자세가 박스 밖이면 거부됩니다. 처음엔 <b>옆에서 지켜보며</b> 실행.</div>
+        <div class="prog" style="height:8px;background:#222;border-radius:5px;overflow:hidden;margin:6px 0;"><div id="sweepBar" style="height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--ok));transition:width .3s"></div></div>
         <div class="result" id="r6plan"></div>
         <div style="margin-top:6px"><button id="measM">현재 자세 마커 측정</button></div>
         <div class="result" id="r6"></div>
@@ -199,6 +202,9 @@
   const AREG = "{% url 'armvision:anchors_register' %}";
   const ATF = "{% url 'armvision:anchors_transform' %}";
   const JSP = "{% url 'armvision:joint_sweep_plan' %}";
+  const JSS = "{% url 'armvision:joint_sweep_start' %}";
+  const JST = "{% url 'armvision:joint_sweep_status' %}";
+  const JSX = "{% url 'armvision:joint_sweep_stop' %}";
   const NEED = 15;
 
   const $ = id => document.getElementById(id);
@@ -320,6 +326,39 @@
         `  ✓ 모든 자세 안전 박스 내 — 검토 후 '실제 스윕 실행'(다음 단계)으로.`;
     } catch (e) { $('r6plan').className = 'result err'; $('r6plan').textContent = '✗ 실패'; }
   };
+
+  // 6단계 실제 스윕 실행/중지/상태
+  let sweepPoll = null;
+  $('sweepRun').onclick = async () => {
+    if (!confirm('실물 로봇팔이 안전 박스 안에서 자동으로 움직입니다.\n3페이지에서 연결되어 있고 팔이 안전 자세인지 확인하세요.\n\n실행할까요?')) return;
+    $('r6plan').className = 'result'; $('r6plan').textContent = '스윕 시작 요청…';
+    try {
+      const body = { n1: +$('n1').value, n2: +$('n2').value, n3: +$('n3').value, n4: +$('n4').value };
+      const d = await (await fetch(JSS, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+      if (!d.ok) {
+        $('r6plan').className = 'result err';
+        $('r6plan').textContent = '✗ ' + (d.error || '실패') + (d.need_park ? '\n→ 3페이지에서 안전 자세로 이동 후 다시.' : '');
+        return;
+      }
+      $('sweepRun').disabled = true; $('sweepStop').disabled = false;
+      sweepPoll = setInterval(pollSweep, 600); pollSweep();
+    } catch (e) { $('r6plan').className = 'result err'; $('r6plan').textContent = '✗ 시작 실패'; }
+  };
+  $('sweepStop').onclick = async () => { try { await fetch(JSX, { method: 'POST' }); } catch (e) {} };
+  async function pollSweep() {
+    let s; try { s = await (await fetch(JST)).json(); } catch (e) { return; }
+    const pct = s.total ? Math.round(100 * s.i / s.total) : 0;
+    $('sweepBar').style.width = pct + '%';
+    $('r6plan').className = 'result' + (s.error ? ' err' : '');
+    $('r6plan').textContent = (s.error ? ('⚠ ' + s.error + ' · ') : '') +
+      `${s.i}/${s.total} · 수집 ${s.saved} · skip ${s.skipped} — ${s.msg}`;
+    if (!s.running) {
+      clearInterval(sweepPoll); sweepPoll = null;
+      $('sweepRun').disabled = false; $('sweepStop').disabled = true;
+      if (s.done) { badge($('b6'), '완료', 'done'); $('r6plan').className = 'result ok';
+        $('r6plan').textContent = `✓ 스윕 완료 — ${s.saved}자세 수집 (skip ${s.skipped}). 다음: 실제각 추출·B 모델 적합.`; }
+    }
+  }
 
   // 6단계 마커 측정
   $('measM').onclick = async () => {

@@ -99,6 +99,32 @@ def generate_sweep(n2=4, n3=4, n4=3, n1=3, j1_range=J1_RANGE):
     return poses
 
 
+SAFE_HOME = {"J1": 90.0, "J2": 45.0, "J3": 80.0, "J4": 90.0, "J5": J5_FIXED, "J6": J6_FIXED}   # 스윕 시작 전 권장 안전 자세(박스 내)
+
+_J1234 = ("J1", "J2", "J3", "J4")
+
+
+def transition_order(cur, tgt):
+    """cur(안전)→tgt(안전)를 '단일 관절 이동'들의 순서로. 모든 중간 full-config가 안전한
+    순서를 반환(없으면 None=그 자세 skip). 단일 관절 이동은 양 끝이 안전하면 경로 전체 안전
+    (관절별 안전집합=구간)이라, 끝 자세만 is_safe로 검사하면 충분."""
+    from itertools import permutations
+    diff = [j for j in _J1234 if abs(cur.get(j, 0.0) - tgt[j]) > 0.05]
+    if not diff:
+        return []
+    base = {**cur, "J5": J5_FIXED, "J6": J6_FIXED}
+    for perm in permutations(diff):
+        c = dict(base); seq = []; ok = True
+        for j in perm:
+            c2 = dict(c); c2[j] = tgt[j]
+            if not is_safe(c2["J1"], c2["J2"], c2["J3"], c2["J4"]):
+                ok = False; break
+            seq.append((j, tgt[j])); c = c2
+        if ok:
+            return seq
+    return None
+
+
 def plan_summary(n2=4, n3=4, n4=3, n1=3, j1_range=J1_RANGE):
     """스윕 계획 요약(움직임 없음·미리보기용)."""
     poses = generate_sweep(n2, n3, n4, n1, j1_range)

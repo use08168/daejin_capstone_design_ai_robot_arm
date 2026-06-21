@@ -480,6 +480,110 @@ def joint_sweep_plan(request):
     return JsonResponse({"ok": True, **joint_cal.plan_summary(n2=n2, n3=n3, n4=n4, n1=n1)})
 
 
+# ---- 관절 보정 스윕(백그라운드 구동 + 마커 수집) ----
+import threading as _threading
+_SWEEP = {"running": False, "i": 0, "total": 0, "saved": 0, "skipped": 0,
+          "msg": "대기", "error": "", "done": False, "stop": False, "path": ""}
+_SWEEP_LOCK = _threading.Lock()
+SWEEP_PATH = r"C:\robotic_arm\laptop\calibration\joint_sweep.json"
+
+
+def _sweep_worker(poses):
+    """안전 박스 자세들을 한 관절씩 안전 이동하며 각 자세에서 팔 마커(id0~7) 3D 수집·저장."""
+    import time
+    import json as _json
+    from . import joint_cal, markers
+    data = []
+    try:
+        for j in ("J5", "J6"):                       # 고정값 먼저(박스 전제)
+            _move_joint_to(j, joint_cal.SAFE_HOME[j])
+        for idx, pose in enumerate(poses):
+            with _SWEEP_LOCK:
+                if _SWEEP["stop"]:
+                    _SWEEP["msg"] = "사용자 중지"; break
+                _SWEEP["i"] = idx + 1
+            cur = {j: _JOINT_STATE.get(j, 90.0) for j in ("J1", "J2", "J3", "J4")}
+            seq = joint_cal.transition_order(cur, pose)
+            if seq is None or not joint_cal.is_safe(pose["J1"], pose["J2"], pose["J3"], pose["J4"]):
+                with _SWEEP_LOCK:
+                    _SWEEP["skipped"] += 1; _SWEEP["msg"] = f"#{idx+1} 안전 전이 없음 → skip"
+                continue
+            broke = False
+            for (j, val) in seq:                     # 단일 관절 이동(양 끝 안전→경로 안전)
+                if not _move_joint_to(j, val).get("ok"):
+                    with _SWEEP_LOCK:
+                        _SWEEP["error"] = "전송 실패(연결 끊김?)"
+                    broke = True; break
+            if broke:
+                break
+            time.sleep(0.35)                         # 정착(진동 가라앉힘)
+            cam_left, cam_right = _cams()
+            fL = get_camera(cam_left).read(); fR = get_camera(cam_right).read()
+            if fL is None or fR is None:
+                with _SWEEP_LOCK:
+                    _SWEEP["msg"] = f"#{idx+1} 프레임 없음 → skip"
+                continue
+            mres = markers.measure(fL, fR)
+            mk = mres.get("markers", {}) if mres.get("ok") else {}
+            arm_mk = {str(k): v for k, v in mk.items() if 0 <= int(k) <= 7}   # 팔 마커만
+            data.append({"cmd": dict(pose), "markers": arm_mk, "frame": mres.get("frame")})
+            with _SWEEP_LOCK:
+                _SWEEP["saved"] += 1
+                _SWEEP["msg"] = f"#{idx+1}/{len(poses)} 수집 (마커 {len(arm_mk)}개)"
+        os.makedirs(os.path.dirname(SWEEP_PATH), exist_ok=True)
+        with open(SWEEP_PATH, "w", encoding="utf-8") as f:
+            _json.dump({"poses": data, "fixed": {"J5": joint_cal.J5_FIXED, "J6": joint_cal.J6_FIXED}}, f, ensure_ascii=False)
+        with _SWEEP_LOCK:
+            _SWEEP["path"] = SWEEP_PATH; _SWEEP["done"] = True
+            _SWEEP["msg"] = f"완료 — {len(data)}자세 수집"
+    except Exception as e:
+        with _SWEEP_LOCK:
+            _SWEEP["error"] = str(e)
+    finally:
+        with _SWEEP_LOCK:
+            _SWEEP["running"] = False
+
+
+@csrf_exempt
+def joint_sweep_start(request):
+    """실제 스윕 시작 — 실물 연결 + 현재 자세가 안전 박스 안일 때만. 백그라운드 스레드."""
+    import json
+    from . import joint_cal, arduino_bridge
+    if request.method != "POST":
+        return JsonResponse({"ok": False, "error": "POST only"})
+    with _SWEEP_LOCK:
+        if _SWEEP["running"]:
+            return JsonResponse({"ok": False, "error": "이미 스윕 진행 중"})
+    if not arduino_bridge.is_connected():
+        return JsonResponse({"ok": False, "error": "실물 미연결 — 3페이지(3D 제어)에서 연결하세요."})
+    cur = {j: _JOINT_STATE.get(j, 90.0) for j in ("J1", "J2", "J3", "J4")}
+    if not joint_cal.is_safe(cur["J1"], cur["J2"], cur["J3"], cur["J4"]):
+        return JsonResponse({"ok": False, "need_park": True, "safe_home": joint_cal.SAFE_HOME,
+                             "error": f"현재 자세가 안전 박스 밖 {cur} — 3페이지에서 안전 자세로 이동 후 시작하세요. 권장 {joint_cal.SAFE_HOME}"})
+    d = json.loads(request.body or "{}") if request.body else {}
+    n1 = max(1, int(d.get("n1", 3))); n2 = max(2, int(d.get("n2", 4)))
+    n3 = max(2, int(d.get("n3", 4))); n4 = max(2, int(d.get("n4", 3)))
+    poses = joint_cal.generate_sweep(n2=n2, n3=n3, n4=n4, n1=n1)
+    with _SWEEP_LOCK:
+        _SWEEP.update({"running": True, "i": 0, "total": len(poses), "saved": 0, "skipped": 0,
+                       "msg": "시작…", "error": "", "done": False, "stop": False, "path": ""})
+    _threading.Thread(target=_sweep_worker, args=(poses,), daemon=True).start()
+    return JsonResponse({"ok": True, "total": len(poses)})
+
+
+@csrf_exempt
+def joint_sweep_status(request):
+    with _SWEEP_LOCK:
+        return JsonResponse({"ok": True, **{k: v for k, v in _SWEEP.items() if k != "stop"}})
+
+
+@csrf_exempt
+def joint_sweep_stop(request):
+    with _SWEEP_LOCK:
+        _SWEEP["stop"] = True
+    return JsonResponse({"ok": True})
+
+
 @csrf_exempt
 def anchors_register(request):
     """Phase A — id0로 로봇 프레임 잡고 보이는 앵커(id8~12)를 로봇좌표로 등록(누적)."""
