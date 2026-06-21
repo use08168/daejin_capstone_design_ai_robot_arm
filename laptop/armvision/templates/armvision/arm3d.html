@@ -1983,6 +1983,13 @@ const _r3=a=>a.map(v=>Math.round(v)).join(',');
 async function executeDSL(actions){
   for(const a of actions){
     if(a.op==='pick'){
+      if(Array.isArray(a.at)){   // 좌표 직접 지정 — 비전 무관, 시뮬좌표로 바로(📍 입력 좌표 잡기와 동일). 항상 파지.
+        const O=new THREE.Vector3(+a.at[0],+a.at[1],+a.at[2]); _placeVObjAt(O);
+        if(a.approach && a.approach!=='auto' && $('voAIap')) $('voAIap').value=a.approach;
+        _aiLog(`<b>pick at</b> 좌표(${_r3([O.x,O.y,O.z])}) — 비전무관·DB없이 IK 파지`);
+        await aiGrasp();
+        if(!(await _waitSeq())){ const why=$('ikStat')?$('ikStat').textContent:''; _aiLog(`<span style="color:#f88">✗ pick 실패: ${why}</span>`); return false; }
+        continue; }
       const r=await _resolveTarget(a.target, a.pick_idx);
       if(!r){ _aiLog(`<span style="color:#f88">✗ pick '${a.target}': 비전에서 못 찾음</span>`); ikStat(`✗ pick: '${a.target}' 비전에서 못 찾음`); return false; }
       _placeVObjAt(r.O);
@@ -2025,7 +2032,7 @@ async function aiCommand(){
   let dsl; try{ dsl=JSON.parse(res.dsl_json); }catch(e){ ikStat('✗ DSL 파싱 실패'); return; }
   if(!res.valid){ ikStat('✗ DSL 검증 실패: '+(res.errors||'')); return; }
   _aiLog(`<span style="color:#9cf">━ "${res.transcript||t}" (${res.elapsed_s||0}s)</span>`);
-  _aiLog(`🤖 Gemma DSL: ${(dsl.actions||[]).map(a=>a.op+(a.target?`(${a.target})`:'')+(a.to?`(to ${_r3(a.to)})`:'')).join(' → ')}`);
+  _aiLog(`🤖 Gemma DSL: ${(dsl.actions||[]).map(a=>a.op+(a.target?`(${a.target})`:'')+(a.at?`(at ${_r3(a.at)})`:'')+(a.to?`(to ${_r3(a.to)})`:'')).join(' → ')}`);
   ikStat(`🤖 DSL 실행…`);
   await executeDSL(dsl.actions||[]);
 }
