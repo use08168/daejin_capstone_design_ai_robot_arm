@@ -642,13 +642,23 @@ function enterEmbed(){ document.body.classList.add('embed'); try{ rebuild(); }ca
   _resumeMirror();                                                          // 서버 폴링(목표) + 부드러운 이동(~50°/s, 실물과 동률)
   [60,250,700,1500].forEach(d=>setTimeout(()=>{ try{ resize(); }catch(e){} }, d));
   try{ new ResizeObserver(()=>{ try{ resize(); }catch(e){} }).observe(vp); }catch(e){}
-  // 부모(6페이지 자연어 제어)에서 DSL 실행 요청 수신 → 미러 멈추고 시뮬에서 pick/place 실행
+  // 부모(6페이지 자연어 제어)에서 DSL 실행 요청 수신 → 미러 멈추고 pick/place 실행. d.real=실물 동시 구동.
   window.addEventListener('message', async ev=>{
     const d=ev.data||{}; if(d.type!=='execDSL' || !Array.isArray(d.actions)) return;
     _pauseMirror();                                                         // 미러가 자세를 덮어쓰지 않게 정지
-    if($('aiAutoGrasp')) $('aiAutoGrasp').checked=true;                     // 데모: 자동 파지 ON(타겟만 찍고 멈추지 않음)
+    if($('aiAutoGrasp')) $('aiAutoGrasp').checked=true;                     // 자동 파지 ON(타겟만 찍고 멈추지 않음)
+    if(d.real){                                                             // ── 실물 동시 구동 ──
+      await refreshConn();                                                  // /arm/status → connected 갱신
+      if(!connected){ _aiLog('<span style="color:#f88">✗ 실물 미연결 — 3·4페이지에서 연결 후 다시</span>');
+        try{ parent.postMessage({type:'execDone', ok:false}, '*'); }catch(e){} return; }
+      revMates().forEach(m=>{ const cal=SERVO_CAL[m.motor.channel]; if(cal){ m.motor.us0=cal[0]; m.motor.us180=cal[1]; }   // 실측 펄스 보정(embed는 buildCtrlJoints 미실행 → 직접 적용)
+        m._cmd=(m.angle==null?90:m.angle); });                              // 명령각=현재 미러(실물) 자세 → 첫 전송 점프 방지
+      setSync(true); _realExec=true;                                        // 연동 ON + embed에서 펄스 전송 허용
+      _aiLog('<span style="color:#fc6">🦾 실물 동시 구동 ON — 천천히 움직입니다</span>');
+    }
     let ok=false; try{ ok=await executeDSL(d.actions); }catch(e){ _aiLog('<span style="color:#f88">✗ 실행 오류: '+e+'</span>'); }
-    try{ parent.postMessage({type:'execDone', ok}, '*'); }catch(e){}        // 데모 결과 자세 유지(미러는 재개하지 않음)
+    if(d.real){ _realExec=false; setSync(false); _resumeMirror(); }         // 전송 멈춤 + 실물자세 미러 재개
+    try{ parent.postMessage({type:'execDone', ok}, '*'); }catch(e){}
   });
 }
 // 실측 서보 펄스(0°/180° µs) — 채널별 (arduino/docs/1_servo_calibration.md). 조립 기본값 대신 이 값 사용.
@@ -675,11 +685,11 @@ function refreshJ7(){ const ready=gripReady(), has=gripMates().length>0;
 // ---- 속도 제한 램프 (ctrlSpeed °/s) ----
 // 2단: ① 3D 표시각(m.angle) → 슬라이더 목표(_tgt)   ② 실물 명령각(_cmd) → 3D 표시각
 // 펄스는 _cmd 기준으로 보냄. 정렬·연동 모두 같은 하단 속도로 천천히 움직인다.
-let ctrlSpeed=10, _rampT=null, aligning=false;   // 10°/s → 60°를 6초
+let ctrlSpeed=10, _rampT=null, aligning=false, _realExec=false;   // 10°/s → 60°를 6초. _realExec=6페이지 실물 실행(embed에서 펄스 전송 허용)
 function rampCtrl(){
   if(_sweeping) return;   // C-space 스윕 중엔 각도를 스윕이 직접 제어
   const now=performance.now(); const dt=_rampT?Math.min(0.1,(now-_rampT)/1000):0; _rampT=now;
-  if(mode!=='ctrl'||!dt) return; const step=ctrlSpeed*dt; let moved3d=false;
+  if((mode!=='ctrl'&&!_realExec)||!dt) return; const step=ctrlSpeed*dt; let moved3d=false;
   const drive=(!sync)||connected;   // 연동 중엔 연결됐을 때만 3D 전진 → 실물 못 따라오면 3D도 멈춤(동기화 유지)
   revMates().forEach(m=>{ let a=(m.angle==null?90:m.angle); if(m._tgt==null)m._tgt=a; if(m._cmd==null)m._cmd=90;
     if(drive && a!==m._tgt){ a=Math.abs(m._tgt-a)<=step?m._tgt:a+Math.sign(m._tgt-a)*step; m.angle=a; moved3d=true; if(m._ui)m._ui.ca.textContent=Math.round(a); }  // ① 3D

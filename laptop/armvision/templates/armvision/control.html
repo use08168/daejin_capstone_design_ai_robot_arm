@@ -20,6 +20,7 @@
   .msg.bot .askrow { display:flex; gap:6px; margin-top:8px; }
   .msg.bot .askin { flex:1; background:#0e0e0e; border:1px solid var(--line); color:var(--fg); padding:7px 10px; border-radius:7px; font-size:13px; }
   .msg.bot .play.simexec { background:#1a7f4b; } .msg.bot .play.realexec { background:#7a4a1a; margin-left:6px; }
+  .msg.bot .play.realgrasp { background:#a33; margin-left:6px; }
   .gbtn { background:#334; color:#dce; border:1px solid var(--line); padding:4px 12px; border-radius:7px; cursor:pointer; font-size:13px; }
   .gbtn:hover { background:#2b6; color:#fff; }
   .composer { display:flex; gap:8px; }
@@ -118,8 +119,11 @@ function renderBot(res, origText){
           <button class="asksend gbtn">답변 전송</button></div></div>`;
       } else if(res.valid && A.length){
         const SIM=new Set(['pick','place','return_home','set_joint']);
-        if(A.every(a=>SIM.has(a.op)))
-          h+=`<button class="play simexec" data-acts="${encodeURIComponent(JSON.stringify(A))}">▶ 시뮬에서 실행</button>`;
+        const enc=encodeURIComponent(JSON.stringify(A)), hasGrasp=A.some(a=>a.op==='pick'||a.op==='place');
+        if(A.every(a=>SIM.has(a.op))){
+          h+=`<button class="play simexec" data-acts="${enc}">▶ 시뮬에서 실행</button>`;
+          if(hasGrasp) h+=`<button class="play realgrasp" data-acts="${enc}">🦾 실물로 실행</button>`;
+        }
         const ex=A.filter(a=>a.op==='set_joint'||a.op==='release');
         if(ex.length===A.length)
           h+=`<button class="play realexec" data-acts="${encodeURIComponent(JSON.stringify(ex))}">▶ 실물 로봇팔에 실행</button>`;
@@ -194,6 +198,7 @@ window.addEventListener('message', e=>{
     ln.innerHTML=d.ok?'<b style="color:#7ee0a0">✅ 시뮬 실행 완료</b>':'<b style="color:#ff8080">✗ 시뮬 실행 중단(위 로그 확인)</b>';
     _execTarget.appendChild(ln); _execTarget=null;
     document.querySelectorAll('.simexec[disabled]').forEach(b=>{ b.textContent=d.ok?'✓ 시뮬 실행됨':'✗ 중단'; });
+    document.querySelectorAll('.realgrasp[disabled]').forEach(b=>{ b.textContent=d.ok?'✓ 실물 실행됨':'✗ 중단'; });
   }
   _execTarget&&(_execTarget.scrollTop=_execTarget.scrollHeight); tr.scrollTop=tr.scrollHeight;
 });
@@ -217,6 +222,19 @@ tr.addEventListener('keydown', e=>{ if(e.key==='Enter' && e.target.classList.con
 // ▶ 실행: set_joint DSL을 실물 로봇팔에 (한 관절씩 안전 램프). 자동 아님 — 버튼+확인.
 const AEXEC='{% url "armvision:arm_exec_joint" %}', ASTAT='{% url "armvision:arm_status" %}';
 function jget(){ try{ return JSON.parse(localStorage.getItem('armJoint_v1')||'{}'); }catch(e){ return {}; } }
+// 🦾 실물로 실행: grasp DSL을 임베디드 3D에 real 플래그로 → 연동 ON으로 실물 동시 구동
+tr.addEventListener('click', async e=>{
+  const rb=e.target.closest('.realgrasp'); if(!rb) return; if(rb.disabled) return;
+  const acts=JSON.parse(decodeURIComponent(rb.dataset.acts));
+  let st={}; try{ st=await (await fetch(ASTAT)).json(); }catch(err){}
+  if(!st.connected){ alert('실물 로봇팔이 연결되지 않았습니다. 3·4페이지에서 연결한 뒤 다시 시도하세요.'); return; }
+  if(!confirm('⚠ 실제 로봇팔이 움직입니다.\n• 실물이 현재 3D 자세와 정렬돼 있는지\n• 주변에 사람·장애물이 없는지\n확인하셨나요? 천천히 움직입니다. 계속할까요?')) return;
+  rb.disabled=true; rb.textContent='실물 실행 중…';
+  const box=add('bot','<span class="tag command">🦾 실물 실행</span>'); const log=document.createElement('div'); log.className='dsl'; box.appendChild(log); _execTarget=log;
+  if(mirror&&mirror.contentWindow) mirror.contentWindow.postMessage({type:'execDSL', actions:acts, real:true}, '*');
+  else { log.innerHTML='<span style="color:#f88">3D 미러를 찾을 수 없습니다.</span>'; _execTarget=null; rb.disabled=false; }
+});
+
 tr.addEventListener('click', async e=>{
   const b=e.target.closest('.realexec'); if(!b) return;
   const acts=JSON.parse(decodeURIComponent(b.dataset.acts));
