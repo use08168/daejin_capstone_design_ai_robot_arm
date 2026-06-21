@@ -615,6 +615,87 @@ def joint_sweep_stop(request):
     return JsonResponse({"ok": True})
 
 
+# ---- 비전↔시뮬 프레임 정합 (vision Z-up ↔ sim Y-up, 강체변환) ----
+VIS_SIM_PATH = r"C:\robotic_arm\laptop\calibration\vis_sim.npz"
+
+
+@csrf_exempt
+def joint_sweep_data(request):
+    """6단계 스윕 데이터(관절각+id7 비전위치) 반환 — 정합 솔버용(브라우저 FK가 사용).
+    스윕은 보정 OFF(서보 under-rotate)로 측정됐으므로 각 자세의 '실제각'(=ref+k(cmd−ref))도
+    함께 줌 → 시뮬 FK가 실제 팔 자세로 계산돼 비전 id7과 대응됨."""
+    import json
+    try:
+        d = json.load(open(SWEEP_PATH, encoding="utf-8"))
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e), "poses": []})
+    corr = _load_corr()
+    for p in d.get("poses", []):
+        cmd = p.get("cmd", {}); act = dict(cmd)
+        for ch, c in corr.items():
+            j = f"J{ch + 1}"
+            if j in cmd and c["k"] > 0.05:
+                act[j] = c["ref"] + (cmd[j] - c["ref"]) * c["k"]
+        p["actual"] = act
+    d["has_corr"] = bool(corr)
+    return JsonResponse(d)
+
+
+def _quat_to_R(q):   # q=[x,y,z,w] → 3x3
+    import numpy as np
+    x, y, z, w = q
+    return np.array([[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+                     [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+                     [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
+
+
+def _kabsch(src, dst):
+    import numpy as np
+    cs, cd = src.mean(0), dst.mean(0)
+    H = (src - cs).T @ (dst - cd)
+    U, _S, Vt = np.linalg.svd(H); R = Vt.T @ U.T
+    if np.linalg.det(R) < 0:
+        Vt[-1] *= -1; R = Vt.T @ U.T
+    return R, cd - R @ cs
+
+
+@csrf_exempt
+def vis_sim_solve(request):
+    """{vis:[[x,y,z]], tcp:[[x,y,z]], quat:[[x,y,z,w]]} → sim→vision 강체변환(R,t) +
+    그리퍼 마커 오프셋 p 동시 추정(교대 최적화). vis[i]=R(tcp[i]+Rg[i]·p)+t."""
+    import json
+    import numpy as np
+    d = json.loads(request.body or "{}")
+    vis = np.array(d.get("vis", []), float); tcp = np.array(d.get("tcp", []), float)
+    quat = np.array(d.get("quat", []), float)
+    if len(vis) < 4 or len(vis) != len(tcp) or len(vis) != len(quat):
+        return JsonResponse({"ok": False, "error": f"대응점 부족/불일치(vis {len(vis)})"})
+    Rg = np.array([_quat_to_R(q) for q in quat])         # (N,3,3) 그리퍼 회전(sim)
+    p = np.zeros(3); R = np.eye(3); t = np.zeros(3)
+    for _ in range(40):                                  # 교대: (R,t) Kabsch ↔ p 최소제곱
+        sim_pts = tcp + np.einsum('nij,j->ni', Rg, p)
+        R, t = _kabsch(sim_pts, vis)
+        A = Rg.reshape(-1, 3)
+        b = (np.einsum('ij,nj->ni', R.T, vis - t) - tcp).reshape(-1)
+        p = np.linalg.lstsq(A, b, rcond=None)[0]
+    sim_pts = tcp + np.einsum('nij,j->ni', Rg, p)
+    err = (R @ sim_pts.T).T + t - vis
+    rms = float(np.sqrt((err ** 2).sum(1).mean()))
+    np.savez(VIS_SIM_PATH, R=R, t=t, p=p)               # sim→vision. 적용 vision→sim: p_sim=R^T(p_vis−t)
+    return JsonResponse({"ok": True, "rms_mm": round(rms, 2), "n": int(len(vis)),
+                         "offset_mm": [round(float(v), 1) for v in p]})
+
+
+@csrf_exempt
+def vis_sim_get(request):
+    """저장된 비전→시뮬 변환 (R 3x3, t) 반환. 없으면 ok=False."""
+    import numpy as np
+    if not os.path.exists(VIS_SIM_PATH):
+        return JsonResponse({"ok": False})
+    dd = np.load(VIS_SIM_PATH)
+    return JsonResponse({"ok": True, "R": dd["R"].tolist(), "t": dd["t"].tolist()})
+
+
 @csrf_exempt
 def anchors_register(request):
     """Phase A — id0로 로봇 프레임 잡고 보이는 앵커(id8~12)를 로봇좌표로 등록(누적)."""

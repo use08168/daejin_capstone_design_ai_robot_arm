@@ -261,8 +261,10 @@
 
         <div class="card sim-card" style="margin-top:10px;">
           <div class="ttl">감지 물체 (비전) <span id="visStat" class="muted" style="font-weight:400"></span></div>
-          <div class="hintline">스테레오 카메라가 본 물체의 3D 좌표(로봇 기준 mm). 카메라는 1페이지에서 활성화.</div>
-          <div class="row" style="margin-bottom:6px"><button class="ghost" id="visScan">🔄 새로고침</button><label class="muted" style="display:flex;align-items:center;gap:5px;"><input type="checkbox" id="visAuto"> 자동(1초)</label></div>
+          <div class="hintline">스테레오 카메라가 본 물체의 3D 좌표(로봇 기준 mm). 카메라는 1페이지에서 활성화. <b>비전 프레임(Z-up)을 시뮬 프레임(Y-up)으로</b> 변환해 목표로 찍습니다(아래 정합 필요).</div>
+          <div class="row" style="margin-bottom:6px"><button class="ghost" id="visScan">🔄 새로고침</button><label class="muted" style="display:flex;align-items:center;gap:5px;"><input type="checkbox" id="visAuto"> 자동(1초)</label>
+            <button class="ghost" id="visSimCalib" title="6단계 스윕 데이터로 비전↔시뮬 강체변환을 1회 보정">🧭 비전↔시뮬 정합</button></div>
+          <div class="hintline" id="vsStat" style="margin:0 0 6px;color:#9cf"></div>
           <table style="width:100%"><tbody id="visBody"></tbody></table>
         </div>
       </div>
@@ -1896,12 +1898,38 @@ async function visScan(){
       tr.innerHTML=`<td><b>${o.class}${o.id?('·'+o.id):''}</b></td><td class="muted" style="font-size:12px">(${p[0]}, ${p[1]}, ${p[2]})</td>`
         +`<td style="text-align:right"><button class="ghost" data-xyz="${p.join(',')}">목표로</button></td>`;
       tb.appendChild(tr); });
-    tb.querySelectorAll('[data-xyz]').forEach(b=>b.onclick=()=>{ const p=b.dataset.xyz.split(',').map(Number);
-      $('ikX').value=Math.round(p[0]); $('ikY').value=Math.round(p[1]); $('ikZ').value=Math.round(p[2]);
-      $('visStat').textContent=`✓ 목표=(${p.map(v=>Math.round(v)).join(', ')}) — 수직/수평 잡기`; }); }
+    tb.querySelectorAll('[data-xyz]').forEach(b=>b.onclick=async()=>{ const pv=b.dataset.xyz.split(',').map(Number);
+      const ps=await _vis2sim(pv);   // 비전(Z-up) → 시뮬(Y-up) 변환
+      $('ikX').value=Math.round(ps[0]); $('ikY').value=Math.round(ps[1]); $('ikZ').value=Math.round(ps[2]);
+      $('visStat').textContent=`✓ 목표 시뮬(${ps.map(v=>Math.round(v)).join(', ')}) ← 비전(${pv.map(v=>Math.round(v)).join(', ')}) — 수직/수평 잡기`; }); }
   catch(e){ if($('visStat'))$('visStat').textContent='✗ 오류'; }
 }
+// ===== 비전↔시뮬 강체변환 (vision Z-up → sim Y-up) =====
+let _visSimT=null;   // null=미로딩, false=없음, {R,t}=sim→vision
+async function _loadVisSim(force){ if(_visSimT===null||force){ try{ const d=await(await fetch('/setup/vis_sim_get/')).json(); _visSimT=d.ok?d:false; }catch(e){ _visSimT=false; } } return _visSimT; }
+async function _vis2sim(pv){ const T=await _loadVisSim(); if(!T||!T.R) return pv;   // p_sim = R^T(p_vis − t)
+  const d=[pv[0]-T.t[0],pv[1]-T.t[1],pv[2]-T.t[2]], R=T.R;
+  return [R[0][0]*d[0]+R[1][0]*d[1]+R[2][0]*d[2], R[0][1]*d[0]+R[1][1]*d[1]+R[2][1]*d[2], R[0][2]*d[0]+R[1][2]*d[1]+R[2][2]*d[2]]; }
+async function visSimCalib(){
+  if(!$('vsStat')) return; $('vsStat').textContent='6단계 데이터로 정합 계산 중…';
+  let d; try{ d=await(await fetch('/setup/joint_sweep_data/')).json(); }catch(e){ $('vsStat').textContent='✗ joint_sweep.json 없음(6단계 먼저)'; return; }
+  const poses=d.poses||[]; if(!poses.length){ $('vsStat').textContent='✗ 스윕 데이터 없음(6단계 먼저)'; return; }
+  const vis=[], tcp=[], quat=[];
+  for(const p of poses){ const m7=p.markers&&p.markers['7']; if(!m7) continue;
+    const a=p.actual||p.cmd; const j=[1,2,3,4,5,6].map(k=>+a['J'+k]);   // 실제각으로 시뮬 FK
+    const g=_tcpOfJoints(j); if(!g) continue;
+    vis.push(m7); tcp.push([g.pos.x,g.pos.y,g.pos.z]); quat.push([g.q.x,g.q.y,g.q.z,g.q.w]); }
+  if(vis.length<4){ $('vsStat').textContent=`✗ 대응점 부족(${vis.length}) — id7 보이는 자세 필요`; return; }
+  try{ const r=await(await fetch('/setup/vis_sim_solve/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({vis,tcp,quat})})).json();
+    if(!r.ok){ $('vsStat').textContent='✗ '+(r.error||'실패'); return; }
+    await _loadVisSim(true);
+    const good=r.rms_mm<25;
+    $('vsStat').innerHTML=`${good?'🟢':'🟠'} 정합 완료 — 잔차 rms <b>${r.rms_mm}mm</b> (대응 ${r.n}, 그리퍼마커 오프셋 ${r.offset_mm.join(',')}mm). ${good?'이제 목표가 제자리에 찍힙니다.':'잔차 큼 — 6단계 보정/데이터 점검.'}`;
+  }catch(e){ $('vsStat').textContent='✗ 정합 실패'; }
+}
 if($('visScan')){ $('visScan').onclick=visScan;
+  if($('visSimCalib')) $('visSimCalib').onclick=visSimCalib;
+  _loadVisSim();   // 저장된 정합 있으면 로드
   let _vt=null; $('visAuto').onchange=()=>{ clearInterval(_vt); if($('visAuto').checked){ visScan(); _vt=setInterval(visScan,1000); } }; }
 
 // 4페이지(시뮬레이터)는 제어 모드 고정(조립·결합 탭 숨김) — 파지 작업이 제어 패널에서 이뤄짐
