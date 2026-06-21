@@ -3,7 +3,7 @@ import os
 import shutil
 
 import cv2
-from django.http import JsonResponse, StreamingHttpResponse
+from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 
@@ -347,6 +347,24 @@ def arm3d_save(request):
     with open(ASSEMBLY_PATH, "w", encoding="utf-8") as f:
         f.write(request.body.decode("utf-8"))
     return JsonResponse({"ok": True})
+
+
+GRASP_DATASET_PATH = r"C:\robotic_arm\laptop\calibration\grasp_dataset.csv"
+
+
+@csrf_exempt
+def grasp_dataset(request):
+    """grasp_dataset.csv 서버 저장(POST)/제공(GET).
+    4페이지에서 한 번 업로드하면 저장 → 4·6페이지 arm3d가 시작 시 자동 로드(좌표 파지도 DB 검색 사용)."""
+    if request.method == "POST":
+        os.makedirs(os.path.dirname(GRASP_DATASET_PATH), exist_ok=True)
+        with open(GRASP_DATASET_PATH, "wb") as f:
+            f.write(request.body)
+        return JsonResponse({"ok": True, "bytes": len(request.body)})
+    if not os.path.exists(GRASP_DATASET_PATH):
+        return HttpResponse("", content_type="text/csv", status=404)
+    with open(GRASP_DATASET_PATH, "rb") as f:
+        return HttpResponse(f.read(), content_type="text/csv")
 
 
 # ============ 스트림 ============

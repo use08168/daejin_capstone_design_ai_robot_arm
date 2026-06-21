@@ -357,7 +357,8 @@ Promise.all([fetch(LIST).then(r=>r.json()),fetch(LOADU).then(r=>r.json())]).then
     geo.computeVertexNormals(); const m=new THREE.Mesh(geo,mat.clone()); m.userData.part=name;
     const c=cfg[name]; if(c){ m.position.fromArray(c.pos); m.rotation.set(d2r(c.rot[0]),d2r(c.rot[1]),d2r(c.rot[2])); m.visible=c.visible!==false; }
     worldRoot.add(m); parts.push({name,mesh:m}); addRow(name);
-    if(++done===list.files.length){ $('ploading').style.display='none'; $('pcount').textContent=parts.length; renderMates(); if(EMBED) enterEmbed(); else if('{{ view }}'==='sim'){ setMode('ctrl'); }   /* 4페이지: 로드 후 제어모드 자동 진입(리깅 활성 → IK·파지 작동) */ }
+    if(++done===list.files.length){ $('ploading').style.display='none'; $('pcount').textContent=parts.length; renderMates(); if(EMBED) enterEmbed(); else if('{{ view }}'==='sim'){ setMode('ctrl'); }   /* 4페이지: 로드 후 제어모드 자동 진입(리깅 활성 → IK·파지 작동) */
+      if(EMBED || '{{ view }}'==='sim') try{ _autoLoadGraspDB(); }catch(e){}   /* grasp_dataset 서버 저장본 자동 로드 → 좌표 파지도 DB 품질 */ }
   }); });
 });
 
@@ -1012,11 +1013,11 @@ function _basisQuat(z){ const zz=z.clone(); if(zz.lengthSq()<1e-6) zz.set(0,-1,0
   return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x,y,zz)); }
 const ikQuat=_basisQuat(new THREE.Vector3(0,-1,0));   // 목표 자세(기본=수직 top-down)
 function ikStat(m){ const e=$('ikStat'); if(e) e.textContent=m; }
-async function loadGraspCsv(file){
-  const text=await file.text(); const lines=text.trim().split(/\r?\n/); const hdr=lines[0].split(',');
+function _ingestGraspCsv(text){   // CSV 텍스트 → graspDB. {ok,n}. (파일 업로드·서버 자동로드 공용)
+  const lines=text.trim().split(/\r?\n/); if(lines.length<2) return {ok:false}; const hdr=lines[0].split(',');
   const ci={}; hdr.forEach((h,i)=>ci[h.trim()]=i);
   const need=['J1','J2','J3','J4','J5','J6','tcp_x','tcp_y','tcp_z','app_x','app_y','app_z','collision'];
-  if(need.some(k=>!(k in ci))){ alert('grasp_dataset.csv 형식이 아닙니다.'); return; }
+  if(need.some(k=>!(k in ci))) return {ok:false};
   graspHasQuat=['qx','qy','qz','qw'].every(k=>k in ci);   // 전체자세(6DOF) 데이터 여부
   const db=[];
   for(let i=1;i<lines.length;i++){ const r=lines[i].split(','); if(r.length<hdr.length) continue;
@@ -1026,7 +1027,20 @@ async function loadGraspCsv(file){
     if(graspHasQuat){ o.qx=+r[ci.qx]; o.qy=+r[ci.qy]; o.qz=+r[ci.qz]; o.qw=+r[ci.qw]; }
     db.push(o); }
   graspDB=db; const el=$('ikDbN'); if(el) el.textContent=`충돌없는 ${db.length}자세${graspHasQuat?' · 6DOF':' · 위치+접근축'}`;
-  ikStat(`데이터셋 로드: ${db.length}자세 (${graspHasQuat?'전체자세 매칭':'접근축 매칭 — 6DOF 하려면 재스윕'}). 목표를 정하고 잡기.`);
+  return {ok:true, n:db.length};
+}
+async function loadGraspCsv(file){   // 파일 업로드 → 파싱 + 서버 저장(이후 4·6페이지 자동로드)
+  const text=await file.text(); const r=_ingestGraspCsv(text);
+  if(!r.ok){ alert('grasp_dataset.csv 형식이 아닙니다.'); return; }
+  ikStat(`데이터셋 로드: ${r.n}자세 (${graspHasQuat?'전체자세 매칭':'접근축 매칭 — 6DOF 하려면 재스윕'}). 서버 저장 중…`);
+  try{ const sv=await (await fetch('/grasp/dataset/',{method:'POST',headers:{'Content-Type':'text/csv'},body:text})).json();
+    ikStat(`데이터셋 로드·서버 저장 완료: ${r.n}자세 (${(sv.bytes/1024|0)}KB). 6페이지에서도 자동 사용.`); }
+  catch(e){ ikStat(`데이터셋 로드: ${r.n}자세 (서버 저장 실패 — 로컬만)`); }
+}
+async function _autoLoadGraspDB(){   // 시작 시 서버 저장본 자동 로드(4·6페이지). 이미 있으면 건너뜀.
+  if(graspDB && graspDB.length) return;
+  try{ const res=await fetch('/grasp/dataset/'); if(!res.ok) return; const text=await res.text();
+    if(text && text.trim()){ const r=_ingestGraspCsv(text); if(r.ok) ikStat(`서버 grasp_dataset 자동로드: ${r.n}자세`); } }catch(e){}
 }
 // ── 경로계획(P4): 두 자세 사이 직선이 바닥/자기충돌하면 업라이트 경유로 우회 ──
 const IK_HOME=[90,90,90,90,90,90];
@@ -1808,20 +1822,29 @@ async function aiGrasp(opts){
   const pct=v=>Math.round(v*100), hasQ=res.qvert!=null;   // 품질 모델 학습됐으면 품질로 결정
   const info=hasQ ? `품질 수직 ${res.qvert} · 수평 ${res.qhorz}` : `수직 ${pct(res.vert)}% · 수평 ${pct(res.horz)}%`;
   const ov=($('voAIap')&&$('voAIap').value)||'auto';   // 접근 강제(자동=모델 결정)
-  const ap=(ov==='auto')?res.approach:ov, pick=ap==='vert'?'수직':'수평';
+  let ap=(ov==='auto')?res.approach:ov; const pick=ap==='vert'?'수직':'수평';
   if(ov==='auto' && !res.graspable && !opts.skipVeto){ ikStat(`🧠 잡기 어려움 — ${info} (둘 다 낮음). 위치·크기 변경.`); return; }
   if(ov==='auto' && !res.graspable && opts.skipVeto) _aiLog(`<span style="color:#fc6">⚠ MLP 품질 낮음(${info}) — 좌표 지정이라 무시하고 실제 IK 시도</span>`);
-  ikStat(`🧠 ${info} → ${pick}${ov==='auto'?'':'(강제)'} 정밀 자세 IK…`);
+  const useDB=graspDB && graspDB.length;
+  ikStat(`🧠 ${info} → ${pick}${ov==='auto'?'':'(강제)'} 정밀 자세${useDB?' 검색(DB)':' IK'}…`);
   const invObj=new THREE.Matrix4().makeTranslation(-O.x,-O.y,-O.z);
-  let g=_ikGraspPose(O, type,R,H, ap);                          // DB 없이 순수 IK
-  if(!g.ok && ov==='auto'){ const alt=(ap==='vert')?'horz':'vert'; const g2=_ikGraspPose(O,type,R,H,alt);   // 자동이면 반대 접근도 시도
-    if(g2.ok){ g=g2; ap=alt; } }
-  if(!g.ok){ ikStat(`🧠 ${pick} 파지 실패 — ${g.reason}. (🟢 도달 범위 안으로 / 위치·크기 확인)`); return; }
-  const best=g;
-  const refined=_refineWrist(best.j, type,R,H, O, invObj);      // 손목(J4~J6) 미세조정 → roll/정렬 최적화
+  let bestJ=null, ctag='';
+  if(useDB){                                                    // grasp_dataset 검색(4페이지 품질) — 충돌없는 자세 우선
+    let sb=_searchObjGrasp(O, type,R,H, invObj, ap);
+    if((!sb||sb.collide) && ov==='auto'){ const alt=(ap==='vert')?'horz':'vert'; const sb2=_searchObjGrasp(O,type,R,H,invObj,alt);   // 자동이면 반대 접근도
+      if(sb2 && (!sb || !sb2.collide)){ sb=sb2; ap=alt; } }
+    if(!sb){ ikStat(`🧠 ${pick} 파지 실패 — DB에 도달 자세 없음. (🟢 도달 범위 / 위치·크기)`); return; }
+    bestJ=sb.j; ctag=sb.collide?' ⚠충돌포함':'';
+  } else {                                                      // DB 없으면 DB-free 해석 IK
+    let g=_ikGraspPose(O, type,R,H, ap);
+    if(!g.ok && ov==='auto'){ const alt=(ap==='vert')?'horz':'vert'; const g2=_ikGraspPose(O,type,R,H,alt); if(g2.ok){ g=g2; ap=alt; } }
+    if(!g.ok){ ikStat(`🧠 ${pick} 파지 실패 — ${g.reason}. (🟢 도달 범위 안으로 / 위치·크기 확인)`); return; }
+    bestJ=g.j;
+  }
+  const refined=_refineWrist(bestJ, type,R,H, O, invObj);      // 손목(J4~J6) 미세조정 → roll/정렬 최적화
   const fap=(ap==='vert')?'수직':'수평';
-  ikStat(`🧠 AI 파지: ${fap}${ov==='auto'?'':'(강제)'} 자세로 잡기… (${info})`);
-  executeGraspTwoStage(refined, `AI ${fap}`, ap, O);
+  ikStat(`🧠 AI 파지: ${fap}${ov==='auto'?'':'(강제)'}${ctag} 자세로 잡기… (${info})`);
+  executeGraspTwoStage(refined, `AI ${fap}${ctag}`, ap, O);
 }
 // ===== 물체-그리퍼 몸체 충돌 검사 (손가락 제외) =====
 function _gripperHitsObject(invObj, type, R, H){

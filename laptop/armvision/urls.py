@@ -21,6 +21,7 @@ urlpatterns = [
     path("arm/disconnect/", views.arm_disconnect, name="arm_disconnect"),
     path("arm/move/", views.arm_move, name="arm_move"),
     path("grasp/predict/", views.grasp_predict, name="grasp_predict"),
+    path("grasp/dataset/", views.grasp_dataset, name="grasp_dataset"),
     path("grasp/train/start/", views.grasp_train_start, name="grasp_train_start"),
     path("grasp/train/status/", views.grasp_train_status, name="grasp_train_status"),
     # 카메라 선택
