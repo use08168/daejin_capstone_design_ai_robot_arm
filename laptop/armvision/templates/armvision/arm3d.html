@@ -633,12 +633,23 @@ function mirrorTargets(){ return fetch('/arm/joints/').then(r=>r.json()).then(d=
     revMates().forEach((m,i)=>{ const v=jo['J'+(i+1)]; m._mt=(typeof v==='number'?v:90); }); }).catch(()=>{}); }
 function mirrorRamp(){ let moved=false; revMates().forEach(m=>{ if(m._mt==null)return; let a=(m.angle==null?90:m.angle); const d=m._mt-a;
   if(Math.abs(d)>0.05){ a+=Math.sign(d)*Math.min(Math.abs(d),ctrlSpeed*0.04); m.angle=a; moved=true; } }); if(moved) applyAngles(); }
+let _mirIvA=null, _mirIvB=null;   // 미러 폴링/램프 인터벌 (AI 데모 실행 중 일시정지용)
+function _pauseMirror(){ if(_mirIvA){clearInterval(_mirIvA);_mirIvA=null;} if(_mirIvB){clearInterval(_mirIvB);_mirIvB=null;} revMates().forEach(m=>m._mt=null); }   // _mt 비워 램프 멈춤
+function _resumeMirror(){ if(!_mirIvA) _mirIvA=setInterval(mirrorTargets,250); if(!_mirIvB) _mirIvB=setInterval(mirrorRamp,40); }
 function enterEmbed(){ document.body.classList.add('embed'); try{ rebuild(); }catch(e){}
   revMates().forEach(m=>m.angle=90); applyAngles();                        // 기본 홈(90°)에서 시작
   mirrorTargets().then(()=>{ revMates().forEach(m=>m.angle=(m._mt==null?90:m._mt)); applyAngles(); });   // 서버 현재자세로 즉시 스냅
-  setInterval(mirrorTargets, 250); setInterval(mirrorRamp, 40);            // 서버 폴링(목표) + 부드러운 이동(~50°/s, 실물과 동률)
+  _resumeMirror();                                                          // 서버 폴링(목표) + 부드러운 이동(~50°/s, 실물과 동률)
   [60,250,700,1500].forEach(d=>setTimeout(()=>{ try{ resize(); }catch(e){} }, d));
   try{ new ResizeObserver(()=>{ try{ resize(); }catch(e){} }).observe(vp); }catch(e){}
+  // 부모(6페이지 자연어 제어)에서 DSL 실행 요청 수신 → 미러 멈추고 시뮬에서 pick/place 실행
+  window.addEventListener('message', async ev=>{
+    const d=ev.data||{}; if(d.type!=='execDSL' || !Array.isArray(d.actions)) return;
+    _pauseMirror();                                                         // 미러가 자세를 덮어쓰지 않게 정지
+    if($('aiAutoGrasp')) $('aiAutoGrasp').checked=true;                     // 데모: 자동 파지 ON(타겟만 찍고 멈추지 않음)
+    let ok=false; try{ ok=await executeDSL(d.actions); }catch(e){ _aiLog('<span style="color:#f88">✗ 실행 오류: '+e+'</span>'); }
+    try{ parent.postMessage({type:'execDone', ok}, '*'); }catch(e){}        // 데모 결과 자세 유지(미러는 재개하지 않음)
+  });
 }
 // 실측 서보 펄스(0°/180° µs) — 채널별 (arduino/docs/1_servo_calibration.md). 조립 기본값 대신 이 값 사용.
 const SERVO_CAL={0:[600,2740],1:[530,2670],2:[520,2700],3:[540,2720],4:[600,2750],5:[560,2750]};
@@ -1965,7 +1976,8 @@ async function _resolveTarget(label, gemmaPick){
   const ps=await _vis2sim(o.xyz_mm);
   return {O:new THREE.Vector3(ps[0],ps[1],ps[2]), obj:o};
 }
-function _aiLog(msg){ const el=$('aiLog'); if(!el) return; el.style.display='block';
+function _aiLog(msg){ if(EMBED){ try{ parent.postMessage({type:'execLog', html:msg}, '*'); }catch(e){} }   // 6페이지 채팅에 진행상황 전달
+  const el=$('aiLog'); if(!el) return; el.style.display='block';
   const d=document.createElement('div'); d.innerHTML=msg; el.appendChild(d); el.scrollTop=el.scrollHeight; }
 const _r3=a=>a.map(v=>Math.round(v)).join(',');
 async function executeDSL(actions){
