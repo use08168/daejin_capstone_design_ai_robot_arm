@@ -268,8 +268,9 @@
           <table style="width:100%"><tbody id="visBody"></tbody></table>
           <div style="margin-top:8px; border-top:1px solid var(--c-line); padding-top:8px;">
             <div class="row" style="margin-bottom:4px"><b style="font-size:12px">🧠 AI 제어 (Gemma)</b></div>
-            <div class="row" style="margin-bottom:0"><input id="aiCmd" type="text" placeholder="예: 물병을 집어서 한쪽에 놓아줘" style="flex:1;background:#111;color:var(--c-fg);border:1px solid var(--c-line);border-radius:6px;padding:6px 8px"><button class="primary" id="aiSend" style="margin-left:6px">실행</button></div>
-            <div class="hintline" style="margin:4px 0 0">음성/텍스트 명령 → Gemma가 pick/place 계획 → 비전 좌표(정합 적용) → 자동 파지·놓기. (먼저 🧭 정합)</div>
+            <div class="row" style="margin-bottom:4px"><input id="aiCmd" type="text" placeholder="예: 물병을 집어서 한쪽에 놓아줘" style="flex:1;background:#111;color:var(--c-fg);border:1px solid var(--c-line);border-radius:6px;padding:6px 8px"><button class="primary" id="aiSend" style="margin-left:6px">실행</button></div>
+            <div class="row" style="margin-bottom:0"><label class="muted" style="display:flex;align-items:center;gap:5px;font-size:12px"><input type="checkbox" id="aiAutoGrasp"> 자동 파지 (끄면: 타겟만 찍음 → 비전 오차 보정 후 🧠 AI 파지 수동)</label></div>
+            <div class="hintline" style="margin:4px 0 0">음성/텍스트 → Gemma가 대상 식별 → 비전 좌표(정합) 타겟. 비전 오차로 허공 잡으면 ikX/Y/Z 조정 후 수동 파지. (먼저 🧭 정합)</div>
             <div id="aiLog" style="margin-top:6px;max-height:150px;overflow:auto;font-size:11.5px;font-family:monospace;color:#bcd;background:#0c0c0c;border:1px solid var(--c-line);border-radius:6px;padding:6px;display:none"></div>
           </div>
         </div>
@@ -1975,6 +1976,9 @@ async function executeDSL(actions){
       _aiLog(`<b>pick '${a.target}'</b> → 매칭 <b>${r.obj.id||r.obj.class}</b>`
         + ` · 비전(${_r3(r.obj.xyz_mm)})${r.refined?` → <span style="color:#fc6">Gemma보정(${_r3(r.refined)})</span>`:''}`
         + ` → 시뮬(${_r3([r.O.x,r.O.y,r.O.z])})`);
+      if(!($('aiAutoGrasp') && $('aiAutoGrasp').checked)){   // 자동 파지 OFF → 타겟만 찍고 멈춤(수동 보정)
+        _aiLog('<span style="color:#fc6">🎯 타겟 설정됨 — 비전 오차 보정하려면 ikX/Y/Z 조정 후 🧠 AI 파지(수동). (자동 파지 켜면 즉시 잡음)</span>');
+        ikStat('🎯 비전 타겟 설정됨 — 위치 확인/조정 후 🧠 AI 파지(수동)'); return true; }
       await aiGrasp();
       if(!(await _waitSeq())){ const why=$('ikStat')?$('ikStat').textContent:''; _aiLog(`<span style="color:#f88">✗ pick 실패: ${why}</span>`); return false; }
     } else if(a.op==='place'){
