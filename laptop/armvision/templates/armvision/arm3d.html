@@ -1978,10 +1978,12 @@ async function executeDSL(actions){
       await aiGrasp();
       if(!(await _waitSeq())){ const why=$('ikStat')?$('ikStat').textContent:''; _aiLog(`<span style="color:#f88">✗ pick 실패: ${why}</span>`); return false; }
     } else if(a.op==='place'){
+      if(!Array.isArray(a.to) && (!a.target || a.target==='none' || a.target==='')){   // 놓을 곳 미지정(잡기만 명령) → 든 채 유지
+        _aiLog('place 생략 — 놓을 곳 미지정(잡은 채 유지)'); continue; }
       let O=null, src='';
       if(Array.isArray(a.to)){ const ps=await _vis2sim(a.to); O=new THREE.Vector3(ps[0],ps[1],ps[2]); src=`to(${_r3(a.to)})`; }
       else { const r=await _resolveTarget(a.target, a.place_idx); if(r){ O=r.O; src=`'${a.target}'→${r.obj.id||r.obj.class} 비전(${_r3(r.obj.xyz_mm)})`; } }
-      if(!O){ _aiLog('<span style="color:#f88">✗ place 목표 해석 실패</span>'); ikStat('✗ place 목표 해석 실패'); return false; }
+      if(!O){ _aiLog(`<span style="color:#f88">✗ place '${a.target}' 비전에서 못 찾음</span>`); ikStat('✗ place 목표 해석 실패'); return false; }
       const off=a.offset||[0,0,0];
       if($('plX')){ $('plX').value=Math.round(O.x+off[0]); $('plY').value=Math.round(O.y+off[1]); $('plZ').value=Math.round(O.z+off[2]); }
       _aiLog(`<b>place</b> ${src}${(off[0]||off[1]||off[2])?` +off(${_r3(off)})`:''} → 시뮬(${_r3([O.x+off[0],O.y+off[1],O.z+off[2]])})`);
