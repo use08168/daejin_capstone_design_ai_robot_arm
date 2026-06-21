@@ -168,26 +168,43 @@ def compute_transform_from_anchors(frameL, frameR):
     c = np.load(CAL)
     cal = {k: c[k] for k in ("K1", "d1", "K2", "d2", "P1", "P2")}
     mL, mR = detect(frameL), detect(frameR)
-    cam, rob, used = [], [], []
+    items = []   # (aid, cam(4,3), rob(4,3))
     for aid, Pr in A.items():
         if aid in mL and aid in mR:
-            cam.append(_triangulate(mL[aid], mR[aid], cal))   # (4,3) 카메라
-            rob.append(Pr); used.append(aid)
-    if not used:
+            items.append((aid, np.asarray(_triangulate(mL[aid], mR[aid], cal)), np.asarray(Pr)))
+    if not items:
         return {"ok": False, "error": "등록된 앵커가 현재 화면에 안 보입니다 (작업공간 카메라가 앵커를 보게)."}
-    cam = np.vstack(cam); rob = np.vstack(rob)                # (4N,3)
-    cc, rc = cam.mean(0), rob.mean(0)
-    H = (cam - cc).T @ (rob - rc)
-    U, _S, Vt = np.linalg.svd(H)
-    R = Vt.T @ U.T
-    if np.linalg.det(R) < 0:
-        Vt[-1] *= -1; R = Vt.T @ U.T
-    t = rc - R @ cc
+
+    def _kabsch(pairs):
+        cam = np.vstack([c for _, c, _ in pairs]); rob = np.vstack([r for _, _, r in pairs])
+        cc, rc = cam.mean(0), rob.mean(0)
+        H = (cam - cc).T @ (rob - rc)
+        U, _S, Vt = np.linalg.svd(H); R = Vt.T @ U.T
+        if np.linalg.det(R) < 0:
+            Vt[-1] *= -1; R = Vt.T @ U.T
+        t = rc - R @ cc
+        per = [(aid, float(np.sqrt(((((R @ c.T).T + t) - r) ** 2).sum(1).mean()))) for aid, c, r in pairs]
+        rms = float(np.sqrt(np.mean([p[1] ** 2 for p in per])))
+        return R, t, per, rms
+
+    keep, dropped = items, []
+    R, t, per, rms = _kabsch(keep)
+    while len(keep) > 3:                                       # 견고화: 이상치 앵커(테두리 부정확) 제거
+        per_s = sorted(per, key=lambda x: x[1])
+        worst_aid, worst = per_s[-1]
+        med = per_s[len(per_s) // 2][1]
+        if worst > max(8.0, 2.0 * med):                       # 중앙값 2배↑ & 절대 8mm↑면 제거(최소 3개 유지)
+            keep = [k for k in keep if k[0] != worst_aid]
+            dropped.append((worst_aid, round(worst, 1)))
+            R, t, per, rms = _kabsch(keep)
+        else:
+            break
     T = np.eye(4); T[:3, :3] = R; T[:3, 3] = t                # X_robot = T·X_cam
-    pred = (R @ cam.T).T + t
-    rms = float(np.sqrt(((pred - rob) ** 2).sum(1).mean()))   # 정합 잔차(자가검증)
     np.savez(T_PATH, T=T)
-    return {"ok": True, "anchors_used": sorted(used), "n": len(used), "rms_mm": round(rms, 2)}
+    return {"ok": True, "anchors_used": sorted(a for a, _, _ in keep), "n": len(keep),
+            "rms_mm": round(rms, 2),
+            "dropped": [{"id": a, "resid_mm": r} for a, r in dropped],
+            "per_anchor": [{"id": a, "resid_mm": round(r, 1)} for a, r in sorted(per)]}
 
 
 def marker_status(frameL, frameR):

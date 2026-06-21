@@ -399,7 +399,9 @@
         const good = d.rms_mm < 6;
         badge($('b11'), good ? '완료' : '점검', good ? 'done' : 'wip');
         $('r11').className = 'result ' + (good ? 'ok' : 'err');
-        $('r11').textContent = `${good ? '✓' : '⚠'} 앵커 ${d.n}개로 변환 복원 — 잔차 rms ${d.rms_mm}mm (사용 [${d.anchors_used.join(',')}]). ${good ? '이제 1페이지 3D가 로봇 기준 mm.' : '잔차 큼 → 앵커 재등록/보정 점검.'}`;
+        const drop = (d.dropped && d.dropped.length) ? ` · 제외 ${d.dropped.map(x => `id${x.id}(${x.resid_mm}mm)`).join(',')}` : '';
+        const per = (d.per_anchor || []).map(x => `id${x.id}:${x.resid_mm}`).join(' · ');
+        $('r11').textContent = `${good ? '✓' : '⚠'} 앵커 ${d.n}개로 변환 복원 — 잔차 rms ${d.rms_mm}mm (사용 [${d.anchors_used.join(',')}])${drop}\n  앵커별 잔차(mm): ${per}\n  ${good ? '이제 1페이지 3D가 로봇 기준 mm.' : '잔차 큼 → 잔차 큰 앵커는 테두리/이동 의심. 그 앵커를 화면 중앙 overlap에 두거나 재등록.'}`;
       } else { $('r11').className = 'result err'; $('r11').textContent = '✗ ' + (d.error || '실패'); }
     } catch (e) { $('r11').className = 'result err'; $('r11').textContent = '✗ 실패'; }
   };
