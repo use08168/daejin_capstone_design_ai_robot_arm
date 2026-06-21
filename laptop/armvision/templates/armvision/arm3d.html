@@ -270,6 +270,7 @@
             <div class="row" style="margin-bottom:4px"><b style="font-size:12px">🧠 AI 제어 (Gemma)</b></div>
             <div class="row" style="margin-bottom:0"><input id="aiCmd" type="text" placeholder="예: 물병을 집어서 한쪽에 놓아줘" style="flex:1;background:#111;color:var(--c-fg);border:1px solid var(--c-line);border-radius:6px;padding:6px 8px"><button class="primary" id="aiSend" style="margin-left:6px">실행</button></div>
             <div class="hintline" style="margin:4px 0 0">음성/텍스트 명령 → Gemma가 pick/place 계획 → 비전 좌표(정합 적용) → 자동 파지·놓기. (먼저 🧭 정합)</div>
+            <div id="aiLog" style="margin-top:6px;max-height:150px;overflow:auto;font-size:11.5px;font-family:monospace;color:#bcd;background:#0c0c0c;border:1px solid var(--c-line);border-radius:6px;padding:6px;display:none"></div>
           </div>
         </div>
       </div>
@@ -1953,27 +1954,32 @@ async function _resolveTarget(label, gemmaPick){
   const ps=await _vis2sim(o.xyz_mm);
   return {O:new THREE.Vector3(ps[0],ps[1],ps[2]), obj:o};
 }
+function _aiLog(msg){ const el=$('aiLog'); if(!el) return; el.style.display='block';
+  const d=document.createElement('div'); d.innerHTML=msg; el.appendChild(d); el.scrollTop=el.scrollHeight; }
+const _r3=a=>a.map(v=>Math.round(v)).join(',');
 async function executeDSL(actions){
   for(const a of actions){
     if(a.op==='pick'){
       const r=await _resolveTarget(a.target, a.pick_idx);
-      if(!r){ ikStat(`✗ pick: '${a.target}' 비전에서 못 찾음`); return false; }
+      if(!r){ _aiLog(`<span style="color:#f88">✗ pick '${a.target}': 비전에서 못 찾음</span>`); ikStat(`✗ pick: '${a.target}' 비전에서 못 찾음`); return false; }
       _placeVObjAt(r.O);
       if(a.approach && a.approach!=='auto' && $('voAIap')) $('voAIap').value=a.approach;
-      ikStat(`🧠 AI pick: ${a.target} → 시뮬(${[r.O.x,r.O.y,r.O.z].map(v=>Math.round(v)).join(',')})`);
+      _aiLog(`<b>pick '${a.target}'</b> → 매칭 <b>${r.obj.id||r.obj.class}</b>`
+        + ` · 비전(${_r3(r.obj.xyz_mm)})${r.refined?` → <span style="color:#fc6">Gemma보정(${_r3(r.refined)})</span>`:''}`
+        + ` → 시뮬(${_r3([r.O.x,r.O.y,r.O.z])})`);
       await aiGrasp();
-      if(!(await _waitSeq())){ ikStat(`✗ pick 시퀀스 실패: ${a.target}`); return false; }
+      if(!(await _waitSeq())){ _aiLog('<span style="color:#f88">✗ pick 시퀀스 실패</span>'); ikStat(`✗ pick 시퀀스 실패: ${a.target}`); return false; }
     } else if(a.op==='place'){
-      let O=null;
-      if(Array.isArray(a.to)){ const ps=await _vis2sim(a.to); O=new THREE.Vector3(ps[0],ps[1],ps[2]); }
-      else { const r=await _resolveTarget(a.target, a.place_idx); if(r) O=r.O; }
-      if(!O){ ikStat('✗ place 목표 해석 실패'); return false; }
+      let O=null, src='';
+      if(Array.isArray(a.to)){ const ps=await _vis2sim(a.to); O=new THREE.Vector3(ps[0],ps[1],ps[2]); src=`to(${_r3(a.to)})`; }
+      else { const r=await _resolveTarget(a.target, a.place_idx); if(r){ O=r.O; src=`'${a.target}'→${r.obj.id||r.obj.class} 비전(${_r3(r.obj.xyz_mm)})`; } }
+      if(!O){ _aiLog('<span style="color:#f88">✗ place 목표 해석 실패</span>'); ikStat('✗ place 목표 해석 실패'); return false; }
       const off=a.offset||[0,0,0];
       if($('plX')){ $('plX').value=Math.round(O.x+off[0]); $('plY').value=Math.round(O.y+off[1]); $('plZ').value=Math.round(O.z+off[2]); }
-      ikStat(`🧠 AI place → 시뮬(${[O.x,O.y,O.z].map(v=>Math.round(v)).join(',')})`);
+      _aiLog(`<b>place</b> ${src}${(off[0]||off[1]||off[2])?` +off(${_r3(off)})`:''} → 시뮬(${_r3([O.x+off[0],O.y+off[1],O.z+off[2]])})`);
       executePlace();
-      if(!(await _waitSeq())){ ikStat('✗ place 시퀀스 실패'); return false; }
-    } else if(a.op==='return_home'){ revMates().forEach(m=>m._tgt=90); }
+      if(!(await _waitSeq())){ _aiLog('<span style="color:#f88">✗ place 시퀀스 실패</span>'); ikStat('✗ place 시퀀스 실패'); return false; }
+    } else if(a.op==='return_home'){ _aiLog('return_home'); revMates().forEach(m=>m._tgt=90); }
     else if(a.op==='set_joint'){ const i={J1:0,J2:1,J3:2,J4:3,J5:4,J6:5}[a.joint]; if(i!=null){ const m=revMates()[i]; if(m) m._tgt=Math.max(0,Math.min(180,+a.angle)); } }
     else if(a.op==='ask_user'){ ikStat('❓ '+(a.question||'추가 정보 필요')); return false; }
   }
@@ -1990,7 +1996,9 @@ async function aiCommand(){
   if(res.intent!=='command' || !res.dsl_json){ ikStat(`💬 ${res.answer||res.intent}`); return; }
   let dsl; try{ dsl=JSON.parse(res.dsl_json); }catch(e){ ikStat('✗ DSL 파싱 실패'); return; }
   if(!res.valid){ ikStat('✗ DSL 검증 실패: '+(res.errors||'')); return; }
-  ikStat(`🤖 DSL: ${(dsl.actions||[]).map(a=>a.op+(a.target?`(${a.target})`:'')).join(' → ')} 실행…`);
+  _aiLog(`<span style="color:#9cf">━ "${res.transcript||t}" (${res.elapsed_s||0}s)</span>`);
+  _aiLog(`🤖 Gemma DSL: ${(dsl.actions||[]).map(a=>a.op+(a.target?`(${a.target})`:'')+(a.to?`(to ${_r3(a.to)})`:'')).join(' → ')}`);
+  ikStat(`🤖 DSL 실행…`);
   await executeDSL(dsl.actions||[]);
 }
 if($('aiCmd')){ $('aiSend').onclick=aiCommand; $('aiCmd').addEventListener('keydown',e=>{ if(e.key==='Enter') aiCommand(); }); }
