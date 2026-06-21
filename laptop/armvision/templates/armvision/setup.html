@@ -95,9 +95,18 @@
       <!-- A6 -->
       <div class="step" id="step6">
         <h3><span class="num">6</span> 로봇 관절 보정 — 팔 작동 + 관절별 보정값 산출·저장 <span class="badge todo" id="b6">대기</span></h3>
-        <div class="desc">2페이지에서 팔을 직접 구동(가시성 박스 <b>J5=180·J2&lt;70·J4&lt;110</b> 안)하며 마커로 실제각을 측정 → 중력 sag 자세 의존 보정(J2·J3·J4)을 적합·저장(servo_corr.json). <i>(트랙 2에서 구현 — 우선 현재 자세 마커 측정으로 가시성 확인)</i></div>
-        <button id="measM">현재 자세 마커 측정</button>
-        <button id="jcorr" disabled title="트랙 2에서 구현" style="background:#444">⚙ 관절 보정 스윕 (준비중)</button>
+        <div class="desc">팔을 <b>안전 박스</b>(J5=180·J6고정·J2∈[25,70]·J3·J4는 J2 의존·J1 스윕) 안에서만 자동 구동하며 마커로 실제각 측정 → 중력 sag <b>자세 의존 보정(J1·J2·J3·J4)</b> 적합·저장. <b>먼저 계획을 미리보기</b>(움직임 없음)로 확인하세요.</div>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:6px;">
+          <span class="muted" style="font-size:12px">격자 J1·J2·J3·J4</span>
+          <input id="n1" type="number" value="3" min="1" max="6" style="width:46px">
+          <input id="n2" type="number" value="4" min="2" max="8" style="width:46px">
+          <input id="n3" type="number" value="4" min="2" max="8" style="width:46px">
+          <input id="n4" type="number" value="3" min="2" max="6" style="width:46px">
+          <button id="sweepPlan" style="background:#3a5a7a">📋 스윕 계획 미리보기 (움직임 없음)</button>
+          <button id="jcorr" disabled title="계획 검토 후 다음 단계" style="background:#444">⚙ 실제 스윕 실행 (검토 후)</button>
+        </div>
+        <div class="result" id="r6plan"></div>
+        <div style="margin-top:6px"><button id="measM">현재 자세 마커 측정</button></div>
         <div class="result" id="r6"></div>
         <table style="margin-top:8px; max-width:420px;"><thead><tr><th>마커</th><th>X (mm)</th><th>Y (mm)</th><th>Z (mm)</th></tr></thead><tbody id="mtbl"></tbody></table>
       </div>
@@ -189,6 +198,7 @@
   const MEASU = "{% url 'armvision:measure_markers' %}";
   const AREG = "{% url 'armvision:anchors_register' %}";
   const ATF = "{% url 'armvision:anchors_transform' %}";
+  const JSP = "{% url 'armvision:joint_sweep_plan' %}";
   const NEED = 15;
 
   const $ = id => document.getElementById(id);
@@ -292,6 +302,23 @@
         $('r5').textContent = `✓ 앵커 등록 — 이번 ${d.registered.join(',') || '–'} · 누적 전체 [${d.total.join(',')}] (${d.n_total}개). 작업공간(Phase B)에서 이 앵커로 좌표 복원.`;
       } else { $('r5').className = 'result err'; $('r5').textContent = '✗ ' + (d.error || '실패'); }
     } catch (e) { $('r5').className = 'result err'; $('r5').textContent = '✗ 실패'; }
+  };
+
+  // 6단계 스윕 계획 미리보기 (움직임 없음)
+  $('sweepPlan').onclick = async () => {
+    $('r6plan').className = 'result'; $('r6plan').textContent = '계획 생성 중…';
+    try {
+      const body = { n1: +$('n1').value, n2: +$('n2').value, n3: +$('n3').value, n4: +$('n4').value };
+      const d = await (await fetch(JSP, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+      if (!d.ok) { $('r6plan').className = 'result err'; $('r6plan').textContent = '✗ ' + (d.error || '실패'); return; }
+      const r = d.ranges, est = Math.round(d.count * 2.5);
+      $('r6plan').className = 'result ok';
+      $('r6plan').textContent =
+        `📋 안전영역 격자 ${d.count}자세 (여유 ${d.margin_deg}°, 예상 ~${est}s)\n` +
+        `  J1 ${r.J1[0]}~${r.J1[1]}° · J2 ${r.J2[0]}~${r.J2[1]}° · J3 ${r.J3[0]}~${r.J3[1]}° · J4 ${r.J4[0]}~${r.J4[1]}° · (J5=${d.fixed.J5} J6=${d.fixed.J6} 고정)\n` +
+        `  예) ${d.sample.slice(0, 3).map(p => `[${p.J1},${p.J2},${p.J3},${p.J4}]`).join('  ')}\n` +
+        `  ✓ 모든 자세 안전 박스 내 — 검토 후 '실제 스윕 실행'(다음 단계)으로.`;
+    } catch (e) { $('r6plan').className = 'result err'; $('r6plan').textContent = '✗ 실패'; }
   };
 
   // 6단계 마커 측정

@@ -470,6 +470,17 @@ def marker_status(request):
 
 
 @csrf_exempt
+def joint_sweep_plan(request):
+    """관절 보정 스윕 계획 미리보기(움직임 없음) — 안전영역 격자 자세 수·범위·샘플."""
+    import json
+    from . import joint_cal
+    d = json.loads(request.body or "{}") if request.body else {}
+    n1 = max(1, int(d.get("n1", 3))); n2 = max(2, int(d.get("n2", 4)))
+    n3 = max(2, int(d.get("n3", 4))); n4 = max(2, int(d.get("n4", 3)))
+    return JsonResponse({"ok": True, **joint_cal.plan_summary(n2=n2, n3=n3, n4=n4, n1=n1)})
+
+
+@csrf_exempt
 def anchors_register(request):
     """Phase A — id0로 로봇 프레임 잡고 보이는 앵커(id8~12)를 로봇좌표로 등록(누적)."""
     if request.method != "POST":
