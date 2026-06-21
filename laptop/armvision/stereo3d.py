@@ -18,6 +18,8 @@ T_PATH = r"C:\robotic_arm\laptop\calibration\camera_robot_T.npz"
 _UNSET = object()   # 미로딩 센티넬 (ndarray와 == 비교하면 모호성 에러 → is 비교용)
 _calib = None
 _T = _UNSET   # _UNSET = 미로딩, None = 파일없음, ndarray = 로딩됨
+_cal_mtime = None   # 마지막 로딩한 파일 수정시각 → 파일 바뀌면 자동 재로딩(작업공간 재보정 즉시 반영)
+_T_mtime = None
 
 
 def is_calibrated() -> bool:
@@ -29,27 +31,35 @@ def has_robot_frame() -> bool:
 
 
 def reload():
-    """캘리브레이션/변환 파일 재로딩(실행 직후 호출)."""
-    global _calib, _T
+    """캘리브레이션/변환 파일 강제 재로딩(실행 직후 호출). (이제 mtime 자동감지도 함께)"""
+    global _calib, _T, _cal_mtime, _T_mtime
     _calib = None
     _T = _UNSET
+    _cal_mtime = None
+    _T_mtime = None
 
 
 def _load_T():
-    """카메라→로봇 변환 T(4x4). 없으면 None (카메라 좌표 그대로)."""
-    global _T
-    if _T is _UNSET:
-        _T = np.load(T_PATH)["T"] if os.path.exists(T_PATH) else None
+    """카메라→로봇 변환 T(4x4). 파일이 바뀌면 자동 재로딩. 없으면 None."""
+    global _T, _T_mtime
+    mt = os.path.getmtime(T_PATH) if os.path.exists(T_PATH) else None
+    if _T is _UNSET or mt != _T_mtime:   # 미로딩 또는 파일 변경 → 재로딩
+        _T = np.load(T_PATH)["T"] if mt is not None else None
+        _T_mtime = mt
     return _T
 
 
 def _load():
-    global _calib
-    if _calib is None:
-        if not os.path.exists(CAL):
-            return None
+    """스테레오 보정. 파일이 바뀌면 자동 재로딩(작업공간 재보정 즉시 반영)."""
+    global _calib, _cal_mtime
+    if not os.path.exists(CAL):
+        _calib = None; _cal_mtime = None
+        return None
+    mt = os.path.getmtime(CAL)
+    if _calib is None or mt != _cal_mtime:   # 미로딩 또는 파일 변경 → 재로딩
         c = np.load(CAL)
         _calib = {k: c[k] for k in ("K1", "d1", "K2", "d2", "F", "P1", "P2")}
+        _cal_mtime = mt
     return _calib
 
 
