@@ -266,6 +266,11 @@
             <button class="ghost" id="visSimCalib" title="6단계 스윕 데이터로 비전↔시뮬 강체변환을 1회 보정">🧭 비전↔시뮬 정합</button></div>
           <div class="hintline" id="vsStat" style="margin:0 0 6px;color:#9cf"></div>
           <table style="width:100%"><tbody id="visBody"></tbody></table>
+          <div style="margin-top:8px; border-top:1px solid var(--c-line); padding-top:8px;">
+            <div class="row" style="margin-bottom:4px"><b style="font-size:12px">🧠 AI 제어 (Gemma)</b></div>
+            <div class="row" style="margin-bottom:0"><input id="aiCmd" type="text" placeholder="예: 물병을 집어서 한쪽에 놓아줘" style="flex:1;background:#111;color:var(--c-fg);border:1px solid var(--c-line);border-radius:6px;padding:6px 8px"><button class="primary" id="aiSend" style="margin-left:6px">실행</button></div>
+            <div class="hintline" style="margin:4px 0 0">음성/텍스트 명령 → Gemma가 pick/place 계획 → 비전 좌표(정합 적용) → 자동 파지·놓기. (먼저 🧭 정합)</div>
+          </div>
         </div>
       </div>
 
@@ -1400,14 +1405,17 @@ function graspSequence(cand, q, graspJoints){
   if(gLift) steps.push({joints:gLift.j, grip:null, label:'③ 들기'});
   graspSeq={steps, i:-1}; seqNext();
 }
+let _seqDoneCb=null;   // 시퀀스 끝나면 호출(executeDSL 체이닝용). true=완료, false=중단
+function _seqEnd(ok){ graspSeq=null; if(_seqDoneCb){ const cb=_seqDoneCb; _seqDoneCb=null; cb(ok); } }
+function _waitSeq(){ return new Promise(res=>{ if(!graspSeq){ res(false); return; } _seqDoneCb=res; }); }
 function seqNext(){
   if(!graspSeq) return;
   graspSeq.i++;
-  if(graspSeq.i>=graspSeq.steps.length){ ikStat('✓ 집기 시퀀스 완료'); graspSeq=null; return; }
+  if(graspSeq.i>=graspSeq.steps.length){ ikStat('✓ 집기 시퀀스 완료'); _seqEnd(true); return; }
   const st=graspSeq.steps[graspSeq.i], rm=revMates(), from=rm.slice(0,6).map(m=>(m.angle==null?90:m.angle));
   const path=planPath(from, st.joints.slice(0,6));
   rm.forEach((m,i)=>{ if(i<6) m.angle=from[i]; }); applyAngles();
-  if(!path){ ikStat(`✗ ${st.label}: 충돌없는 경로 없음 — 시퀀스 중단`); graspSeq=null; return; }
+  if(!path){ ikStat(`✗ ${st.label}: 충돌없는 경로 없음 — 시퀀스 중단`); _seqEnd(false); return; }
   rm.forEach((m,i)=>{ if(i<6) m._tgt=from[i]; });
   _ikMove={pts:[from,...path], seg:0, t:0, onDone:()=>seqStepDone(st)};
   ikStat(`▶ ${st.label}…`);
@@ -1931,6 +1939,61 @@ if($('visScan')){ $('visScan').onclick=visScan;
   if($('visSimCalib')) $('visSimCalib').onclick=visSimCalib;
   _loadVisSim();   // 저장된 정합 있으면 로드
   let _vt=null; $('visAuto').onchange=()=>{ clearInterval(_vt); if($('visAuto').checked){ visScan(); _vt=setInterval(visScan,1000); } }; }
+
+// ===== AI 제어: pick/place DSL 실행 (비전 target → 3D → vis2sim → aiGrasp/executePlace) =====
+function _placeVObjAt(O){ if($('ikX')){ $('ikX').value=Math.round(O.x); $('ikY').value=Math.round(O.y); $('ikZ').value=Math.round(O.z); } showVObj(); }
+// target(라벨/id) → 시뮬좌표. Gemma가 고른 detection을 우선(_gemmaPick), 없으면 라벨 매칭. → vis2sim.
+async function _resolveTarget(label, gemmaPick){
+  let d; try{ d=await (await fetch('/positions3d/')).json(); }catch(e){ return null; }
+  const objs=d.objects||[]; if(!objs.length) return null;
+  let o = (gemmaPick!=null && objs[gemmaPick]) ? objs[gemmaPick] : null;   // Gemma 추가 보정: 인덱스로 선택
+  if(!o) o = objs.find(x=>x.id===label) || objs.find(x=>x.class===label)
+            || objs.find(x=>label&&(label.includes(x.class)||x.class.includes(label)));
+  if(!o) return null;
+  const ps=await _vis2sim(o.xyz_mm);
+  return {O:new THREE.Vector3(ps[0],ps[1],ps[2]), obj:o};
+}
+async function executeDSL(actions){
+  for(const a of actions){
+    if(a.op==='pick'){
+      const r=await _resolveTarget(a.target, a.pick_idx);
+      if(!r){ ikStat(`✗ pick: '${a.target}' 비전에서 못 찾음`); return false; }
+      _placeVObjAt(r.O);
+      if(a.approach && a.approach!=='auto' && $('voAIap')) $('voAIap').value=a.approach;
+      ikStat(`🧠 AI pick: ${a.target} → 시뮬(${[r.O.x,r.O.y,r.O.z].map(v=>Math.round(v)).join(',')})`);
+      await aiGrasp();
+      if(!(await _waitSeq())){ ikStat(`✗ pick 시퀀스 실패: ${a.target}`); return false; }
+    } else if(a.op==='place'){
+      let O=null;
+      if(Array.isArray(a.to)){ const ps=await _vis2sim(a.to); O=new THREE.Vector3(ps[0],ps[1],ps[2]); }
+      else { const r=await _resolveTarget(a.target, a.place_idx); if(r) O=r.O; }
+      if(!O){ ikStat('✗ place 목표 해석 실패'); return false; }
+      const off=a.offset||[0,0,0];
+      if($('plX')){ $('plX').value=Math.round(O.x+off[0]); $('plY').value=Math.round(O.y+off[1]); $('plZ').value=Math.round(O.z+off[2]); }
+      ikStat(`🧠 AI place → 시뮬(${[O.x,O.y,O.z].map(v=>Math.round(v)).join(',')})`);
+      executePlace();
+      if(!(await _waitSeq())){ ikStat('✗ place 시퀀스 실패'); return false; }
+    } else if(a.op==='return_home'){ revMates().forEach(m=>m._tgt=90); }
+    else if(a.op==='set_joint'){ const i={J1:0,J2:1,J3:2,J4:3,J5:4,J6:5}[a.joint]; if(i!=null){ const m=revMates()[i]; if(m) m._tgt=Math.max(0,Math.min(180,+a.angle)); } }
+    else if(a.op==='ask_user'){ ikStat('❓ '+(a.question||'추가 정보 필요')); return false; }
+  }
+  ikStat('✅ AI 시퀀스 완료'); return true;
+}
+// AI 명령 입력 → /ai/plan(Gemma) → DSL → executeDSL
+async function aiCommand(){
+  const t=$('aiCmd') && $('aiCmd').value.trim(); if(!t) return;
+  if(!await _loadVisSim()){ ikStat('⚠ 비전↔시뮬 정합 먼저(🧭) — 좌표가 안 맞습니다.'); }
+  ikStat('🧠 Gemma 계획 중…');
+  let res; try{ res=await (await fetch('/ai/plan/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:t,vision:true})})).json(); }
+  catch(e){ ikStat('✗ AI 서버 응답 없음'); return; }
+  if(!res.ok){ ikStat('✗ '+(res.error||'실패')); return; }
+  if(res.intent!=='command' || !res.dsl_json){ ikStat(`💬 ${res.answer||res.intent}`); return; }
+  let dsl; try{ dsl=JSON.parse(res.dsl_json); }catch(e){ ikStat('✗ DSL 파싱 실패'); return; }
+  if(!res.valid){ ikStat('✗ DSL 검증 실패: '+(res.errors||'')); return; }
+  ikStat(`🤖 DSL: ${(dsl.actions||[]).map(a=>a.op+(a.target?`(${a.target})`:'')).join(' → ')} 실행…`);
+  await executeDSL(dsl.actions||[]);
+}
+if($('aiCmd')){ $('aiSend').onclick=aiCommand; $('aiCmd').addEventListener('keydown',e=>{ if(e.key==='Enter') aiCommand(); }); }
 
 // 4페이지(시뮬레이터)는 제어 모드 고정(조립·결합 탭 숨김) — 파지 작업이 제어 패널에서 이뤄짐
 if('{{ view }}'==='sim' && $('visScan')) visScan();   // 4페이지 제어모드 진입은 모델 로드 콜백에서 처리
