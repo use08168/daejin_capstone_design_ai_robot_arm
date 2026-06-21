@@ -91,16 +91,21 @@ def handle_command(images, text, detections_json):
            f'사용자 명령: "{text}"{det}\n\n'
            "너는 로봇팔의 '잡기 오케스트레이터'다. 조작 명령을 pick/place 시퀀스로 계획하라.\n"
            "규칙:\n"
-           "1) 물체를 옮기는 명령 = pick(집을 물체) → place(놓을 곳). 반드시 한 쌍으로(잡으면 놓기).\n"
-           "2) target 은 장면에 실제로 보이는 물체의 짧은 식별명(예: red_cup, book). "
-           "명령의 대상 물체가 사진에 안 보이면 DSL 대신 ask_user로 되물어라.\n"
-           "3) '어떻게 잡을지'(수직/수평·손목 자세)는 노트북이 결정한다 → approach 는 보통 생략(auto).\n"
-           "4) place 는 놓을 물체/장소 id(그 위에 놓기) 또는 to:[x,y,z](mm). 미세조정은 offset:[x,y,z].\n"
-           "5) 직접 관절 제어만 요구하면(예: J1을 180도) set_joint.\n"
+           "1) 놓을 곳이 명확한 옮기기('A를 B 위에/옆에/안에') = pick(A) → place(B). 한 쌍으로.\n"
+           "2) 집기만 하는 명령('집어줘','잡아줘','들어줘' — 놓을 곳 언급 없음) = pick(A) 하나만. place 붙이지 마라.\n"
+           "3) ⚠ 놓을 곳이 모호하면(예: '옮겨줘','치워줘','왼쪽으로','저기에' — 어디인지 불명확) "
+           "좌표를 지어내지 말고 ask_user 로 되물어라(질문에 구체적 선택지를 제시). "
+           "마찬가지로 대상 물체가 사진에 안 보이면 ask_user.\n"
+           "4) target 은 장면에 실제로 보이는 물체의 짧은 식별명(예: red_cup, book).\n"
+           "5) '어떻게 잡을지'(수직/수평·손목 자세)는 노트북이 결정한다 → approach 는 보통 생략(auto).\n"
+           "6) place 는 놓을 물체/장소 id(그 위에 놓기) 또는 to:[x,y,z](mm). 미세조정은 offset:[x,y,z].\n"
+           "7) 직접 관절 제어만 요구하면(예: J1을 180도) set_joint.\n"
            f"사용 가능한 op(이 외 금지):\n{OPS_DOC}\n"
            "⚠ actions 를 먼저 쓰고, reasoning 은 마지막에 한 문장으로 아주 짧게(생략 가능).\n"
-           '예) {"actions":[{"op":"pick","target":"red_cup"},{"op":"place","target":"book","offset":[0,0,40]}],"reasoning":"컵을 책 위로"}\n'
-           '예) {"actions":[{"op":"ask_user","question":"노란 공이 안 보여요. 어디 있나요?"}]}\n'
+           '예1 옮기기) {"actions":[{"op":"pick","target":"red_cup"},{"op":"place","target":"book","offset":[0,0,40]}],"reasoning":"컵을 책 위로"}\n'
+           '예2 집기만) {"actions":[{"op":"pick","target":"red_cup"}],"reasoning":"컵을 집음"}\n'
+           '예3 모호) {"actions":[{"op":"ask_user","question":"물병을 어디에 놓을까요? (예: 책 위 / 컵 옆 / 왼쪽 끝)"}]}\n'
+           '예4 안보임) {"actions":[{"op":"ask_user","question":"노란 공이 안 보여요. 어디 있나요?"}]}\n'
            '오직 JSON 하나만 출력: {"actions":[...],"reasoning":"짧게"}')
     c = [{"type": "image", "image": im} for im in images] + [{"type": "text", "text": txt}]
     raw = _gen(c, max_new=1024)   # reasoning 잘림 방지(여유 토큰)

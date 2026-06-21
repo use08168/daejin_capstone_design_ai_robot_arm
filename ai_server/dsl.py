@@ -134,8 +134,7 @@ def validate_dsl(obj, known_targets=None):
             if not holding:
                 errors.append(f"[{i}] pick 없이 place (잡지 않고 놓기)")
             holding = False
-    if holding:
-        errors.append("마지막에 잡은 물체를 놓지 않음 (pick 후 place 필요)")
+    # 집기만 하는 명령('집어줘')은 잡은 채 끝나도 정상 — place 강제하지 않음.
     return len(errors) == 0, errors
 
 
