@@ -647,6 +647,7 @@ function enterEmbed(){ document.body.classList.add('embed'); try{ rebuild(); }ca
   window.addEventListener('message', async ev=>{
     const d=ev.data||{}; if(d.type!=='execDSL' || !Array.isArray(d.actions)) return;
     _pauseMirror();                                                         // 미러가 자세를 덮어쓰지 않게 정지
+    if(d.speed) ctrlSpeed=Math.max(1,Math.min(30,+d.speed));               // 6페이지 실행 속도(°/s) — 시뮬·실물 공통
     if($('aiAutoGrasp')) $('aiAutoGrasp').checked=true;                     // 자동 파지 ON(타겟만 찍고 멈추지 않음)
     if(d.real){                                                             // ── 실물 동시 구동 ──
       await refreshConn();                                                  // /arm/status → connected 갱신

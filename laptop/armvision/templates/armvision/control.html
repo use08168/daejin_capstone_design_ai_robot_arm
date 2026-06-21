@@ -60,6 +60,10 @@
       <div class="opt" style="gap:8px;margin-top:6px;">3D 미러:
         <button id="gHome" class="gbtn" title="실물을 홈(전 관절 90°)에 둔 뒤 눌러 3D를 맞춤">홈 맞춤(90°)</button>
         <span id="hStat" style="color:var(--muted)"></span></div>
+      <div class="opt" style="gap:8px;margin-top:6px;">실행 속도:
+        <input id="spd" type="range" min="2" max="15" value="5" style="flex:1;max-width:160px">
+        <b id="spdv" style="font-variant-numeric:tabular-nums">5</b>°/s
+        <span class="muted">(느릴수록 안전)</span></div>
     </div>
 
     <!-- 우: 로봇 상태(헬스 체크) -->
@@ -189,6 +193,8 @@ $('gHome').onclick=async()=>{
 
 // ── 시뮬에서 실행: DSL을 임베디드 3D(미러 iframe)로 보내 pick/place 실행, 진행상황 회신 ──
 const mirror=document.querySelector('.pane.mirror iframe');
+if($('spd')) $('spd').oninput=()=>{ $('spdv').textContent=$('spd').value; };   // 실행 속도(°/s) 라이브 라벨
+const _spd=()=>+(($('spd')&&$('spd').value)||5);   // 시뮬·실물 공통 실행 속도
 let _execTarget=null;   // 현재 실행 로그를 받을 컨테이너
 window.addEventListener('message', e=>{
   const d=e.data||{}; if(!_execTarget) return;
@@ -207,7 +213,7 @@ tr.addEventListener('click', e=>{
   if(sb){ if(sb.disabled) return; const acts=JSON.parse(decodeURIComponent(sb.dataset.acts));
     sb.disabled=true; sb.textContent='시뮬 실행 중…';
     const box=add('bot','<span class="tag command">시뮬 실행</span>'); const log=document.createElement('div'); log.className='dsl'; box.appendChild(log); _execTarget=log;
-    if(mirror&&mirror.contentWindow) mirror.contentWindow.postMessage({type:'execDSL', actions:acts}, '*');
+    if(mirror&&mirror.contentWindow) mirror.contentWindow.postMessage({type:'execDSL', actions:acts, speed:_spd()}, '*');
     else { log.innerHTML='<span style="color:#f88">3D 미러를 찾을 수 없습니다.</span>'; _execTarget=null; }
     return; }
   const ab=e.target.closest('.asksend'); if(ab) askSend(ab);
@@ -231,7 +237,7 @@ tr.addEventListener('click', async e=>{
   if(!confirm('⚠ 실제 로봇팔이 움직입니다.\n• 실물이 현재 3D 자세와 정렬돼 있는지\n• 주변에 사람·장애물이 없는지\n확인하셨나요? 천천히 움직입니다. 계속할까요?')) return;
   rb.disabled=true; rb.textContent='실물 실행 중…';
   const box=add('bot','<span class="tag command">🦾 실물 실행</span>'); const log=document.createElement('div'); log.className='dsl'; box.appendChild(log); _execTarget=log;
-  if(mirror&&mirror.contentWindow) mirror.contentWindow.postMessage({type:'execDSL', actions:acts, real:true}, '*');
+  if(mirror&&mirror.contentWindow) mirror.contentWindow.postMessage({type:'execDSL', actions:acts, real:true, speed:_spd()}, '*');
   else { log.innerHTML='<span style="color:#f88">3D 미러를 찾을 수 없습니다.</span>'; _execTarget=null; rb.disabled=false; }
 });
 
