@@ -2039,15 +2039,15 @@ async function executeDSL(actions){
       await aiGrasp();
       if(!(await _waitSeq())){ const why=$('ikStat')?$('ikStat').textContent:''; _aiLog(`<span style="color:#f88">✗ pick 실패: ${why}</span>`); return false; }
     } else if(a.op==='place'){
-      if(!Array.isArray(a.to) && (!a.target || a.target==='none' || a.target==='')){   // 놓을 곳 미지정(잡기만 명령) → 든 채 유지
-        _aiLog('place 생략 — 놓을 곳 미지정(잡은 채 유지)'); continue; }
-      let O=null, src='';
+      if(!_held || !vObj){ _aiLog('<span style="color:#f88">✗ 놓을 물체가 없습니다 — 먼저 잡으세요</span>'); ikStat('✗ 든 물체 없음'); return false; }
+      let O=null, src='', floorPlace=false;
       if(Array.isArray(a.to)){ O=new THREE.Vector3(+a.to[0],+a.to[1],+a.to[2]); src=`to(${_r3(a.to)}) 시뮬좌표`; }   // 직접 좌표=시뮬좌표(pick at과 동일, 비전무관)
-      else { const r=await _resolveTarget(a.target, a.place_idx); if(r){ O=r.O; src=`'${a.target}'→${r.obj.id||r.obj.class} 비전(${_r3(r.obj.xyz_mm)})`; } }
-      if(!O){ _aiLog(`<span style="color:#f88">✗ place '${a.target}' 비전에서 못 찾음</span>`); ikStat('✗ place 목표 해석 실패'); return false; }
+      else if(a.target && a.target!=='none' && a.target!==''){ const r=await _resolveTarget(a.target, a.place_idx); if(r){ O=r.O; src=`'${a.target}'→${r.obj.id||r.obj.class} 비전(${_r3(r.obj.xyz_mm)})`; }
+        if(!O){ _aiLog(`<span style="color:#f88">✗ place '${a.target}' 비전에서 못 찾음</span>`); ikStat('✗ place 목표 해석 실패'); return false; } }
+      else { O=new THREE.Vector3(vObj.position.x, 0, vObj.position.z); src='현재 위치(제자리 내려놓기)'; floorPlace=true; }   // 좌표 없음 = 제자리(현재 들고 있는 곳 바닥)
       const off=a.offset||[0,0,0];
-      if($('plX')){ $('plX').value=Math.round(O.x+off[0]); $('plY').value=Math.round(O.y+off[1]); $('plZ').value=Math.round(O.z+off[2]); }
-      _aiLog(`<b>place</b> ${src}${(off[0]||off[1]||off[2])?` +off(${_r3(off)})`:''} → 시뮬(${_r3([O.x+off[0],O.y+off[1],O.z+off[2]])})`);
+      if($('plX')){ $('plX').value=Math.round(O.x+off[0]); $('plZ').value=Math.round(O.z+off[2]); $('plY').value=floorPlace?'':Math.round(O.y+off[1]); }   // 제자리=높이 자동(바닥)
+      _aiLog(`<b>place</b> ${src}${(off[0]||off[1]||off[2])?` +off(${_r3(off)})`:''}`);
       executePlace();
       if(!(await _waitSeq())){ const why=$('ikStat')?$('ikStat').textContent:''; _aiLog(`<span style="color:#f88">✗ place 실패: ${why}</span>`); return false; }
     } else if(a.op==='return_home'){ _aiLog('return_home'); revMates().forEach(m=>m._tgt=90); }
