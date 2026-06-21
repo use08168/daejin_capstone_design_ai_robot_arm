@@ -461,6 +461,7 @@ def marker_status(request):
     st = markers.marker_status(fL, fR)
     st["base_ok"] = (markers.BASE_ID in st["left"] and markers.BASE_ID in st["right"])
     st["has_T"] = markers.has_transform()
+    st["has_offset"] = markers.has_offset()   # id0→J1 오프셋 1회 보정 여부(되면 팔 없이 id0만으로 변환)
     return JsonResponse(st)
 
 

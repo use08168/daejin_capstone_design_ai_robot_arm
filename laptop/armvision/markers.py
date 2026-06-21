@@ -20,6 +20,16 @@ BASE_MM = 70.0
 
 CAL = r"C:\robotic_arm\laptop\calibration\stereo_calib.npz"
 T_PATH = r"C:\robotic_arm\laptop\calibration\camera_robot_T.npz"
+# id0(베이스) 프레임에서 본 J1축(id1) 고정 오프셋 — 1회 측정 후 영구. 이후 카메라가 id0만 봐도 J1 원점 복원(팔 불필요).
+OFFSET_PATH = r"C:\robotic_arm\laptop\calibration\base_j1_offset.npz"
+
+
+def _load_offset():
+    return np.load(OFFSET_PATH)["offset"] if os.path.exists(OFFSET_PATH) else None
+
+
+def has_offset() -> bool:
+    return os.path.exists(OFFSET_PATH)
 
 
 def detect(frame):
@@ -75,16 +85,25 @@ def compute_base_transform(frameL, frameR):
     c = np.load(CAL)
     cal = {k: c[k] for k in ("K1", "d1", "K2", "d2", "P1", "P2")}
     P = _triangulate(mL[BASE_ID], mR[BASE_ID], cal)
-    T, info = _frame_from_corners(P)               # 방향·원점: id0
+    T, info = _frame_from_corners(P)               # 방향·원점: id0 (베이스에 고정 → 카메라 옮겨도 id0만 보이면 OK)
     origin = "id0"
-    # 원점을 J1 회전축(id1)으로 이동 — 로봇 실제 중심 기준 (방향은 정적 id0 유지)
+    # 원점을 J1 회전축으로 이동 — 로봇 실제 중심 기준 (방향은 정적 id0 유지)
     if 1 in mL and 1 in mR:
         p1 = _triangulate(mL[1], mR[1], cal).mean(0)
         p1r = (T @ np.array([p1[0], p1[1], p1[2], 1.0]))[:3]   # id0 프레임에서 본 id1 위치
-        T[:3, 3] = T[:3, 3] - p1r                              # 원점 = id1
-        origin = "id1(J1축)"
+        T[:3, 3] = T[:3, 3] - p1r                              # 원점 = id1(J1축)
+        np.savez(OFFSET_PATH, offset=p1r)                      # ★ 오프셋 영구 저장(1회 보정) — 이후 id0만으로 재현
+        origin = "id1(J1축·실시간 + 오프셋 저장됨)"
+    else:
+        off = _load_offset()
+        if off is not None:
+            T[:3, 3] = T[:3, 3] - off                          # ★ 저장된 오프셋으로 J1 원점 복원 — 팔/id1 불필요
+            origin = "id1(J1축·저장 오프셋, 팔 없이)"
+        else:
+            origin = "id0 (오프셋 미보정 — 팔+id1 보이게 1회 산출 필요)"
     np.savez(T_PATH, T=T)
-    return {"ok": True, "origin": origin, **{k: round(v, 1) for k, v in info.items()}}
+    return {"ok": True, "origin": origin, "has_offset": has_offset(),
+            **{k: round(v, 1) for k, v in info.items()}}
 
 
 def marker_status(frameL, frameR):
