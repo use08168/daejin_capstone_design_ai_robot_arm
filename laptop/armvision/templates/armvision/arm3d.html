@@ -1699,7 +1699,7 @@ if($('voShow')){
   if($('voBest')) $('voBest').onclick=findBestGrasp;
   if($('voCheck')) $('voCheck').onclick=evalGraspContact;
   if($('voAI')) $('voAI').onclick=aiGrasp;
-  if($('ikGrabFree')) $('ikGrabFree').onclick=()=>{ showVObj(); aiGrasp(); };   // 입력 XYZ에 가상물체 놓고 DB없이 바로 잡기
+  if($('ikGrabFree')) $('ikGrabFree').onclick=()=>{ showVObj(); aiGrasp({skipVeto:true}); };   // 입력 XYZ에 가상물체 놓고 DB없이 바로 잡기(MLP veto 무시)
   if($('voOpt')) $('voOpt').onclick=optimizeGraspForObject;
   if($('voMap')) $('voMap').onclick=approachMap;
   if($('voReach')) $('voReach').onclick=reachRanges;
@@ -1797,7 +1797,8 @@ function _ikGraspPose(O, type, R, H, approach){
   if(best.collide) return {ok:false, reason:'충돌 (그리퍼/팔이 물체·자기와 간섭)', j:best.j};
   return {ok:true, j:best.j, posErr:best.posErr, angErr:best.angErr};
 }
-async function aiGrasp(){
+async function aiGrasp(opts){
+  opts=opts||{};   // opts.skipVeto: MLP 품질 veto 건너뛰고 실제 IK가 판정(좌표 직접지정·📍 — DB검색처럼 도달가능하면 잡음)
   if(!vObj){ ikStat('먼저 가상 물체를 표시하세요.'); return; }
   const O=vObj.position.clone(), R=Math.max(3,+$('voR').value||25), H=Math.max(5,+$('voH').value||80), type=_typeId($('voType').value);
   ikStat('🧠 MLP 판정 중…');
@@ -1808,7 +1809,8 @@ async function aiGrasp(){
   const info=hasQ ? `품질 수직 ${res.qvert} · 수평 ${res.qhorz}` : `수직 ${pct(res.vert)}% · 수평 ${pct(res.horz)}%`;
   const ov=($('voAIap')&&$('voAIap').value)||'auto';   // 접근 강제(자동=모델 결정)
   const ap=(ov==='auto')?res.approach:ov, pick=ap==='vert'?'수직':'수평';
-  if(ov==='auto' && !res.graspable){ ikStat(`🧠 잡기 어려움 — ${info} (둘 다 낮음). 위치·크기 변경.`); return; }
+  if(ov==='auto' && !res.graspable && !opts.skipVeto){ ikStat(`🧠 잡기 어려움 — ${info} (둘 다 낮음). 위치·크기 변경.`); return; }
+  if(ov==='auto' && !res.graspable && opts.skipVeto) _aiLog(`<span style="color:#fc6">⚠ MLP 품질 낮음(${info}) — 좌표 지정이라 무시하고 실제 IK 시도</span>`);
   ikStat(`🧠 ${info} → ${pick}${ov==='auto'?'':'(강제)'} 정밀 자세 IK…`);
   const invObj=new THREE.Matrix4().makeTranslation(-O.x,-O.y,-O.z);
   let g=_ikGraspPose(O, type,R,H, ap);                          // DB 없이 순수 IK
@@ -1997,7 +1999,7 @@ async function executeDSL(actions){
         const O=new THREE.Vector3(+a.at[0],+a.at[1],+a.at[2]); _placeVObjAt(O);
         if(a.approach && a.approach!=='auto' && $('voAIap')) $('voAIap').value=a.approach;
         _aiLog(`<b>pick at</b> 좌표(${_r3([O.x,O.y,O.z])}) — 비전무관·DB없이 IK 파지`);
-        await aiGrasp();
+        await aiGrasp({skipVeto:true});   // 좌표 직접지정: MLP veto 무시, 실제 IK가 판정
         if(!(await _waitSeq())){ const why=$('ikStat')?$('ikStat').textContent:''; _aiLog(`<span style="color:#f88">✗ pick 실패: ${why}</span>`); return false; }
         continue; }
       const r=await _resolveTarget(a.target, a.pick_idx);
