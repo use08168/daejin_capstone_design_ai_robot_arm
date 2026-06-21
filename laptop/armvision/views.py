@@ -462,7 +462,40 @@ def marker_status(request):
     st["base_ok"] = (markers.BASE_ID in st["left"] and markers.BASE_ID in st["right"])
     st["has_T"] = markers.has_transform()
     st["has_offset"] = markers.has_offset()   # id0→J1 오프셋 1회 보정 여부(되면 팔 없이 id0만으로 변환)
+    st["has_anchors"] = markers.has_anchors()
+    st["anchors_registered"] = markers.registered_anchor_ids()   # 등록된 월드 앵커 id
+    anchor_set = set(markers.ANCHOR_IDS)
+    st["anchors_visible"] = sorted(anchor_set & set(st["left"]) & set(st["right"]))   # 현재 양 카메라 공통으로 보이는 앵커
     return JsonResponse(st)
+
+
+@csrf_exempt
+def anchors_register(request):
+    """Phase A — id0로 로봇 프레임 잡고 보이는 앵커(id8~12)를 로봇좌표로 등록(누적)."""
+    if request.method != "POST":
+        return JsonResponse({"ok": False, "error": "POST only"})
+    cam_left, cam_right = _cams()
+    fL = get_camera(cam_left).read()
+    fR = get_camera(cam_right).read()
+    if fL is None or fR is None:
+        return JsonResponse({"ok": False, "error": "프레임 없음"})
+    return JsonResponse(markers.register_anchors(fL, fR))
+
+
+@csrf_exempt
+def anchors_transform(request):
+    """Phase B — 보이는 앵커들로 카메라→로봇 T 복원(id0/팔 불필요)."""
+    if request.method != "POST":
+        return JsonResponse({"ok": False, "error": "POST only"})
+    cam_left, cam_right = _cams()
+    fL = get_camera(cam_left).read()
+    fR = get_camera(cam_right).read()
+    if fL is None or fR is None:
+        return JsonResponse({"ok": False, "error": "프레임 없음"})
+    res = markers.compute_transform_from_anchors(fL, fR)
+    if res.get("ok"):
+        stereo3d.reload()   # 새 T 반영 → 이후 3D가 로봇 기준
+    return JsonResponse(res)
 
 
 @csrf_exempt
