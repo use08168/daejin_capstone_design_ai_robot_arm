@@ -1968,7 +1968,7 @@ async function executeDSL(actions){
         + ` · 비전(${_r3(r.obj.xyz_mm)})${r.refined?` → <span style="color:#fc6">Gemma보정(${_r3(r.refined)})</span>`:''}`
         + ` → 시뮬(${_r3([r.O.x,r.O.y,r.O.z])})`);
       await aiGrasp();
-      if(!(await _waitSeq())){ _aiLog('<span style="color:#f88">✗ pick 시퀀스 실패</span>'); ikStat(`✗ pick 시퀀스 실패: ${a.target}`); return false; }
+      if(!(await _waitSeq())){ const why=$('ikStat')?$('ikStat').textContent:''; _aiLog(`<span style="color:#f88">✗ pick 실패: ${why}</span>`); return false; }
     } else if(a.op==='place'){
       let O=null, src='';
       if(Array.isArray(a.to)){ const ps=await _vis2sim(a.to); O=new THREE.Vector3(ps[0],ps[1],ps[2]); src=`to(${_r3(a.to)})`; }
@@ -1978,7 +1978,7 @@ async function executeDSL(actions){
       if($('plX')){ $('plX').value=Math.round(O.x+off[0]); $('plY').value=Math.round(O.y+off[1]); $('plZ').value=Math.round(O.z+off[2]); }
       _aiLog(`<b>place</b> ${src}${(off[0]||off[1]||off[2])?` +off(${_r3(off)})`:''} → 시뮬(${_r3([O.x+off[0],O.y+off[1],O.z+off[2]])})`);
       executePlace();
-      if(!(await _waitSeq())){ _aiLog('<span style="color:#f88">✗ place 시퀀스 실패</span>'); ikStat('✗ place 시퀀스 실패'); return false; }
+      if(!(await _waitSeq())){ const why=$('ikStat')?$('ikStat').textContent:''; _aiLog(`<span style="color:#f88">✗ place 실패: ${why}</span>`); return false; }
     } else if(a.op==='return_home'){ _aiLog('return_home'); revMates().forEach(m=>m._tgt=90); }
     else if(a.op==='set_joint'){ const i={J1:0,J2:1,J3:2,J4:3,J5:4,J6:5}[a.joint]; if(i!=null){ const m=revMates()[i]; if(m) m._tgt=Math.max(0,Math.min(180,+a.angle)); } }
     else if(a.op==='ask_user'){ ikStat('❓ '+(a.question||'추가 정보 필요')); return false; }
