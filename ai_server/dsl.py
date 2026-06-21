@@ -18,7 +18,7 @@ import re
 #   - place ↔ 노트북 executePlace(운반 + 자이로 수평유지 + 하강·release)
 #   기존 세분화 시퀀스(move_above·descend_and_grasp·lift·move_to·release)는 이 둘로 흡수.
 ALLOWED_OPS = {
-    "pick":        ["target"],          # 상위 파지: target=물체 ID. opt: approach("auto"|"vert"|"horz")
+    "pick":        [],                  # 상위 파지: target(물체 ID) 또는 at[x,y,z](직접 좌표·비전무관) 중 하나. opt: approach
     "place":       [],                  # 상위 놓기: target(장소/물체 ID) 또는 to[x,y,z] 필요. opt: offset[x,y,z]
     "set_joint":   ["joint", "angle"],  # 직접 관절 제어 (예: J1을 180도)
     "return_home": [],
@@ -113,8 +113,14 @@ def validate_dsl(obj, known_targets=None):
                 errors.append(f"[{i}] angle 은 숫자여야 함")
             elif not (0 <= a["angle"] <= 180):
                 errors.append(f"[{i}] angle 은 0~180 범위여야 함")
-        if op == "pick" and "approach" in a and a["approach"] not in APPROACHES:
-            errors.append(f"[{i}] approach 는 {sorted(APPROACHES)} 중 하나여야 함")
+        if op == "pick":
+            if "target" not in a and "at" not in a:                 # 둘 중 하나는 필요
+                errors.append(f"[{i}] pick: target(물체 ID) 또는 at[x,y,z] 중 하나 필요")
+            if "at" in a and not (isinstance(a["at"], list) and len(a["at"]) == 3
+                                  and all(isinstance(v, (int, float)) for v in a["at"])):
+                errors.append(f"[{i}] at 은 숫자 3개 배열[x,y,z]이어야 함")
+            if "approach" in a and a["approach"] not in APPROACHES:
+                errors.append(f"[{i}] approach 는 {sorted(APPROACHES)} 중 하나여야 함")
         if op == "place":                                          # target(의미) 또는 to[x,y,z] 중 하나는 필요
             if "target" not in a and "to" not in a:
                 errors.append(f"[{i}] place: target(장소 ID) 또는 to[x,y,z] 중 하나 필요")
