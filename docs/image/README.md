@@ -18,6 +18,10 @@
 | `charuco-board.png` ✅ | 인쇄용 ChArUco 보드(DICT_5X5_100, 6×8) | coordinate_3d_pipeline, setup_procedure |
 | `stereo-rig.png` ✅ | 좌·우 카메라가 본 로봇팔(스테레오 셋업) | setup_procedure |
 | `aruco-detect.png` ✅ | ArUco 포즈 검출(위치 mm·회전 deg) | aruco_markers |
+| `setup-transform.png` ✅ | 2페이지 4~6단계(베이스·변환 T·마커 측정) | setup_procedure |
+| `vlm-chat.png` ✅ | 자연어 제어 VLM 장면 이해 채팅 | ai_integration |
+| `jaw-box.png` ✅ | 그리퍼 TCP·jaw 박스·접근축 정의 | grasp_ik_method |
+| `joint-sweep.png` ✅ | 관절 스윕 마커 분포(콜드스타트) | coldstart_procedure |
 
 ## 아직 없음 (있으면 더 좋음)
 

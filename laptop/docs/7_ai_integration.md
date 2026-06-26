@@ -19,6 +19,8 @@
                  (command·set_joint) ▶ 수동 실행 버튼 → /arm/exec_joint → 실물(안전 램프)
 ```
 
+![자연어 제어 화면 — "현재 작업 환경에 어떤 물체가 있는지 확인해줘" → VLM(Gemma)이 웹캠을 보고 물병·테이프·노트북·스마트폰·키보드를 답변](../../docs/image/vlm-chat.png)
+
 ---
 
 ## 2. gRPC 클라이언트 (`armvision/ai_client.py`)
