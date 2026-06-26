@@ -1,6 +1,6 @@
 # docs/image — 문서용 사진
 
-문서에서 참조하는 사진/캡처를 모은 곳. (GIF 제외 — 정지 이미지만)
+문서에서 참조하는 사진/캡처/GIF를 모은 곳. (GIF는 GitHub에서 자동 재생 — 데모용)
 
 ## 현재 보유 (문서에 연결됨)
 
@@ -22,6 +22,8 @@
 | `vlm-chat.png` ✅ | 자연어 제어 VLM 장면 이해 채팅 | ai_integration |
 | `jaw-box.png` ✅ | 그리퍼 TCP·jaw 박스·접근축 정의 | grasp_ik_method |
 | `joint-sweep.png` ✅ | 관절 스윕 마커 분포(콜드스타트) | coldstart_procedure |
+| `grasp-sim.gif` 🎞️ | 4페이지 AI 파지 시뮬(잡기·들기·놓기) | grasp_place_runtime |
+| `mlp-training.gif` 🎞️ | 5페이지 MLP 학습 과정(손실·정확도) | grasp_learning_mlp |
 
 ## 아직 없음 (있으면 더 좋음)
 
