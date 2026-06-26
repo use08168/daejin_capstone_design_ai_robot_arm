@@ -4,6 +4,12 @@
 > 결정적·실시간 작업(탐지·삼각측량·IK·안전)은 노트북 책임이며 여기서 하지 않는다.
 > 인터페이스: [gRPC 명세](../../docs/3_grpc_interface.md) · 출력 형식: [DSL 명세](../../docs/5_dsl_spec.md)
 
+### 세부 문서
+| 문서 | 내용 |
+|------|------|
+| [1_implementation.md](1_implementation.md) | 구현 명세 — 음성/텍스트(+이미지)→STT→Gemma 4(VLM/DSL)→검증→노트북, warm gRPC |
+| [2_grasp_place_integration.md](2_grasp_place_integration.md) | **파지·놓기 연동** — 상위 `pick`/`place` DSL로 통일·검증·노트북 MLP 런타임 매핑(책임 분리) |
+
 ---
 
 ## 1. 하드웨어 / 환경

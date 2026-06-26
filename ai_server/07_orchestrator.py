@@ -67,12 +67,16 @@ OPS_DOC = "\n".join(f"  - {op}({', '.join(ps) or '없음'})" for op, ps in ALLOW
 
 
 def handle_command(text):
-    p = ("이 사진들은 로봇팔 작업공간(좌/우 카메라)이다. 로봇팔·전선·배경은 제외하고 집을 수 있는 물체를 파악하라.\n"
+    p = ("이 사진들은 로봇팔 작업공간(좌/우 카메라)이다. 로봇팔·받침대·전선·배경은 무시하고 집을 수 있는 물체만 식별하라.\n"
          f'사용자 명령: "{text}"\n\n'
-         "명령 대상 물체가 사진에 실제로 있으면 동작 시퀀스(DSL)를 만들고, 없으면 ask_user로 역질문하라.\n"
+         "너는 '잡기 오케스트레이터'다. 조작 명령을 pick/place 시퀀스로 계획하라.\n"
+         "1) 옮기기 = pick(집을 물체) → place(놓을 곳), 한 쌍으로. "
+         "2) target은 사진에 보이는 물체의 짧은 식별명(예: red_cup, book). 대상이 안 보이면 ask_user로 되물어라. "
+         "3) '어떻게 잡을지'는 노트북이 결정 → approach 생략(auto). "
+         "4) place는 놓을 물체/장소 id 또는 to:[x,y,z]mm, 미세조정 offset:[x,y,z].\n"
          f"사용 가능한 op(이 외 금지):\n{OPS_DOC}\n"
-         '오직 JSON 하나: {"reasoning":"...","actions":[{"op":...}]}. '
-         "target은 물체의 짧은 식별명(예: red_can). 단위 mm.")
+         '예) {"reasoning":"빨간 컵을 책 위로","actions":[{"op":"pick","target":"red_cup"},{"op":"place","target":"book","offset":[0,0,40]}]}\n'
+         '오직 JSON 하나: {"reasoning":"...","actions":[{"op":...}]}')
     raw = _gen([{"type": "image", "image": im} for im in IMAGES] + [{"type": "text", "text": p}])
     obj, perr = extract_json(raw)
     if perr:
