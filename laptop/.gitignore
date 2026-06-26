@@ -13,6 +13,11 @@ weights/
 calibration/captures/
 calibration/stereo_calib.npz
 
+# 대용량 런타임 데이터 (생성물 — 저장소에 넣지 않음)
+# grasp_dataset.csv = 파지 스윕 DB(~100MB, 서버 자동로드용) · joint_sweep.json = 관절 스윕 상태
+calibration/grasp_dataset.csv
+calibration/joint_sweep.json
+
 # 임시
 _tmpsrv.log
 calibration/active/cspace_query.csv
