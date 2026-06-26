@@ -4,10 +4,11 @@
 > 대진대학교 캡스톤 디자인 — 한국어 음성 명령으로 객체를 인식하고 안전하게 그립하는 분산 AI 추론 기반 6-DOF 로봇팔.
 
 <p align="center">
-  <img src="docs/image/reference-design.png" alt="6-DOF 로봇팔 설계 (J1~J6, arm span 350mm)" height="300">
-  <img src="docs/image/sim-assembled-1.png" alt="STL로 조립한 3D 디지털 트윈 (6관절 리깅)" height="300">
+  <img src="docs/image/reference-design.png" alt="6-DOF 로봇팔 설계 (J1~J6, arm span 350mm)" height="260">
+  <img src="docs/image/sim-assembled-1.png" alt="STL로 조립한 3D 디지털 트윈 (6관절 리깅)" height="260">
+  <img src="docs/image/real-arm.jpg" alt="실물 6-DOF 로봇팔 (각 링크에 ArUco 마커 부착)" height="260">
 </p>
-<p align="center"><sub>참조 설계(좌) → 실측 STL로 만든 3D 디지털 트윈(우). 시뮬레이션으로 동작을 미리 보고 실물과 연동 구동.</sub></p>
+<p align="center"><sub>참조 설계(좌) → 실측 STL로 만든 3D 디지털 트윈(중) → 실물 6-DOF 로봇팔(우, 각 링크에 ArUco 마커). 시뮬레이션으로 동작을 미리 보고 실물과 연동 구동.</sub></p>
 
 ```
 사용자: "빨간 컵을 책 옆에 놔줘"
@@ -15,6 +16,22 @@
 음성 인식 → 객체 인식 → 의도 파악 → 동작 계획 →
 IK 계산 → 안전 검증 → 모터 제어 → 그립 → 이동 → 놓기
 ```
+
+---
+
+## 🎬 데모 영상
+
+> Google Drive(뷰어 공개) 링크. 각 항목은 해당 기술 문서에도 연결돼 있다.
+
+| 데모 | 영상 |
+|------|------|
+| **3D 시뮬레이터 동작** (조립·리깅·제어) | [▶ 보기](https://drive.google.com/file/d/1hU2PR68-Gy2XqOHGjDWO9H2JxIDRQaFw/view?usp=sharing) |
+| **잡기·놓기 런타임** (AI 파지 → 들기 → 놓기) | [▶ ①](https://drive.google.com/file/d/1SrEo43e4rWohGsKSrXign7xtEpKEwyvU/view?usp=sharing) · [②](https://drive.google.com/file/d/1nPFacq3uxQnlIRRXGvIO_LedIHU8A4sO/view?usp=sharing) · [③](https://drive.google.com/file/d/1vkNTbvnbb-N0b4rIz5xn-92pryiSB7c0/view?usp=sharing) |
+| **파지 데이터셋 생성** (FK 샘플링) | [▶ ①](https://drive.google.com/file/d/1aMuK7l9k4ZoUPRI2btJ8vOeubB9G_r45/view?usp=sharing) · [②](https://drive.google.com/file/d/18LRvhoQJ6_2y2a_KH3mV3oGGfNr9pnhw/view?usp=sharing) |
+| **MLP 파지 학습** | [▶ 보기](https://drive.google.com/file/d/1riFp9NCgwCPHXfsDhdb2TVaCAP688P8R/view?usp=sharing) |
+| **디지털트윈 C-space 안전 검증** | [▶ ①](https://drive.google.com/file/d/1vYuo53dGs2aWkysy1HClAFdfzunhA5IU/view?usp=sharing) · [②](https://drive.google.com/file/d/1E0i8ZytOhljyalwJxXthOAcU_MwYzIW0/view?usp=sharing) |
+| **로봇팔 3D 인식 과정** (스테레오 삼각측량) | [▶ 보기](https://drive.google.com/file/d/1MBFXagUDMlq_0g1TG0gAltHQs-gzVrMP/view?usp=sharing) |
+| **ChArUco 촬영** (캘리브레이션 셋업) | [▶ ①](https://drive.google.com/file/d/1Vn4H3W7XyQx7gDIsGqlCTaZhZLj_LL9r/view?usp=sharing) · [②](https://drive.google.com/file/d/1bMQTdBhah7Y777o8GNDhDxKxGlNs9XDX/view?usp=sharing) |
 
 ---
 

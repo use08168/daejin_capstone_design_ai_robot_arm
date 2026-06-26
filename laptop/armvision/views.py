@@ -3,7 +3,7 @@ import os
 import shutil
 
 import cv2
-from django.http import JsonResponse, StreamingHttpResponse
+from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 
@@ -349,6 +349,27 @@ def arm3d_save(request):
     return JsonResponse({"ok": True})
 
 
+GRASP_DATASET_PATH = r"C:\robotic_arm\laptop\calibration\grasp_dataset.csv"
+
+
+@csrf_exempt
+def grasp_dataset(request):
+    """grasp_dataset.csv 서버 저장(POST)/제공(GET).
+    4페이지에서 한 번 업로드하면 저장 → 4·6페이지 arm3d가 시작 시 자동 로드(좌표 파지도 DB 검색 사용)."""
+    if request.method == "POST":
+        data = request.body                      # 먼저 읽기(실패 시 기존 파일 보존). 한도는 settings DATA_UPLOAD_MAX_MEMORY_SIZE
+        if not data:
+            return JsonResponse({"ok": False, "error": "빈 본문"})
+        os.makedirs(os.path.dirname(GRASP_DATASET_PATH), exist_ok=True)
+        with open(GRASP_DATASET_PATH, "wb") as f:
+            f.write(data)
+        return JsonResponse({"ok": True, "bytes": len(data)})
+    if not os.path.exists(GRASP_DATASET_PATH):
+        return HttpResponse("", content_type="text/csv", status=404)
+    with open(GRASP_DATASET_PATH, "rb") as f:
+        return HttpResponse(f.read(), content_type="text/csv")
+
+
 # ============ 스트림 ============
 
 def video_feed(request):
@@ -461,7 +482,268 @@ def marker_status(request):
     st = markers.marker_status(fL, fR)
     st["base_ok"] = (markers.BASE_ID in st["left"] and markers.BASE_ID in st["right"])
     st["has_T"] = markers.has_transform()
+    st["has_offset"] = markers.has_offset()   # id0→J1 오프셋 1회 보정 여부(되면 팔 없이 id0만으로 변환)
+    st["has_anchors"] = markers.has_anchors()
+    st["anchors_registered"] = markers.registered_anchor_ids()   # 등록된 월드 앵커 id
+    anchor_set = set(markers.ANCHOR_IDS)
+    st["anchors_visible"] = sorted(anchor_set & set(st["left"]) & set(st["right"]))   # 현재 양 카메라 공통으로 보이는 앵커
     return JsonResponse(st)
+
+
+@csrf_exempt
+def joint_sweep_plan(request):
+    """관절 보정 스윕 계획 미리보기(움직임 없음) — 안전영역 격자 자세 수·범위·샘플."""
+    import json
+    from . import joint_cal
+    d = json.loads(request.body or "{}") if request.body else {}
+    n_per = max(4, min(15, int(d.get("n_per", 7))))
+    return JsonResponse({"ok": True, **joint_cal.plan_summary(n_per=n_per)})
+
+
+# ---- 관절 보정 스윕(백그라운드 구동 + 마커 수집) ----
+import threading as _threading
+_SWEEP = {"running": False, "i": 0, "total": 0, "saved": 0, "skipped": 0,
+          "msg": "대기", "error": "", "done": False, "stop": False, "path": ""}
+_SWEEP_LOCK = _threading.Lock()
+SWEEP_PATH = r"C:\robotic_arm\laptop\calibration\joint_sweep.json"
+
+
+def _approach_safe_home():
+    """현재 자세에서 SAFE_HOME(박스 내)으로 안전 진입.
+    - 이미 박스 안: 안전 전이(transition_order)로.
+    - 팔이 들려 있음(J2≥70, 바닥에서 멀): wrist 고정 → J3·J4를 SAFE_HOME 값으로(들린 채)
+      → J2를 45로 하강(절대 45 밑 안 감 = SAFE_HOME 높이 이하로 안 내려감) → J1.
+    floor-safe by monotonicity: 진입 내내 SAFE_HOME 높이보다 낮아지지 않음."""
+    from . import joint_cal
+    H = joint_cal.SAFE_HOME
+    cur = {j: _JOINT_STATE.get(j, 90.0) for j in ("J1", "J2", "J3", "J4")}
+    if joint_cal.is_safe(cur["J1"], cur["J2"], cur["J3"], cur["J4"]):
+        seq = joint_cal.transition_order(cur, H)
+        steps = [("J5", joint_cal.J5_FIXED), ("J6", joint_cal.J6_FIXED)] + (seq or [])
+        if seq is None:
+            steps = [("J5", joint_cal.J5_FIXED), ("J6", joint_cal.J6_FIXED),
+                     ("J3", H["J3"]), ("J4", H["J4"]), ("J2", H["J2"]), ("J1", H["J1"])]
+    else:   # 팔 들림(J2≥70) → 들어올림·설정·하강
+        steps = [("J5", joint_cal.J5_FIXED), ("J6", joint_cal.J6_FIXED),
+                 ("J3", H["J3"]), ("J4", H["J4"]), ("J2", H["J2"]), ("J1", H["J1"])]
+    for (j, v) in steps:
+        if not _move_joint_to(j, v).get("ok"):
+            return {"ok": False}
+    return {"ok": True}
+
+
+def _sweep_worker(poses):
+    """안전 박스 자세들을 한 관절씩 안전 이동하며 각 자세에서 팔 마커(id0~7) 3D 수집·저장."""
+    import time
+    import json as _json
+    from . import joint_cal, markers
+    data = []
+    _prev_correct = ARM_CFG.get("correct", False)
+    ARM_CFG["correct"] = False                        # 측정 스윕은 nominal 거동 측정 → 보정 OFF(순환 방지)
+    try:
+        with _SWEEP_LOCK:
+            _SWEEP["msg"] = "안전 자세(SAFE_HOME)로 이동 중…"
+        if not _approach_safe_home().get("ok"):
+            with _SWEEP_LOCK:
+                _SWEEP["error"] = "안전 자세 이동 실패(연결 끊김?)"
+            return
+        for idx, pose in enumerate(poses):
+            with _SWEEP_LOCK:
+                if _SWEEP["stop"]:
+                    _SWEEP["msg"] = "사용자 중지"; break
+                _SWEEP["i"] = idx + 1
+            cur = {j: _JOINT_STATE.get(j, 90.0) for j in ("J1", "J2", "J3", "J4")}
+            seq = joint_cal.transition_order(cur, pose)
+            if seq is None or not joint_cal.is_safe(pose["J1"], pose["J2"], pose["J3"], pose["J4"]):
+                with _SWEEP_LOCK:
+                    _SWEEP["skipped"] += 1; _SWEEP["msg"] = f"#{idx+1} 안전 전이 없음 → skip"
+                continue
+            broke = False
+            for (j, val) in seq:                     # 단일 관절 이동(양 끝 안전→경로 안전)
+                if not _move_joint_to(j, val).get("ok"):
+                    with _SWEEP_LOCK:
+                        _SWEEP["error"] = "전송 실패(연결 끊김?)"
+                    broke = True; break
+            if broke:
+                break
+            time.sleep(0.35)                         # 정착(진동 가라앉힘)
+            cam_left, cam_right = _cams()
+            fL = get_camera(cam_left).read(); fR = get_camera(cam_right).read()
+            if fL is None or fR is None:
+                with _SWEEP_LOCK:
+                    _SWEEP["msg"] = f"#{idx+1} 프레임 없음 → skip"
+                continue
+            mres = markers.measure(fL, fR)
+            mk = mres.get("markers", {}) if mres.get("ok") else {}
+            arm_mk = {str(k): v for k, v in mk.items() if 0 <= int(k) <= 7}   # 팔 마커만
+            data.append({"cmd": dict(pose), "markers": arm_mk, "frame": mres.get("frame")})
+            with _SWEEP_LOCK:
+                _SWEEP["saved"] += 1
+                _SWEEP["msg"] = f"#{idx+1}/{len(poses)} 수집 (마커 {len(arm_mk)}개)"
+        os.makedirs(os.path.dirname(SWEEP_PATH), exist_ok=True)
+        with open(SWEEP_PATH, "w", encoding="utf-8") as f:
+            _json.dump({"poses": data, "fixed": {"J5": joint_cal.J5_FIXED, "J6": joint_cal.J6_FIXED}}, f, ensure_ascii=False)
+        with _SWEEP_LOCK:
+            _SWEEP["path"] = SWEEP_PATH; _SWEEP["done"] = True
+            _SWEEP["msg"] = f"완료 — {len(data)}자세 수집"
+    except Exception as e:
+        with _SWEEP_LOCK:
+            _SWEEP["error"] = str(e)
+    finally:
+        ARM_CFG["correct"] = _prev_correct           # 보정 플래그 원복
+        with _SWEEP_LOCK:
+            _SWEEP["running"] = False
+
+
+@csrf_exempt
+def joint_sweep_start(request):
+    """실제 스윕 시작 — 실물 연결 + 현재 자세가 안전 박스 안일 때만. 백그라운드 스레드."""
+    import json
+    from . import joint_cal, arduino_bridge
+    if request.method != "POST":
+        return JsonResponse({"ok": False, "error": "POST only"})
+    with _SWEEP_LOCK:
+        if _SWEEP["running"]:
+            return JsonResponse({"ok": False, "error": "이미 스윕 진행 중"})
+    if not arduino_bridge.is_connected():
+        return JsonResponse({"ok": False, "error": "실물 미연결 — 3페이지(3D 제어)에서 연결하세요."})
+    # 시작 자세: 박스 안이거나 '팔이 들려 있으면'(J2≥70, 바닥에서 멀어 안전 진입 가능) 허용 →
+    # 워커가 먼저 자동으로 SAFE_HOME으로 이동. 둘 다 아니면(낮게 뻗은 상태) 거부.
+    cur = {j: _JOINT_STATE.get(j, 90.0) for j in ("J1", "J2", "J3", "J4")}
+    if not (joint_cal.is_safe(cur["J1"], cur["J2"], cur["J3"], cur["J4"]) or cur["J2"] >= 70.0):
+        return JsonResponse({"ok": False, "need_park": True, "safe_home": joint_cal.SAFE_HOME,
+                             "error": f"현재 J2={cur['J2']}° — 팔을 들어올리거나(J2≥70) 안전 자세로 둔 뒤 시작하세요. (이후 스윕이 자동으로 안전 자세로 이동)"})
+    d = json.loads(request.body or "{}") if request.body else {}
+    n_per = max(4, min(15, int(d.get("n_per", 7))))
+    poses = joint_cal.single_joint_sweep(n_per=n_per)
+    with _SWEEP_LOCK:
+        _SWEEP.update({"running": True, "i": 0, "total": len(poses), "saved": 0, "skipped": 0,
+                       "msg": "시작…", "error": "", "done": False, "stop": False, "path": ""})
+    _threading.Thread(target=_sweep_worker, args=(poses,), daemon=True).start()
+    return JsonResponse({"ok": True, "total": len(poses)})
+
+
+@csrf_exempt
+def joint_sweep_status(request):
+    with _SWEEP_LOCK:
+        return JsonResponse({"ok": True, **{k: v for k, v in _SWEEP.items() if k != "stop"}})
+
+
+@csrf_exempt
+def joint_sweep_stop(request):
+    with _SWEEP_LOCK:
+        _SWEEP["stop"] = True
+    return JsonResponse({"ok": True})
+
+
+# ---- 비전↔시뮬 프레임 정합 (vision Z-up ↔ sim Y-up, 강체변환) ----
+VIS_SIM_PATH = r"C:\robotic_arm\laptop\calibration\vis_sim.npz"
+
+
+@csrf_exempt
+def joint_sweep_data(request):
+    """6단계 스윕 데이터(관절각+id7 비전위치) 반환 — 정합 솔버용(브라우저 FK가 사용).
+    스윕은 보정 OFF(서보 under-rotate)로 측정됐으므로 각 자세의 '실제각'(=ref+k(cmd−ref))도
+    함께 줌 → 시뮬 FK가 실제 팔 자세로 계산돼 비전 id7과 대응됨."""
+    import json
+    try:
+        d = json.load(open(SWEEP_PATH, encoding="utf-8"))
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e), "poses": []})
+    corr = _load_corr()
+    for p in d.get("poses", []):
+        cmd = p.get("cmd", {}); act = dict(cmd)
+        for ch, c in corr.items():
+            j = f"J{ch + 1}"
+            if j in cmd and c["k"] > 0.05:
+                act[j] = c["ref"] + (cmd[j] - c["ref"]) * c["k"]
+        p["actual"] = act
+    d["has_corr"] = bool(corr)
+    return JsonResponse(d)
+
+
+def _quat_to_R(q):   # q=[x,y,z,w] → 3x3
+    import numpy as np
+    x, y, z, w = q
+    return np.array([[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+                     [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+                     [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
+
+
+def _kabsch(src, dst):
+    import numpy as np
+    cs, cd = src.mean(0), dst.mean(0)
+    H = (src - cs).T @ (dst - cd)
+    U, _S, Vt = np.linalg.svd(H); R = Vt.T @ U.T
+    if np.linalg.det(R) < 0:
+        Vt[-1] *= -1; R = Vt.T @ U.T
+    return R, cd - R @ cs
+
+
+@csrf_exempt
+def vis_sim_solve(request):
+    """{vis:[[x,y,z]], tcp:[[x,y,z]], quat:[[x,y,z,w]]} → sim→vision 강체변환(R,t) +
+    그리퍼 마커 오프셋 p 동시 추정(교대 최적화). vis[i]=R(tcp[i]+Rg[i]·p)+t."""
+    import json
+    import numpy as np
+    d = json.loads(request.body or "{}")
+    vis = np.array(d.get("vis", []), float); tcp = np.array(d.get("tcp", []), float)
+    quat = np.array(d.get("quat", []), float)
+    if len(vis) < 4 or len(vis) != len(tcp) or len(vis) != len(quat):
+        return JsonResponse({"ok": False, "error": f"대응점 부족/불일치(vis {len(vis)})"})
+    Rg = np.array([_quat_to_R(q) for q in quat])         # (N,3,3) 그리퍼 회전(sim)
+    p = np.zeros(3); R = np.eye(3); t = np.zeros(3)
+    for _ in range(40):                                  # 교대: (R,t) Kabsch ↔ p 최소제곱
+        sim_pts = tcp + np.einsum('nij,j->ni', Rg, p)
+        R, t = _kabsch(sim_pts, vis)
+        A = Rg.reshape(-1, 3)
+        b = (np.einsum('ij,nj->ni', R.T, vis - t) - tcp).reshape(-1)
+        p = np.linalg.lstsq(A, b, rcond=None)[0]
+    sim_pts = tcp + np.einsum('nij,j->ni', Rg, p)
+    err = (R @ sim_pts.T).T + t - vis
+    rms = float(np.sqrt((err ** 2).sum(1).mean()))
+    np.savez(VIS_SIM_PATH, R=R, t=t, p=p)               # sim→vision. 적용 vision→sim: p_sim=R^T(p_vis−t)
+    return JsonResponse({"ok": True, "rms_mm": round(rms, 2), "n": int(len(vis)),
+                         "offset_mm": [round(float(v), 1) for v in p]})
+
+
+@csrf_exempt
+def vis_sim_get(request):
+    """저장된 비전→시뮬 변환 (R 3x3, t) 반환. 없으면 ok=False."""
+    import numpy as np
+    if not os.path.exists(VIS_SIM_PATH):
+        return JsonResponse({"ok": False})
+    dd = np.load(VIS_SIM_PATH)
+    return JsonResponse({"ok": True, "R": dd["R"].tolist(), "t": dd["t"].tolist()})
+
+
+@csrf_exempt
+def anchors_register(request):
+    """Phase A — id0로 로봇 프레임 잡고 보이는 앵커(id8~12)를 로봇좌표로 등록(누적)."""
+    if request.method != "POST":
+        return JsonResponse({"ok": False, "error": "POST only"})
+    cam_left, cam_right = _cams()
+    fL = get_camera(cam_left).read()
+    fR = get_camera(cam_right).read()
+    if fL is None or fR is None:
+        return JsonResponse({"ok": False, "error": "프레임 없음"})
+    return JsonResponse(markers.register_anchors(fL, fR))
+
+
+@csrf_exempt
+def anchors_transform(request):
+    """Phase B — 보이는 앵커들로 카메라→로봇 T 복원(id0/팔 불필요)."""
+    if request.method != "POST":
+        return JsonResponse({"ok": False, "error": "POST only"})
+    cam_left, cam_right = _cams()
+    fL = get_camera(cam_left).read()
+    fR = get_camera(cam_right).read()
+    if fL is None or fR is None:
+        return JsonResponse({"ok": False, "error": "프레임 없음"})
+    res = markers.compute_transform_from_anchors(fL, fR)
+    if res.get("ok"):
+        stereo3d.reload()   # 새 T 반영 → 이후 3D가 로봇 기준
+    return JsonResponse(res)
 
 
 @csrf_exempt
@@ -623,7 +905,30 @@ _JOINT_CH = {"J1": 0, "J2": 1, "J3": 2, "J4": 3, "J5": 4, "J6": 5, "J7": 6}
 _SERVO_CAL = {0: [600, 2740], 1: [530, 2670], 2: [520, 2700], 3: [540, 2720], 4: [600, 2750], 5: [560, 2750]}  # J4↔J5 모터교체 J4(ch3):0°=2720,180°=540 J5(ch4):0°=2750,180°=600 / J6(ch5):0°=2750,180°=560 실측
 
 
+# 관절 보정(6단계) — servo_corr.json {Jk:{ch,k,ref}}. 명령 시 θ_cmd=ref+(θ−ref)/k 로 보정.
+SERVO_CORR_PATH = r"C:\robotic_arm\laptop\calibration\servo_corr.json"
+_SERVO_CORR = {"map": None}   # ch -> {k, ref}
+
+
+def _load_corr(reload=False):
+    if _SERVO_CORR["map"] is None or reload:
+        m = {}
+        try:
+            import json as _j
+            d = _j.load(open(SERVO_CORR_PATH, encoding="utf-8"))
+            for _jt, c in d.items():
+                m[int(c["ch"])] = {"k": float(c["k"]), "ref": float(c["ref"])}
+        except Exception:
+            pass
+        _SERVO_CORR["map"] = m
+    return _SERVO_CORR["map"]
+
+
 def _ang_to_us(ch, ang):
+    if ARM_CFG.get("correct"):                        # 보정 ON → 덜/더 도는 만큼 명령 비틀기
+        c = _load_corr().get(ch)
+        if c and c["k"] > 0.05:
+            ang = c["ref"] + (ang - c["ref"]) / c["k"]
     a = max(0.0, min(180.0, 180.0 - ang))            # 시뮬↔실물 미러
     us0, us180 = _SERVO_CAL.get(ch, [600, 2740])
     return round(us0 + (a / 180.0) * (us180 - us0))
@@ -635,7 +940,7 @@ _JOINT_STATE = {f"J{i}": 90.0 for i in range(1, 7)}
 
 # ============ 로봇팔 작동 속도 — 단일 설정(모든 경로 공통, 한 곳에서 제어) ============
 # 관절·그리퍼·각 페이지 램프가 전부 이 값을 사용 → 속도 일관. /arm/config/ 로 조회·변경.
-ARM_CFG = {"deg_per_s": 30.0, "grip_us_per_s": 700.0}
+ARM_CFG = {"deg_per_s": 30.0, "grip_us_per_s": 700.0, "correct": False}   # correct=관절 보정 적용
 _RAMP_DT = 0.02   # 램프 갱신 주기(초) — 50Hz
 
 
@@ -699,7 +1004,10 @@ def arm_config(request):
             ARM_CFG["deg_per_s"] = max(2.0, min(120.0, float(d["deg_per_s"])))
         if "grip_us_per_s" in d:
             ARM_CFG["grip_us_per_s"] = max(100.0, min(3000.0, float(d["grip_us_per_s"])))
-    return JsonResponse({"ok": True, **ARM_CFG})
+        if "correct" in d:
+            ARM_CFG["correct"] = bool(d["correct"])
+            _load_corr(reload=True)                  # 토글 시 servo_corr.json 재로딩
+    return JsonResponse({"ok": True, **ARM_CFG, "corr_joints": sorted(_load_corr().keys())})
 
 
 @csrf_exempt

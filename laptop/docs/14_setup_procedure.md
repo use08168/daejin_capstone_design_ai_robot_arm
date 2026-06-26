@@ -7,7 +7,11 @@
 
 ## 사전 준비물
 
-- **ChArUco 보드** 인쇄(`calibration/calibration_targets.pdf` 1쪽), 평판에 평평히 부착
+- **ChArUco 보드** 인쇄(`calibration/calibration_targets.pdf` 1쪽), 평판에 평평히 부착 — 아래 보드(DICT_5X5_100, 6×8칸)를 **100% 배율**로 출력
+
+![ChArUco 보드 — 100%로 인쇄해 평판에 부착(사각 30mm·마커 23mm)](../../docs/image/charuco-board.png)
+
+> 🎬 데모 영상 — ChArUco 촬영: [①](https://drive.google.com/file/d/1Vn4H3W7XyQx7gDIsGqlCTaZhZLj_LL9r/view?usp=sharing) · [②](https://drive.google.com/file/d/1bMQTdBhah7Y777o8GNDhDxKxGlNs9XDX/view?usp=sharing)
 - **로봇 마커** 인쇄(`calibration/arm_markers.pdf`): 베이스 id0(70mm), 추적 id1~12(40mm) — [15_aruco_markers.md](15_aruco_markers.md)
 - **카메라 2대**: 서로 리지드하게 고정(같은 프레임 권장), 작업면에서 **0.5~0.9m**, 대각선 위에서 내려다보게
 
@@ -46,6 +50,8 @@
 - **할 일:** 1단계에서 겨냥했던 자리에 로봇 설치. **움직이지 않는 베이스**에 **id0(70mm)** 부착, **양 카메라에 보이게**. 팔은 **홈(접은) 자세**로 두어 베이스 마커를 안 가리게.
 - **완료 기준:** 양 카메라가 id0 마커를 안정적으로 검출.
 
+![좌·우 카메라가 동시에 로봇팔(베이스 id0 + 링크 마커)을 보는 스테레오 셋업](../../docs/image/stereo-rig.png)
+
 ### 5단계 — 카메라→로봇 변환 T (움직이지 않는 부분)  ✅ 구현
 - **목적:** 카메라 좌표 → **로봇 베이스 좌표** (IK가 쓰는 기준).
 - **할 일:** 2페이지 4단계에서 id0가 **좌·우 동시 검출**(✓)되는지 확인 → 5단계 **[변환 T 산출]** 클릭.
@@ -58,6 +64,8 @@
 - **할 일:** 추적 마커 **id1~**로 각 링크/그리퍼 포즈 측정(콜드스타트 운동학 보정 토대), 도달 가능 **작업공간 x/y/z 범위** 기록.
 - **완료 기준:** 관절 위치·작업공간 정보 확보 → "현재 작업 환경 기본 정보" 확정.
 - *(구현 예정 — 추적 마커 부착 후)*
+
+![2페이지 위저드 4~6단계 — 베이스 id0 검출 → 변환 T 산출(원점=id1 J1축, 마커변 70mm 근접) → 각 마커(id0~) 로봇기준 3D(mm) 측정](../../docs/image/setup-transform.png)
 
 ---
 

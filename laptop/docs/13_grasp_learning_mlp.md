@@ -75,6 +75,10 @@ TCP(베이스)에 가까울수록 `secure`(안전)가 좋다. → [11_gripper_de
 반복하면 가중치가 "이런 위치·형상·접근이면 잡힌다/아니다"의 패턴을 담는다. 비선형(ReLU) 은닉층이
 있어 **단순 직선 경계로 못 나누는 복잡한 파지가능 영역**(고리·바닥제약 등)도 근사할 수 있다.
 
+![5페이지 MLP 학습 콘솔 — epoch마다 손실·검증 정확도가 갱신되는 학습 과정](../../docs/image/mlp-training.gif)
+
+> 🎬 데모 영상: [MLP 파지 학습](https://drive.google.com/file/d/1riFp9NCgwCPHXfsDhdb2TVaCAP688P8R/view?usp=sharing)
+
 ---
 
 ## 5. 얻는 결과값 (출력)과 성능

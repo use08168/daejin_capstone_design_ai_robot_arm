@@ -16,6 +16,11 @@
   .msg.bot .play { background:#2b6; color:#fff; border:0; padding:5px 13px; border-radius:7px; cursor:pointer; font-size:13px; margin-top:8px; }
   .msg.bot .play:disabled { background:#444; cursor:default; }
   .msg.bot .note { color:var(--muted); font-size:12px; margin-top:8px; }
+  .msg.bot .ask { background:#2a2410; border:1px solid #5a4a1a; border-radius:8px; padding:9px 11px; margin-top:8px; color:#ffe9b0; font-size:13.5px; }
+  .msg.bot .askrow { display:flex; gap:6px; margin-top:8px; }
+  .msg.bot .askin { flex:1; background:#0e0e0e; border:1px solid var(--line); color:var(--fg); padding:7px 10px; border-radius:7px; font-size:13px; }
+  .msg.bot .play.simexec { background:#1a7f4b; } .msg.bot .play.realexec { background:#7a4a1a; margin-left:6px; }
+  .msg.bot .play.realgrasp { background:#a33; margin-left:6px; }
   .gbtn { background:#334; color:#dce; border:1px solid var(--line); padding:4px 12px; border-radius:7px; cursor:pointer; font-size:13px; }
   .gbtn:hover { background:#2b6; color:#fff; }
   .composer { display:flex; gap:8px; }
@@ -55,6 +60,10 @@
       <div class="opt" style="gap:8px;margin-top:6px;">3D 미러:
         <button id="gHome" class="gbtn" title="실물을 홈(전 관절 90°)에 둔 뒤 눌러 3D를 맞춤">홈 맞춤(90°)</button>
         <span id="hStat" style="color:var(--muted)"></span></div>
+      <div class="opt" style="gap:8px;margin-top:6px;">실행 속도:
+        <input id="spd" type="range" min="2" max="15" value="5" style="flex:1;max-width:160px">
+        <b id="spdv" style="font-variant-numeric:tabular-nums">5</b>°/s
+        <span class="muted">(느릴수록 안전)</span></div>
     </div>
 
     <!-- 우: 로봇 상태(헬스 체크) -->
@@ -98,7 +107,7 @@ async function health(){
 }
 health(); setInterval(health, 15000);
 
-function renderBot(res){
+function renderBot(res, origText){
   if(!res.ok){ return `<span class="tag other">오류</span>${esc(res.error||'실패')}`; }
   let h=`<span class="tag ${res.intent}">${res.intent}</span>`;
   if(res.transcript) h+=`<i>🎤 ${esc(res.transcript)}</i>`;
@@ -107,10 +116,23 @@ function renderBot(res){
     try{ const d=JSON.parse(res.dsl_json); const A=d.actions||[];
       if(d.reasoning) h+=md(d.reasoning);
       h+=`<div class="dsl">${esc(A.map(a=>JSON.stringify(a)).join('\n'))}\n<span class="${res.valid?'ok':'bad'}">검증 ${res.valid?'✓ 통과':'✗ '+esc(res.errors)}</span></div>`;
-      if(res.valid && A.length){
+      const asks=A.filter(a=>a.op==='ask_user');
+      if(res.valid && asks.length){            // 역질문 → 답변 입력(대화 루프): 원 명령+답변을 합쳐 재계획
+        h+=`<div class="ask">❓ <b>${esc(asks.map(a=>a.question).join(' '))}</b>
+          <div class="askrow"><input class="askin" type="text" placeholder="답변 입력 후 Enter…" data-orig="${encodeURIComponent(origText||'')}">
+          <button class="asksend gbtn">답변 전송</button></div></div>`;
+      } else if(res.valid && A.length){
+        const SIM=new Set(['pick','place','return_home','set_joint']);
+        const enc=encodeURIComponent(JSON.stringify(A)), hasGrasp=A.some(a=>a.op==='pick'||a.op==='place');
+        if(A.every(a=>SIM.has(a.op))){
+          h+=`<button class="play simexec" data-acts="${enc}">▶ 시뮬에서 실행</button>`;
+          if(hasGrasp) h+=`<button class="play realgrasp" data-acts="${enc}">🦾 실물로 실행</button>`;
+        }
         const ex=A.filter(a=>a.op==='set_joint'||a.op==='release');
-        if(ex.length===A.length) h+=`<button class="play" data-acts="${encodeURIComponent(JSON.stringify(ex))}">▶ 로봇팔에 실행</button>`;
-        else h+=`<div class="note">▶ 실행은 직접 관절(set_joint)·그리퍼 열기(release)만 지원 — 집기는 IK 구현 후</div>`;
+        if(ex.length===A.length)
+          h+=`<button class="play realexec" data-acts="${encodeURIComponent(JSON.stringify(ex))}">▶ 실물 로봇팔에 실행</button>`;
+        else if(!A.every(a=>SIM.has(a.op)))
+          h+=`<div class="note">미지원 op 포함 — 시뮬 실행 불가</div>`;
       }
     }catch(e){ h+=esc(res.dsl_json); }
   }
@@ -123,7 +145,7 @@ async function post(body){
   const wait=add('bot','<span class="tag command">…</span>처리 중 (모델 추론, 최대 1분)');
   try{ const res=await (await fetch(AI_PLAN,{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({...body, vision:$('vis').checked})})).json();
-    wait.innerHTML=renderBot(res);
+    wait.innerHTML=renderBot(res, body.text || res.transcript || '');
   }catch(e){ wait.innerHTML=`<span class="tag other">오류</span>${esc(''+e)}`; }
   tr.scrollTop=tr.scrollHeight;
 }
@@ -169,11 +191,58 @@ $('gHome').onclick=async()=>{
   }catch(e){ $('hStat').textContent='✗ 오류'; }
 };
 
+// ── 시뮬에서 실행: DSL을 임베디드 3D(미러 iframe)로 보내 pick/place 실행, 진행상황 회신 ──
+const mirror=document.querySelector('.pane.mirror iframe');
+if($('spd')) $('spd').oninput=()=>{ $('spdv').textContent=$('spd').value; };   // 실행 속도(°/s) 라이브 라벨
+const _spd=()=>+(($('spd')&&$('spd').value)||5);   // 시뮬·실물 공통 실행 속도
+let _execTarget=null;   // 현재 실행 로그를 받을 컨테이너
+window.addEventListener('message', e=>{
+  const d=e.data||{}; if(!_execTarget) return;
+  if(d.type==='execLog'){ const ln=document.createElement('div'); ln.innerHTML=d.html; _execTarget.appendChild(ln); }
+  else if(d.type==='execDone'){
+    const ln=document.createElement('div'); ln.style.marginTop='4px';
+    ln.innerHTML=d.ok?'<b style="color:#7ee0a0">✅ 시뮬 실행 완료</b>':'<b style="color:#ff8080">✗ 시뮬 실행 중단(위 로그 확인)</b>';
+    _execTarget.appendChild(ln); _execTarget=null;
+    document.querySelectorAll('.simexec[disabled]').forEach(b=>{ b.textContent=d.ok?'✓ 시뮬 실행됨':'✗ 중단'; });
+    document.querySelectorAll('.realgrasp[disabled]').forEach(b=>{ b.textContent=d.ok?'✓ 실물 실행됨':'✗ 중단'; });
+  }
+  _execTarget&&(_execTarget.scrollTop=_execTarget.scrollHeight); tr.scrollTop=tr.scrollHeight;
+});
+tr.addEventListener('click', e=>{
+  const sb=e.target.closest('.simexec');
+  if(sb){ if(sb.disabled) return; const acts=JSON.parse(decodeURIComponent(sb.dataset.acts));
+    sb.disabled=true; sb.textContent='시뮬 실행 중…';
+    const box=add('bot','<span class="tag command">시뮬 실행</span>'); const log=document.createElement('div'); log.className='dsl'; box.appendChild(log); _execTarget=log;
+    if(mirror&&mirror.contentWindow) mirror.contentWindow.postMessage({type:'execDSL', actions:acts, speed:_spd()}, '*');
+    else { log.innerHTML='<span style="color:#f88">3D 미러를 찾을 수 없습니다.</span>'; _execTarget=null; }
+    return; }
+  const ab=e.target.closest('.asksend'); if(ab) askSend(ab);
+});
+// 역질문 답변: 원 명령 + 답변을 합쳐 서버에 재계획 요청
+function askSend(btn){ const inp=btn.parentElement.querySelector('.askin'); const ans=(inp.value||'').trim(); if(!ans) return;
+  const orig=decodeURIComponent(inp.dataset.orig||''); inp.disabled=true; btn.disabled=true; btn.textContent='전송됨';
+  add('user', esc(ans));
+  post({text:`이전 명령: "${orig}" / 사용자 답변: "${ans}" — 이 답변을 반영해 실행 계획을 세워줘.`}); }
+tr.addEventListener('keydown', e=>{ if(e.key==='Enter' && e.target.classList.contains('askin')){ const b=e.target.parentElement.querySelector('.asksend'); if(b&&!b.disabled) askSend(b); } });
+
 // ▶ 실행: set_joint DSL을 실물 로봇팔에 (한 관절씩 안전 램프). 자동 아님 — 버튼+확인.
 const AEXEC='{% url "armvision:arm_exec_joint" %}', ASTAT='{% url "armvision:arm_status" %}';
 function jget(){ try{ return JSON.parse(localStorage.getItem('armJoint_v1')||'{}'); }catch(e){ return {}; } }
+// 🦾 실물로 실행: grasp DSL을 임베디드 3D에 real 플래그로 → 연동 ON으로 실물 동시 구동
 tr.addEventListener('click', async e=>{
-  const b=e.target.closest('.play'); if(!b) return;
+  const rb=e.target.closest('.realgrasp'); if(!rb) return; if(rb.disabled) return;
+  const acts=JSON.parse(decodeURIComponent(rb.dataset.acts));
+  let st={}; try{ st=await (await fetch(ASTAT)).json(); }catch(err){}
+  if(!st.connected){ alert('실물 로봇팔이 연결되지 않았습니다. 3·4페이지에서 연결한 뒤 다시 시도하세요.'); return; }
+  if(!confirm('⚠ 실제 로봇팔이 움직입니다.\n• 실물이 현재 3D 자세와 정렬돼 있는지\n• 주변에 사람·장애물이 없는지\n확인하셨나요? 천천히 움직입니다. 계속할까요?')) return;
+  rb.disabled=true; rb.textContent='실물 실행 중…';
+  const box=add('bot','<span class="tag command">🦾 실물 실행</span>'); const log=document.createElement('div'); log.className='dsl'; box.appendChild(log); _execTarget=log;
+  if(mirror&&mirror.contentWindow) mirror.contentWindow.postMessage({type:'execDSL', actions:acts, real:true, speed:_spd()}, '*');
+  else { log.innerHTML='<span style="color:#f88">3D 미러를 찾을 수 없습니다.</span>'; _execTarget=null; rb.disabled=false; }
+});
+
+tr.addEventListener('click', async e=>{
+  const b=e.target.closest('.realexec'); if(!b) return;
   const acts=JSON.parse(decodeURIComponent(b.dataset.acts));
   let st={}; try{ st=await (await fetch(ASTAT)).json(); }catch(err){}
   if(!st.connected){ alert('실물 로봇팔이 연결되지 않았습니다. 3페이지(3D 제어)에서 연결하세요.'); return; }

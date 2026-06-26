@@ -66,6 +66,8 @@ C-space 충돌맵과 달리 파지에선 **J1(방위각)을 포함**한다.
 
 4페이지 **파지 스윕(J1~J6)** 버튼: 관절을 무작위로 쓸어 각 자세를 기록 → `grasp_dataset.csv`.
 
+> 🎬 데모 영상 — 파지 데이터셋 생성: [①](https://drive.google.com/file/d/1aMuK7l9k4ZoUPRI2btJ8vOeubB9G_r45/view?usp=sharing) · [②](https://drive.google.com/file/d/18LRvhoQJ6_2y2a_KH3mV3oGGfNr9pnhw/view?usp=sharing)
+
 | 컬럼 | 의미 |
 |------|------|
 | `J1`~`J6` | 관절각 |

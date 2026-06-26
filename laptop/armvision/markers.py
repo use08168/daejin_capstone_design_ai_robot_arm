@@ -20,6 +20,36 @@ BASE_MM = 70.0
 
 CAL = r"C:\robotic_arm\laptop\calibration\stereo_calib.npz"
 T_PATH = r"C:\robotic_arm\laptop\calibration\camera_robot_T.npz"
+# id0(베이스) 프레임에서 본 J1축(id1) 고정 오프셋 — 1회 측정 후 영구. 이후 카메라가 id0만 봐도 J1 원점 복원(팔 불필요).
+OFFSET_PATH = r"C:\robotic_arm\laptop\calibration\base_j1_offset.npz"
+# 환경 고정 월드 앵커(id8~12) — Phase A에서 로봇기준 코너를 등록해두면, Phase B(작업공간)에서
+# id0/팔 없이 보이는 앵커만으로 카메라→로봇 변환을 복원(설치마다 가볍게).
+ANCHOR_IDS = (8, 9, 10, 11, 12)
+ANCHORS_PATH = r"C:\robotic_arm\laptop\calibration\world_anchors.npz"
+
+
+def _load_offset():
+    return np.load(OFFSET_PATH)["offset"] if os.path.exists(OFFSET_PATH) else None
+
+
+def has_offset() -> bool:
+    return os.path.exists(OFFSET_PATH)
+
+
+def _load_anchors():
+    """{id(int): 로봇기준 코너(4,3)}. 없으면 {}."""
+    if not os.path.exists(ANCHORS_PATH):
+        return {}
+    d = np.load(ANCHORS_PATH)
+    return {int(k.split("_")[1]): d[k] for k in d.files}
+
+
+def registered_anchor_ids():
+    return sorted(_load_anchors().keys())
+
+
+def has_anchors() -> bool:
+    return len(_load_anchors()) > 0
 
 
 def detect(frame):
@@ -60,9 +90,32 @@ def _frame_from_corners(P):
     return T, info
 
 
+def _build_T(mL, mR, cal):
+    """검출 마커로 카메라→로봇 T 구성(방향=id0, 원점=J1). id1 보이면 오프셋 저장.
+    반환 (T, info, origin) — id0 없으면 (None, None, None)."""
+    if BASE_ID not in mL or BASE_ID not in mR:
+        return None, None, None
+    P = _triangulate(mL[BASE_ID], mR[BASE_ID], cal)
+    T, info = _frame_from_corners(P)               # 방향·원점: id0 (베이스에 고정 → 카메라 옮겨도 id0만 보이면 OK)
+    origin = "id0"
+    if 1 in mL and 1 in mR:                        # 원점을 J1 회전축(id1)으로 이동
+        p1 = _triangulate(mL[1], mR[1], cal).mean(0)
+        p1r = (T @ np.array([p1[0], p1[1], p1[2], 1.0]))[:3]   # id0 프레임에서 본 id1 위치
+        T[:3, 3] = T[:3, 3] - p1r
+        np.savez(OFFSET_PATH, offset=p1r)          # ★ 오프셋 영구 저장(1회) — 이후 id0만으로 재현
+        origin = "id1(J1축·실시간 + 오프셋 저장됨)"
+    else:
+        off = _load_offset()
+        if off is not None:
+            T[:3, 3] = T[:3, 3] - off              # ★ 저장 오프셋으로 J1 원점 복원 — 팔/id1 불필요
+            origin = "id1(J1축·저장 오프셋, 팔 없이)"
+        else:
+            origin = "id0 (오프셋 미보정 — 팔+id1 보이게 1회 산출 필요)"
+    return T, info, origin
+
+
 def compute_base_transform(frameL, frameR):
-    """양 카메라에서 id0 베이스 마커를 보고 카메라→로봇 변환 T 산출·저장.
-    반환: {ok, error?|dist_mm, marker_mm}."""
+    """양 카메라에서 id0 베이스 마커로 카메라→로봇 변환 T 산출·저장. (단계 5)"""
     if not os.path.exists(CAL):
         return {"ok": False, "error": "스테레오 캘리브레이션 먼저 (3단계까지 완료)."}
     mL, mR = detect(frameL), detect(frameR)
@@ -74,17 +127,84 @@ def compute_base_transform(frameL, frameR):
         return {"ok": False, "error": f"id0 베이스 마커가 양 카메라에 동시에 보여야 합니다 (현재: {seen})."}
     c = np.load(CAL)
     cal = {k: c[k] for k in ("K1", "d1", "K2", "d2", "P1", "P2")}
-    P = _triangulate(mL[BASE_ID], mR[BASE_ID], cal)
-    T, info = _frame_from_corners(P)               # 방향·원점: id0
-    origin = "id0"
-    # 원점을 J1 회전축(id1)으로 이동 — 로봇 실제 중심 기준 (방향은 정적 id0 유지)
-    if 1 in mL and 1 in mR:
-        p1 = _triangulate(mL[1], mR[1], cal).mean(0)
-        p1r = (T @ np.array([p1[0], p1[1], p1[2], 1.0]))[:3]   # id0 프레임에서 본 id1 위치
-        T[:3, 3] = T[:3, 3] - p1r                              # 원점 = id1
-        origin = "id1(J1축)"
+    T, info, origin = _build_T(mL, mR, cal)
     np.savez(T_PATH, T=T)
-    return {"ok": True, "origin": origin, **{k: round(v, 1) for k, v in info.items()}}
+    return {"ok": True, "origin": origin, "has_offset": has_offset(),
+            **{k: round(v, 1) for k, v in info.items()}}
+
+
+def register_anchors(frameL, frameR):
+    """Phase A(단계 5): id0로 로봇 프레임 잡고, 보이는 앵커(id8~12)의 로봇기준 코너(4,3)를 누적 저장."""
+    if not os.path.exists(CAL):
+        return {"ok": False, "error": "스테레오 캘리브레이션 먼저."}
+    c = np.load(CAL)
+    cal = {k: c[k] for k in ("K1", "d1", "K2", "d2", "P1", "P2")}
+    mL, mR = detect(frameL), detect(frameR)
+    T, _info, origin = _build_T(mL, mR, cal)
+    if T is None:
+        return {"ok": False, "error": "id0 베이스 마커가 양 카메라에 보여야 앵커를 로봇좌표로 등록합니다."}
+    cur = _load_anchors()                                    # 기존 등록에 누적
+    found = []
+    for aid in ANCHOR_IDS:
+        if aid in mL and aid in mR:
+            Pc = _triangulate(mL[aid], mR[aid], cal)          # (4,3) 카메라
+            Pr = (T @ np.c_[Pc, np.ones(4)].T).T[:, :3]       # 로봇기준 (4,3)
+            cur[aid] = Pr
+            found.append(aid)
+    if not found:
+        return {"ok": False, "error": "앵커(id8~12)가 양 카메라에 안 보입니다."}
+    np.savez(ANCHORS_PATH, **{f"a_{k}": v for k, v in cur.items()})
+    return {"ok": True, "registered": sorted(found), "total": sorted(cur.keys()),
+            "origin": origin, "n_total": len(cur)}
+
+
+def compute_transform_from_anchors(frameL, frameR):
+    """Phase B(단계 11): 보이는 앵커들로 카메라→로봇 T 복원(id0/팔 불필요). Kabsch SVD + 잔차 rms."""
+    if not os.path.exists(CAL):
+        return {"ok": False, "error": "스테레오 캘리브레이션 먼저 (작업공간 보정)."}
+    A = _load_anchors()
+    if not A:
+        return {"ok": False, "error": "등록된 앵커 없음 — Phase A(단계 5)에서 앵커 등록 먼저."}
+    c = np.load(CAL)
+    cal = {k: c[k] for k in ("K1", "d1", "K2", "d2", "P1", "P2")}
+    mL, mR = detect(frameL), detect(frameR)
+    items = []   # (aid, cam(4,3), rob(4,3))
+    for aid, Pr in A.items():
+        if aid in mL and aid in mR:
+            items.append((aid, np.asarray(_triangulate(mL[aid], mR[aid], cal)), np.asarray(Pr)))
+    if not items:
+        return {"ok": False, "error": "등록된 앵커가 현재 화면에 안 보입니다 (작업공간 카메라가 앵커를 보게)."}
+
+    def _kabsch(pairs):
+        cam = np.vstack([c for _, c, _ in pairs]); rob = np.vstack([r for _, _, r in pairs])
+        cc, rc = cam.mean(0), rob.mean(0)
+        H = (cam - cc).T @ (rob - rc)
+        U, _S, Vt = np.linalg.svd(H); R = Vt.T @ U.T
+        if np.linalg.det(R) < 0:
+            Vt[-1] *= -1; R = Vt.T @ U.T
+        t = rc - R @ cc
+        per = [(aid, float(np.sqrt(((((R @ c.T).T + t) - r) ** 2).sum(1).mean()))) for aid, c, r in pairs]
+        rms = float(np.sqrt(np.mean([p[1] ** 2 for p in per])))
+        return R, t, per, rms
+
+    keep, dropped = items, []
+    R, t, per, rms = _kabsch(keep)
+    while len(keep) > 3:                                       # 견고화: 이상치 앵커(테두리 부정확) 제거
+        per_s = sorted(per, key=lambda x: x[1])
+        worst_aid, worst = per_s[-1]
+        med = per_s[len(per_s) // 2][1]
+        if worst > max(8.0, 2.0 * med):                       # 중앙값 2배↑ & 절대 8mm↑면 제거(최소 3개 유지)
+            keep = [k for k in keep if k[0] != worst_aid]
+            dropped.append((worst_aid, round(worst, 1)))
+            R, t, per, rms = _kabsch(keep)
+        else:
+            break
+    T = np.eye(4); T[:3, :3] = R; T[:3, 3] = t                # X_robot = T·X_cam
+    np.savez(T_PATH, T=T)
+    return {"ok": True, "anchors_used": sorted(a for a, _, _ in keep), "n": len(keep),
+            "rms_mm": round(rms, 2),
+            "dropped": [{"id": a, "resid_mm": r} for a, r in dropped],
+            "per_anchor": [{"id": a, "resid_mm": round(r, 1)} for a, r in sorted(per)]}
 
 
 def marker_status(frameL, frameR):

@@ -21,6 +21,7 @@ urlpatterns = [
     path("arm/disconnect/", views.arm_disconnect, name="arm_disconnect"),
     path("arm/move/", views.arm_move, name="arm_move"),
     path("grasp/predict/", views.grasp_predict, name="grasp_predict"),
+    path("grasp/dataset/", views.grasp_dataset, name="grasp_dataset"),
     path("grasp/train/start/", views.grasp_train_start, name="grasp_train_start"),
     path("grasp/train/status/", views.grasp_train_status, name="grasp_train_status"),
     # 카메라 선택
@@ -40,6 +41,15 @@ urlpatterns = [
     path("setup/reset/", views.reset_calibration, name="reset_calibration"),
     path("setup/marker_status/", views.marker_status, name="marker_status"),
     path("setup/compute_transform/", views.compute_transform, name="compute_transform"),
+    path("setup/joint_sweep_plan/", views.joint_sweep_plan, name="joint_sweep_plan"),
+    path("setup/joint_sweep_start/", views.joint_sweep_start, name="joint_sweep_start"),
+    path("setup/joint_sweep_status/", views.joint_sweep_status, name="joint_sweep_status"),
+    path("setup/joint_sweep_stop/", views.joint_sweep_stop, name="joint_sweep_stop"),
+    path("setup/joint_sweep_data/", views.joint_sweep_data, name="joint_sweep_data"),
+    path("setup/vis_sim_solve/", views.vis_sim_solve, name="vis_sim_solve"),
+    path("setup/vis_sim_get/", views.vis_sim_get, name="vis_sim_get"),
+    path("setup/anchors_register/", views.anchors_register, name="anchors_register"),
+    path("setup/anchors_transform/", views.anchors_transform, name="anchors_transform"),
     path("setup/measure_markers/", views.measure_markers, name="measure_markers"),
     path("setup/coldstart_save/", views.coldstart_save, name="coldstart_save"),
     # AI 서버(EdgeXpert) 연동 — 3페이지
