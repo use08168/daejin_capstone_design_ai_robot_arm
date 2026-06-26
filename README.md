@@ -19,6 +19,22 @@ IK 계산 → 안전 검증 → 모터 제어 → 그립 → 이동 → 놓기
 
 ---
 
+## 🎬 데모 영상
+
+> Google Drive(뷰어 공개) 링크. 각 항목은 해당 기술 문서에도 연결돼 있다.
+
+| 데모 | 영상 |
+|------|------|
+| **3D 시뮬레이터 동작** (조립·리깅·제어) | [▶ 보기](https://drive.google.com/file/d/1hU2PR68-Gy2XqOHGjDWO9H2JxIDRQaFw/view?usp=sharing) |
+| **잡기·놓기 런타임** (AI 파지 → 들기 → 놓기) | [▶ ①](https://drive.google.com/file/d/1SrEo43e4rWohGsKSrXign7xtEpKEwyvU/view?usp=sharing) · [②](https://drive.google.com/file/d/1nPFacq3uxQnlIRRXGvIO_LedIHU8A4sO/view?usp=sharing) · [③](https://drive.google.com/file/d/1vkNTbvnbb-N0b4rIz5xn-92pryiSB7c0/view?usp=sharing) |
+| **파지 데이터셋 생성** (FK 샘플링) | [▶ ①](https://drive.google.com/file/d/1aMuK7l9k4ZoUPRI2btJ8vOeubB9G_r45/view?usp=sharing) · [②](https://drive.google.com/file/d/18LRvhoQJ6_2y2a_KH3mV3oGGfNr9pnhw/view?usp=sharing) |
+| **MLP 파지 학습** | [▶ 보기](https://drive.google.com/file/d/1riFp9NCgwCPHXfsDhdb2TVaCAP688P8R/view?usp=sharing) |
+| **디지털트윈 C-space 안전 검증** | [▶ ①](https://drive.google.com/file/d/1vYuo53dGs2aWkysy1HClAFdfzunhA5IU/view?usp=sharing) · [②](https://drive.google.com/file/d/1E0i8ZytOhljyalwJxXthOAcU_MwYzIW0/view?usp=sharing) |
+| **로봇팔 3D 인식 과정** (스테레오 삼각측량) | [▶ 보기](https://drive.google.com/file/d/1MBFXagUDMlq_0g1TG0gAltHQs-gzVrMP/view?usp=sharing) |
+| **ChArUco 촬영** (캘리브레이션 셋업) | [▶ ①](https://drive.google.com/file/d/1Vn4H3W7XyQx7gDIsGqlCTaZhZLj_LL9r/view?usp=sharing) · [②](https://drive.google.com/file/d/1bMQTdBhah7Y777o8GNDhDxKxGlNs9XDX/view?usp=sharing) |
+
+---
+
 ## 시스템 구조
 
 3계층 분산 아키텍처. 의미 추론은 위로, 결정적·실시간 작업은 아래로.

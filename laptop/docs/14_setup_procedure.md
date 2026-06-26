@@ -10,6 +10,8 @@
 - **ChArUco 보드** 인쇄(`calibration/calibration_targets.pdf` 1쪽), 평판에 평평히 부착 — 아래 보드(DICT_5X5_100, 6×8칸)를 **100% 배율**로 출력
 
 ![ChArUco 보드 — 100%로 인쇄해 평판에 부착(사각 30mm·마커 23mm)](../../docs/image/charuco-board.png)
+
+> 🎬 데모 영상 — ChArUco 촬영: [①](https://drive.google.com/file/d/1Vn4H3W7XyQx7gDIsGqlCTaZhZLj_LL9r/view?usp=sharing) · [②](https://drive.google.com/file/d/1bMQTdBhah7Y777o8GNDhDxKxGlNs9XDX/view?usp=sharing)
 - **로봇 마커** 인쇄(`calibration/arm_markers.pdf`): 베이스 id0(70mm), 추적 id1~12(40mm) — [15_aruco_markers.md](15_aruco_markers.md)
 - **카메라 2대**: 서로 리지드하게 고정(같은 프레임 권장), 작업면에서 **0.5~0.9m**, 대각선 위에서 내려다보게
 

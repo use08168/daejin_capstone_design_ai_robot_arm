@@ -77,6 +77,8 @@ TCP(베이스)에 가까울수록 `secure`(안전)가 좋다. → [11_gripper_de
 
 ![5페이지 MLP 학습 콘솔 — epoch마다 손실·검증 정확도가 갱신되는 학습 과정](../../docs/image/mlp-training.gif)
 
+> 🎬 데모 영상: [MLP 파지 학습](https://drive.google.com/file/d/1riFp9NCgwCPHXfsDhdb2TVaCAP688P8R/view?usp=sharing)
+
 ---
 
 ## 5. 얻는 결과값 (출력)과 성능

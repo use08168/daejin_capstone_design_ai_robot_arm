@@ -10,6 +10,8 @@
 
 ![파지 학습 결과로 동작하는 4페이지 3D 시뮬레이터 — 가상 물체 표시 → AI 파지(수직/수평·품질) → 잡기·들기·놓기](../../docs/image/grasp-sim.gif)
 
+> 🎬 데모 영상: [잡기·놓기 ①](https://drive.google.com/file/d/1SrEo43e4rWohGsKSrXign7xtEpKEwyvU/view?usp=sharing) · [②](https://drive.google.com/file/d/1nPFacq3uxQnlIRRXGvIO_LedIHU8A4sO/view?usp=sharing) · [③](https://drive.google.com/file/d/1vkNTbvnbb-N0b4rIz5xn-92pryiSB7c0/view?usp=sharing)
+
 ## 0. 한눈에 — 전체 흐름
 
 ```

@@ -76,6 +76,8 @@
 
 ![C-space 안전 히트맵](../../docs/image/cspace-heatmap.png)
 
+> 🎬 데모 영상 — 디지털트윈 C-space 충돌 검증: [①](https://drive.google.com/file/d/1vYuo53dGs2aWkysy1HClAFdfzunhA5IU/view?usp=sharing) · [②](https://drive.google.com/file/d/1E0i8ZytOhljyalwJxXthOAcU_MwYzIW0/view?usp=sharing)
+
 J2별 패널: 초록=안전, 빨강=위험, 검은선=충돌경계. J2≈70~110°(팔이 수직)에선 전 영역 안전(바닥 무관), J2≈0·180°(앞/뒤로 접음)+극단 J3에서 바닥 충돌.
 
 ![C-space 3D](../../docs/image/cspace-3d.png)

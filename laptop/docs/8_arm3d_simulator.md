@@ -33,6 +33,8 @@ cad/*.stl ──로드──▶ [조립] 부품 배치 ──▶ [결합] 면대
 
 ![실물 6-DOF 로봇팔 — 3D 프린팅 링크 조립, 각 링크에 추적용 ArUco 마커(id1~) 부착](../../docs/image/real-arm.jpg)
 
+> 🎬 데모 영상: [3D 시뮬레이터 동작 — 조립·리깅·제어](https://drive.google.com/file/d/1hU2PR68-Gy2XqOHGjDWO9H2JxIDRQaFw/view?usp=sharing)
+
 **② CAD 모델링 → STL (팀원 작업)**
 - 팀원이 CAD(예: Fusion/SolidWorks)로 각 링크를 **실측 치수(mm)** 로 모델링하고 **STL로 익스포트** → `cad/`에 18개 파일.
 - 각 부품은 **자기 원점 기준**이라, 불러오면 한 곳에 겹쳐 보인다(아래 조립으로 정렬).

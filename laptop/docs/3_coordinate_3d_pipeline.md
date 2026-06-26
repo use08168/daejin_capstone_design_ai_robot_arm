@@ -23,6 +23,8 @@
 |:---:|:---:|
 | ![ChArUco 보드 — DICT_5X5_100, 6×8칸, 사각 30mm·마커 23mm. 100%로 인쇄해 평판에 부착](../../docs/image/charuco-board.png) | ![ChArUco 코너 검출 — 양 카메라가 보드의 내부 코너를 인식(초록), corners NN/35](../../docs/image/calib-result.png) |
 
+> 🎬 데모 영상: [로봇팔 3D 인식 과정 — 스테레오 삼각측량](https://drive.google.com/file/d/1MBFXagUDMlq_0g1TG0gAltHQs-gzVrMP/view?usp=sharing)
+
 > 카메라 배치가 바뀌면(상호 위치 변경, USB 재연결로 좌/우 교체 등) **1~3을 다시** 해야 한다. 절차 상세 → [14_setup_procedure.md](14_setup_procedure.md).
 
 ---
