@@ -4,10 +4,11 @@
 > 대진대학교 캡스톤 디자인 — 한국어 음성 명령으로 객체를 인식하고 안전하게 그립하는 분산 AI 추론 기반 6-DOF 로봇팔.
 
 <p align="center">
-  <img src="docs/image/reference-design.png" alt="6-DOF 로봇팔 설계 (J1~J6, arm span 350mm)" height="300">
-  <img src="docs/image/sim-assembled-1.png" alt="STL로 조립한 3D 디지털 트윈 (6관절 리깅)" height="300">
+  <img src="docs/image/reference-design.png" alt="6-DOF 로봇팔 설계 (J1~J6, arm span 350mm)" height="260">
+  <img src="docs/image/sim-assembled-1.png" alt="STL로 조립한 3D 디지털 트윈 (6관절 리깅)" height="260">
+  <img src="docs/image/real-arm.jpg" alt="실물 6-DOF 로봇팔 (각 링크에 ArUco 마커 부착)" height="260">
 </p>
-<p align="center"><sub>참조 설계(좌) → 실측 STL로 만든 3D 디지털 트윈(우). 시뮬레이션으로 동작을 미리 보고 실물과 연동 구동.</sub></p>
+<p align="center"><sub>참조 설계(좌) → 실측 STL로 만든 3D 디지털 트윈(중) → 실물 6-DOF 로봇팔(우, 각 링크에 ArUco 마커). 시뮬레이션으로 동작을 미리 보고 실물과 연동 구동.</sub></p>
 
 ```
 사용자: "빨간 컵을 책 옆에 놔줘"

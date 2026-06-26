@@ -14,14 +14,15 @@
 | `webapp-detect.png` ✅ | 1페이지 YOLO 탐지 + 2D/3D 좌표표 | web_app |
 | `calib-result.png` ✅ | 2페이지 ChArUco 코너 검출(양 카메라) | coordinate_3d_pipeline |
 | `hardware-wiring.png` ✅ | Mega+PCA9685+ToF+서보+전원 배선도 | arduino/docs |
+| `real-arm.jpg` ✅ | **실물 6-DOF 로봇팔**(링크별 ArUco 마커) | 루트 README, arm3d_simulator, aruco_markers |
+| `charuco-board.png` ✅ | 인쇄용 ChArUco 보드(DICT_5X5_100, 6×8) | coordinate_3d_pipeline, setup_procedure |
+| `stereo-rig.png` ✅ | 좌·우 카메라가 본 로봇팔(스테레오 셋업) | setup_procedure |
+| `aruco-detect.png` ✅ | ArUco 포즈 검출(위치 mm·회전 deg) | aruco_markers |
 
 ## 아직 없음 (있으면 더 좋음)
 
 | 파일명 | 내용 | 쓰일 곳 |
 |--------|------|---------|
-| `real-arm.jpg` | **실물 6-DOF 로봇팔 전체** 사진 | 루트 README 대표컷, arm3d_simulator |
-| `stereo-rig.jpg` | 두 카메라 고정 셋업 | setup_procedure |
-| `charuco-board.jpg` | 인쇄한 ChArUco 보드 | coordinate_3d_pipeline |
 | `sim-control-real.jpg` | 실물+3D 동시 자세 한 컷(연동 데모) | arm3d_simulator |
 
 ---

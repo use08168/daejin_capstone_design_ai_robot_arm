@@ -31,7 +31,7 @@ cad/*.stl ──로드──▶ [조립] 부품 배치 ──▶ [결합] 면대
 
 ![참조 설계 — 6-DOF 링크 구성과 관절 J1~J6, 링크 치수(arm span 350mm)](../../docs/image/reference-design.png)
 
-> 📷 실물 조립 사진(`docs/image/real-arm.jpg`)은 추가 예정.
+![실물 6-DOF 로봇팔 — 3D 프린팅 링크 조립, 각 링크에 추적용 ArUco 마커(id1~) 부착](../../docs/image/real-arm.jpg)
 
 **② CAD 모델링 → STL (팀원 작업)**
 - 팀원이 CAD(예: Fusion/SolidWorks)로 각 링크를 **실측 치수(mm)** 로 모델링하고 **STL로 익스포트** → `cad/`에 18개 파일.
